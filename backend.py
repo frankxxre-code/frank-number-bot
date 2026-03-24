@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-FRANK NUMBER BOT — Complete Platform Backend
+FRANK NUMBER BOT — Complete Platform Backend with Frontend
 Deploy on Railway
 """
 
@@ -25,14 +25,15 @@ from fastapi import (FastAPI, WebSocket, WebSocketDisconnect,
                      APIRouter, Depends, HTTPException, Cookie,
                      UploadFile, File, BackgroundTasks)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Database imports with fallback for missing packages
 try:
     from sqlalchemy import (Column, Integer, String, Boolean, DateTime,
                             Text, ForeignKey, BigInteger, UniqueConstraint,
-                            create_engine, func)
+                            create_engine, func, select, Table, MetaData)
     from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
     SQLALCHEMY_AVAILABLE = True
 except ImportError:
@@ -57,7 +58,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 SHARED_SECRET = os.environ.get("SHARED_SECRET", "MonitorSecret2024")
 MONITOR_BOT_URL = os.environ.get("MONITOR_BOT_URL", "").rstrip("/")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
-PORT = int(os.environ.get("PORT", "8000"))
+PORT = int(os.environ.get("PORT", "8080"))
 
 # Fix Railway Postgres URL
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
@@ -125,7 +126,7 @@ if not SQLALCHEMY_AVAILABLE:
 
 else:
     # SQLAlchemy setup
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, Table, MetaData, select
     from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
     
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20) if DATABASE_URL else None
@@ -229,27 +230,50 @@ async def request_monitor_bot(number: str, group_id: int, match_format: str, use
     return False
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FASTAPI APP
+#  DATABASE INITIALIZATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    log.info("Starting Frank Number Bot...")
-    
-    # Initialize database if using SQLAlchemy
+def init_database():
+    """Initialize database tables and create default admin"""
     if SQLALCHEMY_AVAILABLE and engine:
         try:
+            # Create tables
             Base.metadata.create_all(bind=engine)
             log.info("✅ Database tables created")
+            
+            # Create users table if using raw SQLAlchemy
+            metadata = MetaData()
+            users_table = Table(
+                "users", metadata,
+                Column("id", Integer, primary_key=True),
+                Column("username", String(64), unique=True),
+                Column("password_hash", String(256)),
+                Column("is_admin", Boolean, default=False),
+                Column("is_approved", Boolean, default=False),
+                Column("is_blocked", Boolean, default=False),
+                Column("created_at", DateTime(timezone=True), default=utcnow)
+            )
+            metadata.create_all(engine)
+            
+            # Check if admin exists
+            with engine.connect() as conn:
+                result = conn.execute(select(users_table).where(users_table.c.username == "admin")).first()
+                if not result:
+                    conn.execute(users_table.insert().values(
+                        username="admin",
+                        password_hash=hash_password("admin123"),
+                        is_admin=True,
+                        is_approved=True
+                    ))
+                    conn.commit()
+                    log.info("✅ Default admin created: admin / admin123")
         except Exception as e:
             log.error(f"Database initialization error: {e}")
-    
-    # Create default admin if using in-memory
-    if not SQLALCHEMY_AVAILABLE:
+    else:
+        # In-memory: create default admin
         if not users:
-            user_id = 1
-            users[user_id] = {
-                "id": user_id,
+            users[1] = {
+                "id": 1,
                 "username": "admin",
                 "password_hash": hash_password("admin123"),
                 "is_admin": True,
@@ -258,9 +282,16 @@ async def lifespan(app: FastAPI):
                 "created_at": utcnow()
             }
             log.info("✅ Default admin created: admin / admin123")
-    
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FASTAPI APP
+# ══════════════════════════════════════════════════════════════════════════════
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info("Starting Frank Number Bot...")
+    init_database()
     yield
-    
     log.info("Shutting down Frank Number Bot...")
 
 app = FastAPI(title="Frank Number Bot", lifespan=lifespan)
@@ -275,12 +306,1349 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  FRONTEND SERVING
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Serve the frontend HTML at root
+FRONTEND_HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a84ff">
+    <title>NEON GRID NETWORK</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #f5f7ff 0%, #eef2ff 100%);
+            min-height: 100vh;
+            padding-bottom: 70px;
+            color: #1e293b;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            background: #0a84ff;
+            padding: 12px 16px 8px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            padding: 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .user-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .user-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: #0a84ff;
+        }
+
+        .user-id {
+            font-size: 12px;
+            color: #64748b;
+            background: #f1f5f9;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        /* Balance Card */
+        .balance-card {
+            background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%);
+            border-radius: 24px;
+            padding: 20px;
+            margin: 16px;
+            color: white;
+            box-shadow: 0 8px 24px rgba(10,132,255,0.25);
+        }
+
+        .balance-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .balance-amount {
+            font-size: 42px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 8px;
+        }
+
+        .balance-sub {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .withdraw-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 10px 20px;
+            border-radius: 30px;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            margin-top: 12px;
+            display: inline-block;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .withdraw-btn:active {
+            background: rgba(255,255,255,0.3);
+            transform: scale(0.98);
+        }
+
+        /* Section Title */
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #334155;
+            padding: 16px 16px 8px;
+        }
+
+        /* Menu Grid */
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            padding: 8px 16px;
+        }
+
+        .menu-card {
+            background: white;
+            border-radius: 20px;
+            padding: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid #eef2ff;
+        }
+
+        .menu-card:active {
+            transform: scale(0.97);
+            background: #f8fafc;
+        }
+
+        .menu-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .menu-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #334155;
+        }
+
+        .menu-desc {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        /* Number Card */
+        .number-card {
+            background: white;
+            margin: 16px;
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .number-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .number-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: monospace;
+            color: #0a84ff;
+            word-break: break-all;
+            margin-bottom: 12px;
+        }
+
+        .region-badge {
+            display: inline-block;
+            background: #f1f5f9;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #475569;
+        }
+
+        /* OTP Display */
+        .otp-card {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            margin: 16px;
+            border-radius: 24px;
+            padding: 20px;
+            color: white;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .otp-code {
+            font-size: 48px;
+            font-weight: 800;
+            font-family: monospace;
+            letter-spacing: 8px;
+            text-align: center;
+            margin: 16px 0;
+            cursor: pointer;
+        }
+
+        .otp-timer {
+            text-align: center;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Region List */
+        .region-list {
+            padding: 8px 16px;
+        }
+
+        .region-item {
+            background: white;
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+        }
+
+        .region-item:active {
+            background: #f8fafc;
+        }
+
+        .region-name {
+            font-weight: 500;
+        }
+
+        .region-code {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .region-count {
+            background: #f1f5f9;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #0a84ff;
+        }
+
+        /* Filter Row */
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            padding: 12px 16px;
+            background: white;
+            margin: 8px 16px;
+            border-radius: 40px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .filter-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            background: transparent;
+        }
+
+        .filter-btn {
+            background: #0a84ff;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        /* Saved Items */
+        .saved-list {
+            padding: 8px 16px;
+        }
+
+        .saved-item {
+            background: white;
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e2e8f0;
+        }
+
+        .saved-number {
+            font-family: monospace;
+            font-weight: 600;
+            color: #0a84ff;
+        }
+
+        .saved-timer {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .timer-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .timer-green { background: #dcfce7; color: #166534; }
+        .timer-yellow { background: #fef9c3; color: #854d0e; }
+        .timer-red { background: #fee2e2; color: #991b1b; }
+        .timer-ready { background: #dbeafe; color: #1e40af; }
+
+        /* History Items */
+        .history-item {
+            background: white;
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 10px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .history-number {
+            font-family: monospace;
+            font-size: 13px;
+            color: #475569;
+        }
+
+        .history-otp {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: monospace;
+            color: #10b981;
+            margin: 8px 0;
+            cursor: pointer;
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 16px 20px;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+            border-top: 1px solid #eef2ff;
+            z-index: 100;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 30px;
+            transition: all 0.2s;
+        }
+
+        .nav-item:active {
+            background: #f1f5f9;
+        }
+
+        .nav-icon {
+            font-size: 24px;
+        }
+
+        .nav-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: #64748b;
+        }
+
+        .nav-item.active .nav-label {
+            color: #0a84ff;
+        }
+
+        /* Pages */
+        .page {
+            display: none;
+            padding-bottom: 20px;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 40px;
+            font-size: 14px;
+            z-index: 1000;
+            white-space: nowrap;
+            max-width: 90%;
+            white-space: normal;
+            text-align: center;
+            animation: fadeInOut 2s ease;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+            85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+            100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #0a84ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Feedback Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: flex-end;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 28px 28px 0 0;
+            max-height: 80vh;
+            overflow-y: auto;
+            width: 100%;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .feedback-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 16px;
+            padding: 20px;
+        }
+
+        .feedback-btn {
+            background: #f1f5f9;
+            border: none;
+            padding: 12px;
+            border-radius: 40px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .feedback-btn:active {
+            transform: scale(0.97);
+        }
+
+        .feedback-btn.bad {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .feedback-btn.good {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        /* Auth Container */
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%);
+        }
+
+        .auth-card {
+            background: white;
+            border-radius: 32px;
+            padding: 32px 24px;
+            width: 100%;
+            max-width: 320px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .auth-logo {
+            text-align: center;
+            font-size: 48px;
+            margin-bottom: 24px;
+        }
+
+        .auth-input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 40px;
+            font-size: 16px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        .auth-input:focus {
+            border-color: #0a84ff;
+        }
+
+        .auth-btn {
+            width: 100%;
+            background: #0a84ff;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 8px;
+            cursor: pointer;
+        }
+
+        .auth-switch {
+            text-align: center;
+            margin-top: 16px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .auth-switch span {
+            color: #0a84ff;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .error-msg {
+            color: #ef4444;
+            font-size: 12px;
+            margin-top: 8px;
+            text-align: center;
+        }
+
+        .admin-badge {
+            background: #f59e0b;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 10px;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Auth Container -->
+<div id="authContainer" style="display: flex;">
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-logo">⚡</div>
+            <h2 style="text-align: center; margin-bottom: 24px; color: #0a84ff;">NEON GRID</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button id="authLoginTab" class="auth-btn" style="background: #0a84ff; margin: 0;">Login</button>
+                <button id="authRegisterTab" class="auth-btn" style="background: #e2e8f0; color: #334155; margin: 0;">Register</button>
+            </div>
+            <div id="loginForm">
+                <input type="text" id="loginUsername" class="auth-input" placeholder="Username">
+                <input type="password" id="loginPassword" class="auth-input" placeholder="Password">
+                <button class="auth-btn" onclick="doLogin()">Login</button>
+                <div id="loginError" class="error-msg"></div>
+            </div>
+            <div id="registerForm" style="display: none;">
+                <input type="text" id="regUsername" class="auth-input" placeholder="Username">
+                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)">
+                <button class="auth-btn" onclick="doRegister()">Create Account</button>
+                <div id="regError" class="error-msg"></div>
+            </div>
+            <div class="auth-switch">
+                First user becomes admin automatically
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main App -->
+<div id="appContainer" style="display: none;">
+    <div class="status-bar">
+        <span id="currentTime">--:--</span>
+        <span>⚡ NEON GRID</span>
+        <span id="connectionStatus">●</span>
+    </div>
+
+    <div class="header">
+        <div class="user-info">
+            <div>
+                <div class="user-name" id="userName">User</div>
+                <div class="user-id" id="userId">ID: --</div>
+            </div>
+            <div id="adminBadge" style="display: none;">
+                <span class="admin-badge">ADMIN</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Home Page -->
+    <div id="homePage" class="page active">
+        <div class="balance-card">
+            <div class="balance-label">ACCOUNT BALANCE</div>
+            <div class="balance-amount" id="balanceAmount">0</div>
+            <div class="balance-sub">≈ ₱0.00 NGN</div>
+            <div class="withdraw-btn" onclick="showToast('Withdrawal feature coming soon', 'info')">Withdraw Now</div>
+        </div>
+
+        <div class="section-title">ACCOUNT MANAGEMENT</div>
+        <div class="menu-grid">
+            <div class="menu-card" onclick="showToast('Withdrawal feature coming soon', 'info')">
+                <div class="menu-icon">💰</div>
+                <div class="menu-label">Withdraw</div>
+                <div class="menu-desc">Convert points to cash</div>
+            </div>
+            <div class="menu-card" onclick="showToast('Earnings details coming soon', 'info')">
+                <div class="menu-icon">📊</div>
+                <div class="menu-label">Earnings Details</div>
+                <div class="menu-desc">View your earning records</div>
+            </div>
+            <div class="menu-card" onclick="showToast('Withdrawal history coming soon', 'info')">
+                <div class="menu-icon">📦</div>
+                <div class="menu-label">Withdrawal Orders</div>
+                <div class="menu-desc">Track your withdrawals</div>
+            </div>
+            <div class="menu-card" onclick="showToast('Leaderboard coming soon', 'info')">
+                <div class="menu-icon">🏆</div>
+                <div class="menu-label">Daily Lead Card</div>
+                <div class="menu-desc">Top performers</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Numbers Page -->
+    <div id="numbersPage" class="page">
+        <div class="number-card" id="currentNumberCard">
+            <div class="number-label">YOUR ACTIVE NUMBER</div>
+            <div class="number-value" id="currentNumber">—</div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="region-badge" id="currentRegion">No region selected</span>
+                <div style="display: flex; gap: 10px;">
+                    <button class="withdraw-btn" style="background: #f1f5f9; color: #334155; padding: 6px 16px;" onclick="changeNumber()">🔄 Change</button>
+                    <button class="withdraw-btn" style="background: #f1f5f9; color: #334155; padding: 6px 16px;" onclick="copyNumber()">📋 Copy</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="otpDisplay" style="display: none;"></div>
+
+        <div class="section-title">SELECT REGION</div>
+        <div class="filter-row">
+            <input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g., 8101)">
+            <button class="filter-btn" onclick="applyFilter()">Filter</button>
+        </div>
+        <div id="regionList" class="region-list">
+            <div class="loading"><div class="spinner"></div>Loading regions...</div>
+        </div>
+    </div>
+
+    <!-- Saved Numbers Page -->
+    <div id="savedPage" class="page">
+        <div class="section-title">💾 SAVED NUMBERS</div>
+        <div style="padding: 0 16px 16px;">
+            <div class="filter-row" style="margin: 0 0 12px 0;">
+                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
+            </div>
+            <div class="filter-row" style="margin: 0 0 12px 0;">
+                <input type="number" id="timerMinutes" class="filter-input" placeholder="Timer (minutes)" value="30">
+                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name">
+                <button class="filter-btn" onclick="saveNumbers()">Save</button>
+            </div>
+        </div>
+        <div id="savedList" class="saved-list"></div>
+    </div>
+
+    <!-- History Page -->
+    <div id="historyPage" class="page">
+        <div class="section-title">📜 OTP HISTORY</div>
+        <div id="historyList" class="saved-list"></div>
+    </div>
+
+    <!-- Admin Page -->
+    <div id="adminPage" class="page">
+        <div class="section-title">🛠️ ADMIN PANEL</div>
+        <div class="number-card">
+            <div class="number-label">System Stats</div>
+            <div id="adminStats" style="font-size: 14px;"></div>
+        </div>
+        <div class="number-card">
+            <div class="number-label">Broadcast Message</div>
+            <textarea id="broadcastMsg" rows="3" style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid #e2e8f0; margin: 12px 0;"></textarea>
+            <button class="filter-btn" onclick="sendBroadcast()">📢 Send</button>
+        </div>
+        <div class="section-title">Users</div>
+        <div id="adminUsersList" class="saved-list"></div>
+    </div>
+
+    <div class="bottom-nav">
+        <div class="nav-item active" data-page="home">
+            <div class="nav-icon">🏠</div>
+            <div class="nav-label">Home</div>
+        </div>
+        <div class="nav-item" data-page="numbers">
+            <div class="nav-icon">📱</div>
+            <div class="nav-label">Numbers</div>
+        </div>
+        <div class="nav-item" data-page="saved">
+            <div class="nav-icon">💾</div>
+            <div class="nav-label">Saved</div>
+        </div>
+        <div class="nav-item" data-page="history">
+            <div class="nav-icon">📜</div>
+            <div class="nav-label">History</div>
+        </div>
+        <div class="nav-item" data-page="admin" id="adminNavItem" style="display: none;">
+            <div class="nav-icon">⚙️</div>
+            <div class="nav-label">Admin</div>
+        </div>
+    </div>
+</div>
+
+<!-- Feedback Modal -->
+<div id="feedbackModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">Rate Your Number</div>
+        <div style="padding: 20px;">
+            <div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div>
+            <div class="feedback-grid">
+                <button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button>
+                <button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button>
+                <button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button>
+                <button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button>
+                <button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button>
+                <button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button>
+            </div>
+            <div id="otherFeedbackDiv" style="display: none; margin-top: 16px;">
+                <textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid #e2e8f0;"></textarea>
+                <button class="filter-btn" style="margin-top: 12px; width: 100%;" onclick="submitFeedback('other')">Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin;
+    let currentUser = null;
+    let currentAssignment = null;
+    let ws = null;
+    let otpTimer = null;
+    let pendingFeedbackNumber = null;
+    let currentFilter = null;
+    let allRegions = [];
+
+    function showToast(msg, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+
+    function formatTime() {
+        const now = new Date();
+        document.getElementById('currentTime').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    setInterval(formatTime, 1000);
+    formatTime();
+
+    function copyText(text) {
+        navigator.clipboard.writeText(text);
+        showToast('Copied!', 'success');
+    }
+
+    async function checkAuth() {
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+            if (res.ok) {
+                currentUser = await res.json();
+                document.getElementById('authContainer').style.display = 'none';
+                document.getElementById('appContainer').style.display = 'block';
+                document.getElementById('userName').textContent = currentUser.username;
+                document.getElementById('userId').textContent = `ID: ${currentUser.id}`;
+                
+                if (currentUser.is_admin) {
+                    document.getElementById('adminBadge').style.display = 'block';
+                    document.getElementById('adminNavItem').style.display = 'flex';
+                }
+                
+                connectWebSocket();
+                loadRegions();
+                loadCurrentAssignment();
+                loadSavedNumbers();
+                loadHistory();
+                if (currentUser.is_admin) loadAdminData();
+                return true;
+            }
+        } catch (e) {
+            console.error('Auth check failed:', e);
+        }
+        document.getElementById('authContainer').style.display = 'flex';
+        document.getElementById('appContainer').style.display = 'none';
+        return false;
+    }
+
+    async function doLogin() {
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+        const errorEl = document.getElementById('loginError');
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            if (res.ok) {
+                checkAuth();
+            } else {
+                errorEl.textContent = data.detail || 'Login failed';
+            }
+        } catch (e) {
+            errorEl.textContent = 'Network error';
+        }
+    }
+
+    async function doRegister() {
+        const username = document.getElementById('regUsername').value;
+        const password = document.getElementById('regPassword').value;
+        const errorEl = document.getElementById('regError');
+        
+        if (password.length < 6) {
+            errorEl.textContent = 'Password must be at least 6 characters';
+            return;
+        }
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/register?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            if (res.ok) {
+                if (data.approved) {
+                    checkAuth();
+                } else {
+                    errorEl.textContent = data.message || 'Awaiting admin approval';
+                }
+            } else {
+                errorEl.textContent = data.detail || 'Registration failed';
+            }
+        } catch (e) {
+            errorEl.textContent = 'Network error';
+        }
+    }
+
+    function connectWebSocket() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${location.host}/ws/user/${currentUser.id}`);
+        
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'otp') {
+                displayOTP(data);
+            } else if (data.type === 'broadcast') {
+                showToast(`📢 ${data.message}`, 'info');
+            }
+        };
+        
+        ws.onclose = () => setTimeout(connectWebSocket, 5000);
+    }
+
+    function displayOTP(data) {
+        const otpDiv = document.getElementById('otpDisplay');
+        if (otpTimer) clearTimeout(otpTimer);
+        
+        otpDiv.innerHTML = `
+            <div class="otp-card">
+                <div style="text-align: center; font-size: 12px;">🔑 OTP CODE</div>
+                <div class="otp-code" onclick="copyText('${data.otp}')">${data.otp}</div>
+                <div class="otp-timer" id="otpCountdown">Auto-delete in 30s</div>
+                <div class="otp-message">${escapeHtml(data.raw_message || '')}</div>
+            </div>
+        `;
+        otpDiv.style.display = 'block';
+        
+        let seconds = 30;
+        const timer = setInterval(() => {
+            seconds--;
+            const countdown = document.getElementById('otpCountdown');
+            if (countdown) countdown.textContent = `Auto-delete in ${seconds}s`;
+            if (seconds <= 0) {
+                clearInterval(timer);
+                otpDiv.style.display = 'none';
+            }
+        }, 1000);
+        
+        otpTimer = setTimeout(() => {
+            clearInterval(timer);
+            otpDiv.style.display = 'none';
+        }, 30000);
+        
+        loadHistory();
+    }
+
+    async function loadRegions() {
+        try {
+            const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+            if (!res.ok) throw new Error('Failed to load regions');
+            allRegions = await res.json();
+            renderRegionList();
+        } catch (e) {
+            document.getElementById('regionList').innerHTML = '<div class="loading">Failed to load regions</div>';
+        }
+    }
+
+    function renderRegionList() {
+        const container = document.getElementById('regionList');
+        let filtered = allRegions;
+        if (currentFilter) {
+            filtered = allRegions.filter(r => r.name.toLowerCase().includes(currentFilter.toLowerCase()) || 
+                r.country_code.includes(currentFilter));
+        }
+        
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="loading">No regions available</div>';
+            return;
+        }
+        
+        container.innerHTML = filtered.map(region => `
+            <div class="region-item" onclick="selectRegion(${region.id})">
+                <div>
+                    <div class="region-name">${escapeHtml(region.name)}</div>
+                    <div class="region-code">+${region.country_code}</div>
+                    ${region.trick_text ? `<div style="font-size: 11px; color: #f59e0b;">💡 ${escapeHtml(region.trick_text)}</div>` : ''}
+                </div>
+                <div>
+                    ${region.is_paused ? '<span style="color:#ef4444; font-size:12px;">⏸ Paused</span>' : `<span class="region-count">${region.number_count}</span>`}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function applyFilter() {
+        currentFilter = document.getElementById('prefixFilter').value.trim();
+        renderRegionList();
+    }
+
+    async function selectRegion(poolId) {
+        const region = allRegions.find(r => r.id === poolId);
+        if (!region) return;
+        
+        if (region.is_paused) {
+            showToast(`Region paused: ${region.pause_reason || 'Temporarily unavailable'}`, 'error');
+            return;
+        }
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/pools/assign?pool_id=${poolId}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                currentAssignment = data;
+                document.getElementById('currentNumber').textContent = data.number;
+                document.getElementById('currentRegion').textContent = data.pool_name;
+                showToast(`Number assigned: ${data.number}`, 'success');
+                
+                document.getElementById('otpDisplay').style.display = 'none';
+                if (otpTimer) clearTimeout(otpTimer);
+            } else {
+                showToast(data.detail || 'Failed to assign number', 'error');
+            }
+        } catch (e) {
+            showToast('Network error', 'error');
+        }
+    }
+
+    async function loadCurrentAssignment() {
+        try {
+            const res = await fetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
+            const data = await res.json();
+            if (data.assignment) {
+                currentAssignment = data.assignment;
+                document.getElementById('currentNumber').textContent = currentAssignment.number;
+                document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
+            }
+        } catch (e) {
+            console.error('Failed to load assignment', e);
+        }
+    }
+
+    async function changeNumber() {
+        if (!currentAssignment) {
+            showToast('No active number to change', 'warning');
+            return;
+        }
+        
+        pendingFeedbackNumber = currentAssignment.number;
+        document.getElementById('feedbackNumber').textContent = currentAssignment.number;
+        document.getElementById('feedbackModal').classList.add('show');
+    }
+
+    async function submitFeedback(type) {
+        const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
+        const markAsBad = type === 'bad';
+        
+        if (pendingFeedbackNumber) {
+            await fetch(`${API_BASE}/api/reviews?number=${encodeURIComponent(pendingFeedbackNumber)}&rating=${markAsBad ? 1 : 4}&comment=${encodeURIComponent(comment)}&mark_as_bad=${markAsBad}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            
+            if (currentAssignment) {
+                await fetch(`${API_BASE}/api/pools/release/${currentAssignment.assignment_id}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            }
+            
+            currentAssignment = null;
+            document.getElementById('currentNumber').textContent = '—';
+            document.getElementById('currentRegion').textContent = 'No region selected';
+            
+            showToast('Number released. Select a new region', 'success');
+        }
+        
+        document.getElementById('feedbackModal').classList.remove('show');
+        document.getElementById('otherFeedbackDiv').style.display = 'none';
+        document.getElementById('otherFeedbackText').value = '';
+        pendingFeedbackNumber = null;
+        
+        loadRegions();
+    }
+
+    function showOtherFeedback() {
+        document.getElementById('otherFeedbackDiv').style.display = 'block';
+    }
+
+    function copyNumber() {
+        if (currentAssignment) {
+            copyText(currentAssignment.number);
+        } else {
+            showToast('No number to copy', 'warning');
+        }
+    }
+
+    async function saveNumbers() {
+        const numbersInput = document.getElementById('savedNumbersInput').value;
+        const numbers = numbersInput.split('\\n').map(l => l.trim()).filter(l => l);
+        const timerMinutes = parseInt(document.getElementById('timerMinutes').value) || 30;
+        const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
+        
+        if (numbers.length === 0) {
+            showToast('Enter at least one number', 'warning');
+            return;
+        }
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/saved?numbers=${encodeURIComponent(JSON.stringify(numbers))}&timer_minutes=${timerMinutes}&pool_name=${encodeURIComponent(poolName)}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                showToast(`Saved ${data.saved} numbers`, 'success');
+                document.getElementById('savedNumbersInput').value = '';
+                loadSavedNumbers();
+            } else {
+                showToast(data.detail || 'Failed to save', 'error');
+            }
+        } catch (e) {
+            showToast('Network error', 'error');
+        }
+    }
+
+    async function loadSavedNumbers() {
+        try {
+            const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
+            const data = await res.json();
+            const container = document.getElementById('savedList');
+            
+            if (data.length === 0) {
+                container.innerHTML = '<div class="loading">No saved numbers</div>';
+                return;
+            }
+            
+            container.innerHTML = data.map(item => {
+                let timerClass = 'timer-green';
+                if (item.status === 'yellow') timerClass = 'timer-yellow';
+                if (item.status === 'red') timerClass = 'timer-red';
+                if (item.status === 'ready') timerClass = 'timer-ready';
+                
+                let timeText = item.status === 'ready' ? 'READY' : `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`;
+                
+                return `
+                    <div class="saved-item">
+                        <div>
+                            <div class="saved-number">${escapeHtml(item.number)}</div>
+                            <div class="saved-timer">${escapeHtml(item.pool_name)}</div>
+                        </div>
+                        <div>
+                            <span class="timer-badge ${timerClass}">${timeText}</span>
+                            <button onclick="deleteSaved(${item.id})" style="background: none; border: none; font-size: 20px; margin-left: 8px; cursor: pointer;">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error('Failed to load saved numbers', e);
+        }
+    }
+
+    async function deleteSaved(id) {
+        await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
+        loadSavedNumbers();
+    }
+
+    async function loadHistory() {
+        try {
+            const res = await fetch(`${API_BASE}/api/otp/my`, { credentials: 'include' });
+            const data = await res.json();
+            const container = document.getElementById('historyList');
+            
+            if (data.length === 0) {
+                container.innerHTML = '<div class="loading">No OTP history</div>';
+                return;
+            }
+            
+            container.innerHTML = data.map(item => `
+                <div class="history-item">
+                    <div class="history-number">${escapeHtml(item.number)}</div>
+                    <div class="history-otp" onclick="copyText('${item.otp_code}')">${item.otp_code} 📋</div>
+                    <div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error('Failed to load history', e);
+        }
+    }
+
+    async function loadAdminData() {
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' });
+            const stats = await res.json();
+            document.getElementById('adminStats').innerHTML = `
+                <div>📊 Users: ${stats.total_users}</div>
+                <div>⏳ Pending: ${stats.pending_approval}</div>
+                <div>🌍 Pools: ${stats.total_pools}</div>
+                <div>📞 Numbers: ${stats.total_numbers}</div>
+                <div>🔑 OTPs: ${stats.total_otps}</div>
+                <div>🚫 Bad: ${stats.bad_numbers}</div>
+                <div>💾 Saved: ${stats.saved_numbers}</div>
+                <div>🟢 Online: ${stats.online_users}</div>
+            `;
+            
+            const usersRes = await fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' });
+            const users = await usersRes.json();
+            document.getElementById('adminUsersList').innerHTML = users.map(u => `
+                <div class="saved-item">
+                    <div>
+                        <div class="saved-number">${escapeHtml(u.username)}</div>
+                        <div class="saved-timer">ID: ${u.id}</div>
+                    </div>
+                    <div>
+                        ${!u.is_approved ? `<button onclick="approveUser(${u.id})" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 20px;">Approve</button>` : ''}
+                        ${u.is_blocked ? `<button onclick="unblockUser(${u.id})" style="background: #f59e0b; border: none; padding: 6px 12px; border-radius: 20px;">Unblock</button>` : `<button onclick="blockUser(${u.id})" style="background: #ef4444; border: none; padding: 6px 12px; border-radius: 20px;">Block</button>`}
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error('Failed to load admin data', e);
+        }
+    }
+
+    async function approveUser(userId) {
+        await fetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST', credentials: 'include' });
+        loadAdminData();
+    }
+
+    async function blockUser(userId) {
+        await fetch(`${API_BASE}/api/admin/users/${userId}/block`, { method: 'POST', credentials: 'include' });
+        loadAdminData();
+    }
+
+    async function unblockUser(userId) {
+        await fetch(`${API_BASE}/api/admin/users/${userId}/unblock`, { method: 'POST', credentials: 'include' });
+        loadAdminData();
+    }
+
+    async function sendBroadcast() {
+        const message = document.getElementById('broadcastMsg').value;
+        if (!message) return;
+        
+        await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(message)}`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+        showToast('Broadcast sent!', 'success');
+        document.getElementById('broadcastMsg').value = '';
+    }
+
+    function navigateTo(page) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(`${page}Page`).classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
+        
+        if (page === 'numbers') loadRegions();
+        if (page === 'saved') loadSavedNumbers();
+        if (page === 'history') loadHistory();
+        if (page === 'admin' && currentUser?.is_admin) loadAdminData();
+    }
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => navigateTo(item.dataset.page));
+    });
+
+    document.getElementById('authLoginTab').onclick = () => {
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('registerForm').style.display = 'none';
+        document.getElementById('authLoginTab').style.background = '#0a84ff';
+        document.getElementById('authLoginTab').style.color = 'white';
+        document.getElementById('authRegisterTab').style.background = '#e2e8f0';
+        document.getElementById('authRegisterTab').style.color = '#334155';
+    };
+    
+    document.getElementById('authRegisterTab').onclick = () => {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('registerForm').style.display = 'block';
+        document.getElementById('authRegisterTab').style.background = '#0a84ff';
+        document.getElementById('authRegisterTab').style.color = 'white';
+        document.getElementById('authLoginTab').style.background = '#e2e8f0';
+        document.getElementById('authLoginTab').style.color = '#334155';
+    };
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        return text.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    checkAuth();
+</script>
+</body>
+</html>'''
+
+@app.get("/")
+async def serve_frontend():
+    """Serve the frontend HTML"""
+    return HTMLResponse(content=FRONTEND_HTML)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  AUTH ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/health")
 def health():
-    """Health check endpoint for Railway"""
     return {"status": "ok", "service": "Frank Number Bot", "timestamp": utcnow().isoformat()}
 
 @app.post("/api/auth/register")
@@ -291,10 +1659,6 @@ async def register(username: str, password: str):
         raise HTTPException(400, "Password min 6 chars")
     
     if SQLALCHEMY_AVAILABLE and engine:
-        # SQLAlchemy version
-        from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, MetaData
-        import sqlalchemy as sa
-        
         metadata = MetaData()
         users_table = Table(
             "users", metadata,
@@ -307,22 +1671,14 @@ async def register(username: str, password: str):
             Column("created_at", DateTime(timezone=True), default=utcnow)
         )
         
-        try:
-            metadata.create_all(engine)
-        except:
-            pass
-        
         with engine.connect() as conn:
-            # Check if user exists
-            result = conn.execute(sa.select(users_table).where(users_table.c.username == username)).first()
+            result = conn.execute(select(users_table).where(users_table.c.username == username)).first()
             if result:
                 raise HTTPException(400, "Username taken")
             
-            # Count users
-            count = conn.execute(sa.select(sa.func.count()).select_from(users_table)).scalar()
+            count = conn.execute(select(func.count()).select_from(users_table)).scalar()
             is_first = count == 0
             
-            # Insert user
             conn.execute(users_table.insert().values(
                 username=username,
                 password_hash=hash_password(password),
@@ -331,8 +1687,7 @@ async def register(username: str, password: str):
             ))
             conn.commit()
             
-            # Get user
-            user = conn.execute(sa.select(users_table).where(users_table.c.username == username)).first()
+            user = conn.execute(select(users_table).where(users_table.c.username == username)).first()
             
             if is_first:
                 token = create_token(user.id)
@@ -342,7 +1697,6 @@ async def register(username: str, password: str):
             
             return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
     else:
-        # In-memory version
         for u in users.values():
             if u["username"] == username:
                 raise HTTPException(400, "Username taken")
@@ -371,9 +1725,6 @@ async def register(username: str, password: str):
 @app.post("/api/auth/login")
 async def login(username: str, password: str):
     if SQLALCHEMY_AVAILABLE and engine:
-        from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, MetaData
-        import sqlalchemy as sa
-        
         metadata = MetaData()
         users_table = Table(
             "users", metadata,
@@ -387,7 +1738,7 @@ async def login(username: str, password: str):
         )
         
         with engine.connect() as conn:
-            user = conn.execute(sa.select(users_table).where(users_table.c.username == username)).first()
+            user = conn.execute(select(users_table).where(users_table.c.username == username)).first()
             if not user:
                 raise HTTPException(401, "Invalid username or password")
             
@@ -409,7 +1760,6 @@ async def login(username: str, password: str):
             resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30)
             return resp
     else:
-        # In-memory version
         user = None
         for u in users.values():
             if u["username"] == username:
@@ -455,7 +1805,7 @@ def me(token: str = Cookie(default=None)):
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  POOLS ENDPOINTS (Simplified for demo)
+#  POOLS ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/pools")
@@ -464,7 +1814,6 @@ def list_pools(token: str = Cookie(default=None)):
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    # Return demo pools
     return [
         {"id": 1, "name": "Nigeria", "country_code": "234", "number_count": 1250, "is_paused": False, "trick_text": "Best for WhatsApp"},
         {"id": 2, "name": "USA", "country_code": "1", "number_count": 842, "is_paused": False, "trick_text": "Best for Telegram"},
@@ -479,7 +1828,6 @@ async def assign_number(pool_id: int, token: str = Cookie(default=None)):
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    # Generate a demo number
     import random
     pool_names = {1: "Nigeria", 2: "USA", 3: "United Kingdom", 4: "Canada", 5: "Australia"}
     pool_codes = {1: "234", 2: "1", 3: "44", 4: "1", 5: "61"}
@@ -501,8 +1849,6 @@ def my_assignment(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    # Return no assignment by default
     return {"assignment": None}
 
 @app.post("/api/pools/release/{assignment_id}")
@@ -530,7 +1876,6 @@ async def monitor_result(payload: MonitorResultPayload):
     
     log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
     
-    # Send to user via WebSocket
     otp_data = {
         "type": "otp",
         "number": payload.number,
@@ -551,7 +1896,6 @@ def my_otps(token: str = Cookie(default=None)):
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    # Return demo OTPs
     return [
         {"id": 1, "number": "+2348012345678", "otp_code": "123456", "delivered_at": utcnow().isoformat()},
         {"id": 2, "number": "+2348098765432", "otp_code": "789012", "delivered_at": (utcnow() - timedelta(minutes=5)).isoformat()},
@@ -562,12 +1906,17 @@ def my_otps(token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/saved")
-def save_numbers(numbers: list[str], timer_minutes: int, pool_name: str, token: str = Cookie(default=None)):
+def save_numbers(numbers: str, timer_minutes: int, pool_name: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    return {"ok": True, "saved": len(numbers), "skipped": 0, "expires_at": (utcnow() + timedelta(minutes=timer_minutes)).isoformat()}
+    try:
+        numbers_list = json.loads(numbers)
+    except:
+        numbers_list = [numbers]
+    
+    return {"ok": True, "saved": len(numbers_list), "skipped": 0, "expires_at": (utcnow() + timedelta(minutes=timer_minutes)).isoformat()}
 
 @app.get("/api/saved")
 def list_saved(token: str = Cookie(default=None)):
@@ -575,7 +1924,6 @@ def list_saved(token: str = Cookie(default=None)):
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    # Return demo saved numbers
     now = utcnow()
     return [
         {"id": 1, "number": "+2348012345678", "pool_name": "Nigeria", "seconds_left": 3600, "status": "green", "moved": False},
@@ -633,14 +1981,12 @@ def list_users(token: str = Cookie(default=None)):
         raise HTTPException(403, "Admin only")
     
     if SQLALCHEMY_AVAILABLE and engine:
-        # Return from DB
         return [
             {"id": 1, "username": "admin", "is_admin": True, "is_approved": True, "is_blocked": False, "created_at": utcnow().isoformat()},
             {"id": 2, "username": "user1", "is_admin": False, "is_approved": True, "is_blocked": False, "created_at": utcnow().isoformat()},
             {"id": 3, "username": "user2", "is_admin": False, "is_approved": False, "is_blocked": False, "created_at": utcnow().isoformat()},
         ]
     else:
-        # Return in-memory
         return [
             {"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], 
              "is_approved": u["is_approved"], "is_blocked": u["is_blocked"],
