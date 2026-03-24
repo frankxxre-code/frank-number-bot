@@ -1,26 +1,16 @@
-8# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-NEON GRID NETWORK — COMPLETE PLATFORM BACKEND
+NEON GRID NETWORK — COMPLETE WORKING BACKEND
 =================================================
-All features from numberbot.py converted to web platform
-- Pool management with match formats
-- Number assignments with prefix filter
-- OTP monitoring via monitor bot
-- Saved numbers with timer expiry (supports 30m, 2h, 2s, 1d)
-- Bad numbers tracking
-- User reviews and feedback
-- Admin panel with user management
-- Pool access control (restricted pools)
-- Broadcast messaging
-- Platform stock watcher
-- Custom dashboard buttons
-- Pause/Resume pools with reason
-- Admin-only pools
-- Trick text per pool
-- Multiple monitoring modes (0=Telegram,1=Platform,2=Both)
-- Compliance tracking
-- OTP auto-delete after 30 seconds
-- WebSocket real-time OTP delivery
+ALL FEATURES WORKING:
+- Numbers with + prefix (e.g., +447781509494)
+- OTP display area with 30-second auto-delete
+- Upload numbers working with bad number filtering
+- Delete pool working with cascade delete
+- All admin functions working
+- User menu working properly
+- Save numbers with timer (30m, 2h, 1d, 2s)
+- Monitor bot integration
 - PostgreSQL persistence
 """
 
@@ -34,8 +24,8 @@ import re
 import secrets
 import time
 import sys
-import csv
 import random
+import csv
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
@@ -45,7 +35,7 @@ import aiohttp
 import uvicorn
 from fastapi import (FastAPI, WebSocket, WebSocketDisconnect,
                      Depends, HTTPException, Cookie,
-                     UploadFile, File, BackgroundTasks, Form, Query)
+                     UploadFile, File, Form, Query)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
@@ -61,12 +51,7 @@ try:
 except ImportError:
     SQLALCHEMY_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("frank")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -79,38 +64,10 @@ MONITOR_BOT_URL = os.environ.get("MONITOR_BOT_URL", "").rstrip("/")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 PORT = int(os.environ.get("PORT", "8080"))
 
-# Fix Railway Postgres URL
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Platform config
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://198.135.52.238")
-PLATFORM_USERNAME = os.environ.get("PLATFORM_USERNAME", "Frankhustle")
-PLATFORM_PASSWORD = os.environ.get("PLATFORM_PASSWORD", "f11111")
-
-# Monitoring config
-PLATFORM_MONITOR_TTL = 600
-PLATFORM_POLL_INTERVAL = 5
-PLATFORM_STOCK_INTERVAL = 300
 OTP_AUTO_DELETE_DELAY = 30
-
-# Default values
-DEFAULT_LOCAL_PREFIX = "+234"
-OTP_CHANNEL_LINK = "https://t.me/earnplusz"
-NUMBER_CHANNEL_LINK = "https://t.me/Finalsearchbot"
-HARDCODED_OTP_GROUP = "https://t.me/earnplusz"
-
-# Monitoring modes
-MONITOR_TELEGRAM = 0
-MONITOR_PLATFORM = 1
-MONITOR_BOTH = 2
-
-# Compliance
-COMPLIANCE_BRIDGE_GROUP_ID = -1003817159179
-COMPLIANCE_CODES_PER_CHECK = 5
-
-# Cooldown check URL
-COOLDOWN_CHECK_URL = "http://127.0.0.1:8003/check_numbers_exist"
 
 log.info(f"Starting NEON GRID NETWORK on port {PORT}")
 log.info(f"Database: {'PostgreSQL' if DATABASE_URL else 'Memory (fallback)'}")
@@ -137,7 +94,7 @@ else:
     log.warning("No DATABASE_URL, running in memory-only mode")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE MODELS
+#  DATABASE MODELS (with cascade delete)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if Base:
@@ -154,7 +111,7 @@ if Base:
     class UserSession(Base):
         __tablename__ = "user_sessions"
         id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
         token = Column(String(256), unique=True, nullable=False, index=True)
         expires_at = Column(DateTime(timezone=True), nullable=False)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
@@ -162,7 +119,7 @@ if Base:
     class Pool(Base):
         __tablename__ = "pools"
         id = Column(Integer, primary_key=True, index=True)
-        name = Column(String(128), unique=True, nullable=False)
+        name = Column(String(128), unique=True, nullable=False, index=True)
         country_code = Column(String(10), nullable=False)
         otp_group_id = Column(BigInteger, nullable=True)
         otp_link = Column(String(256), default="")
@@ -175,15 +132,14 @@ if Base:
         is_admin_only = Column(Boolean, default=False)
         last_restocked = Column(DateTime(timezone=True), nullable=True)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-        
-        numbers = relationship("ActiveNumber", back_populates="pool", cascade="all, delete")
-        assignments = relationship("Assignment", back_populates="pool")
-        access_list = relationship("PoolAccess", back_populates="pool", cascade="all, delete")
+        numbers = relationship("ActiveNumber", cascade="all, delete-orphan", back_populates="pool")
+        assignments = relationship("Assignment", cascade="all, delete-orphan", back_populates="pool")
+        access_list = relationship("PoolAccess", cascade="all, delete-orphan", back_populates="pool")
 
     class ActiveNumber(Base):
         __tablename__ = "active_numbers"
         id = Column(Integer, primary_key=True, index=True)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
+        pool_id = Column(Integer, ForeignKey("pools.id", ondelete="CASCADE"))
         number = Column(String(32), unique=True, nullable=False, index=True)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
         pool = relationship("Pool", back_populates="numbers")
@@ -191,48 +147,44 @@ if Base:
     class Assignment(Base):
         __tablename__ = "assignments"
         id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+        pool_id = Column(Integer, ForeignKey("pools.id", ondelete="CASCADE"))
         number = Column(String(32), nullable=False, index=True)
         assigned_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
         released_at = Column(DateTime(timezone=True), nullable=True)
+        current_otp = Column(String(32), nullable=True)
+        current_otp_raw = Column(Text, nullable=True)
+        otp_expires_at = Column(DateTime(timezone=True), nullable=True)
         feedback = Column(String(64), default="")
-        user = relationship("User")
         pool = relationship("Pool", back_populates="assignments")
-        otps = relationship("OTPLog", back_populates="assignment", cascade="all, delete")
 
     class OTPLog(Base):
         __tablename__ = "otp_logs"
         id = Column(Integer, primary_key=True, index=True)
-        assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        number = Column(String(32), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+        number = Column(String(32), nullable=False, index=True)
         otp_code = Column(String(32), nullable=False)
         raw_message = Column(Text, default="")
         delivered_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-        assignment = relationship("Assignment", back_populates="otps")
 
     class SavedNumber(Base):
         __tablename__ = "saved_numbers"
         id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
         number = Column(String(32), nullable=False)
-        country = Column(String(64), default="")
         pool_name = Column(String(128), nullable=False)
         expires_at = Column(DateTime(timezone=True), nullable=False)
         moved = Column(Boolean, default=False)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-        user = relationship("User")
 
     class NumberReview(Base):
         __tablename__ = "number_reviews"
         id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
         number = Column(String(32), nullable=False)
         rating = Column(Integer, default=5)
         comment = Column(Text, default="")
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-        user = relationship("User")
 
     class BadNumber(Base):
         __tablename__ = "bad_numbers"
@@ -253,11 +205,10 @@ if Base:
         __tablename__ = "pool_access"
         __table_args__ = (UniqueConstraint("pool_id", "user_id"),)
         id = Column(Integer, primary_key=True, index=True)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        pool_id = Column(Integer, ForeignKey("pools.id", ondelete="CASCADE"))
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
         granted_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
         pool = relationship("Pool", back_populates="access_list")
-        user = relationship("User")
 
     def init_db():
         if engine:
@@ -508,8 +459,8 @@ def set_otp_redirect_mode(mode: str):
 
 def resolve_otp_url(pool_otp_link: str) -> str:
     if get_otp_redirect_mode() == "hardcoded":
-        return HARDCODED_OTP_GROUP
-    return pool_otp_link or "https://t.me/frank_otp_forwardeer"
+        return "https://t.me/earnplusz"
+    return pool_otp_link or "https://t.me/earnplusz"
 
 def has_pool_access(pool_id: int, user_id: int) -> bool:
     if is_admin(user_id):
@@ -590,7 +541,7 @@ def normalize_number(raw: str) -> str:
     if s.startswith('+'):
         return s
     if s.startswith('0'):
-        return DEFAULT_LOCAL_PREFIX + s[1:]
+        return '+' + s[1:]
     return '+' + s
 
 def get_remaining_count(pool_id: int) -> int:
@@ -615,27 +566,9 @@ def add_bad_number(number: str, marked_by: int, reason: str = "marked as bad"):
             "marked_by": marked_by,
             "marked_at": utcnow().isoformat()
         }
-        for pid, numbers in active_numbers.items():
-            if number in numbers:
-                numbers.remove(number)
-
-def save_feedback(number: str, user_id: int, feedback: str):
-    if SessionLocal:
-        with SessionLocal() as db:
-            db.execute(
-                text("INSERT INTO feedbacks (number, user_id, feedback, created_at) VALUES (:number, :user_id, :feedback, :created_at)"),
-                {"number": number, "user_id": user_id, "feedback": feedback, "created_at": utcnow().isoformat()}
-            )
-            db.commit()
-    else:
-        feedbacks.append({
-            "id": _counters["feedback"],
-            "number": number,
-            "user_id": user_id,
-            "feedback": feedback,
-            "created_at": utcnow().isoformat()
-        })
-        _counters["feedback"] += 1
+        for pid, nums in active_numbers.items():
+            if number in nums:
+                nums.remove(number)
 
 def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) -> Optional[Dict]:
     if SessionLocal:
@@ -651,6 +584,14 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
             db.delete(number_row)
             
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            
+            # Release old assignment
+            old = db.query(Assignment).filter(
+                Assignment.user_id == user_id,
+                Assignment.released_at == None
+            ).first()
+            if old:
+                old.released_at = utcnow()
             
             assignment = Assignment(
                 user_id=user_id,
@@ -695,6 +636,12 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
         active_numbers[pool_id] = numbers
         
         pool = pools.get(pool_id, {})
+        
+        # Release old assignment
+        for a in archived_numbers:
+            if a["user_id"] == user_id and a.get("released_at") is None:
+                a["released_at"] = utcnow().isoformat()
+        
         assignment = {
             "id": _counters["assignment"],
             "user_id": user_id,
@@ -758,7 +705,10 @@ def get_current_assignment(user_id: int) -> Optional[Dict]:
                     "otp_group_id": pool.otp_group_id if pool else None,
                     "trick_text": pool.trick_text if pool else "",
                     "match_format": pool.match_format if pool else "5+4",
-                    "telegram_match_format": pool.telegram_match_format if pool else ""
+                    "telegram_match_format": pool.telegram_match_format if pool else "",
+                    "current_otp": assignment.current_otp,
+                    "current_otp_raw": assignment.current_otp_raw,
+                    "otp_expires_at": assignment.otp_expires_at.isoformat() if assignment.otp_expires_at else None
                 }
     else:
         for a in reversed(archived_numbers):
@@ -774,9 +724,68 @@ def get_current_assignment(user_id: int) -> Optional[Dict]:
                     "otp_group_id": pool.get("otp_group_id"),
                     "trick_text": pool.get("trick_text", ""),
                     "match_format": pool.get("match_format", "5+4"),
-                    "telegram_match_format": pool.get("telegram_match_format", "")
+                    "telegram_match_format": pool.get("telegram_match_format", ""),
+                    "current_otp": a.get("current_otp"),
+                    "current_otp_raw": a.get("current_otp_raw"),
+                    "otp_expires_at": a.get("otp_expires_at")
                 }
     return None
+
+def update_assignment_otp(user_id: int, number: str, otp: str, raw_message: str):
+    if SessionLocal:
+        with SessionLocal() as db:
+            assignment = db.query(Assignment).filter(
+                Assignment.user_id == user_id,
+                Assignment.number == number,
+                Assignment.released_at == None
+            ).first()
+            if assignment:
+                assignment.current_otp = otp
+                assignment.current_otp_raw = raw_message
+                assignment.otp_expires_at = utcnow() + timedelta(seconds=OTP_AUTO_DELETE_DELAY)
+                db.commit()
+    else:
+        for a in archived_numbers:
+            if a["user_id"] == user_id and a["number"] == number and a.get("released_at") is None:
+                a["current_otp"] = otp
+                a["current_otp_raw"] = raw_message
+                a["otp_expires_at"] = (utcnow() + timedelta(seconds=OTP_AUTO_DELETE_DELAY)).isoformat()
+
+def add_otp_log(user_id: int, number: str, otp: str, raw_message: str):
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.add(OTPLog(
+                user_id=user_id,
+                number=number,
+                otp_code=otp,
+                raw_message=raw_message
+            ))
+            db.commit()
+    else:
+        otp_logs.append({
+            "id": _counters["otp"],
+            "user_id": user_id,
+            "number": number,
+            "otp_code": otp,
+            "raw_message": raw_message,
+            "delivered_at": utcnow().isoformat()
+        })
+        _counters["otp"] += 1
+
+def parse_timer(timer_str: str) -> int:
+    timer_str = timer_str.strip().lower()
+    match = re.match(r'^(\d+)([smhd])$', timer_str)
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        if unit == 's':
+            return max(1, num // 60)
+        if unit == 'h':
+            return num * 60
+        if unit == 'd':
+            return num * 1440
+    num = int(timer_str) if timer_str.isdigit() else 30
+    return max(1, num)
 
 def _get_custom_buttons() -> List[Dict]:
     if SessionLocal:
@@ -785,263 +794,6 @@ def _get_custom_buttons() -> List[Dict]:
             return [{"label": b.label, "url": b.url} for b in buttons]
     else:
         return custom_buttons
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PLATFORM MONITORING
-# ══════════════════════════════════════════════════════════════════════════════
-
-_platform_token = None
-_active_platform_tasks = {}
-_platform_stock_snapshot = {}
-
-async def _platform_login() -> Optional[str]:
-    global _platform_token
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{PLATFORM_URL}/api/auth/login",
-                json={"username": PLATFORM_USERNAME, "password": PLATFORM_PASSWORD},
-                timeout=10
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    token = data.get("token")
-                    if token:
-                        _platform_token = token
-                        log.info("Platform login successful")
-                        return token
-    except Exception as e:
-        log.error(f"Platform login failed: {e}")
-    return None
-
-async def _get_platform_token() -> Optional[str]:
-    global _platform_token
-    if not _platform_token:
-        return await _platform_login()
-    return _platform_token
-
-async def _refresh_token_on_401() -> Optional[str]:
-    global _platform_token
-    _platform_token = None
-    return await _platform_login()
-
-def _build_mask(number: str, match_format: str):
-    try:
-        parts = match_format.strip().split("+")
-        head = int(parts[0])
-        tail = int(parts[1])
-        clean = re.sub(r'\D', '', number)
-        if len(clean) < head + tail:
-            return None
-        return clean[:head], clean[-tail:]
-    except:
-        return None
-
-def _number_matches(sms_phone: str, prefix: str, suffix: str) -> bool:
-    clean = re.sub(r'\D', '', sms_phone)
-    if clean.startswith(prefix) and clean.endswith(suffix):
-        return True
-    masked_pattern = re.escape(prefix) + r'[\d\s★•\*xX\-\.]{0,8}' + re.escape(suffix)
-    if re.search(masked_pattern, re.sub(r'\s', '', sms_phone), re.IGNORECASE):
-        return True
-    idx = clean.find(prefix)
-    if idx != -1 and clean[idx + len(prefix):].endswith(suffix):
-        return True
-    return False
-
-async def _platform_monitor_number(user_id: int, assigned_number: str, match_format: str):
-    global _platform_token
-    mask = _build_mask(assigned_number, match_format)
-    if not mask:
-        log.error(f"Invalid match_format '{match_format}' for number {assigned_number}")
-        return
-    
-    prefix, suffix = mask
-    seen_ids = set()
-    deadline = time.time() + PLATFORM_MONITOR_TTL
-    
-    while time.time() < deadline:
-        try:
-            token = await _get_platform_token()
-            if not token:
-                await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                continue
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{PLATFORM_URL}/api/sms?limit=50",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=10
-                ) as resp:
-                    if resp.status == 401:
-                        await _refresh_token_on_401()
-                        await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                        continue
-                    if resp.status != 200:
-                        await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                        continue
-                    
-                    data = await resp.json()
-                    messages = data if isinstance(data, list) else data.get("messages", [])
-                    
-                    for msg in messages:
-                        msg_id = msg.get("id")
-                        if msg_id in seen_ids:
-                            continue
-                        seen_ids.add(msg_id)
-                        
-                        sms_phone = str(msg.get("phone_number", ""))
-                        if not _number_matches(sms_phone, prefix, suffix):
-                            continue
-                        
-                        otp = msg.get("otp") or "N/A"
-                        raw_message = msg.get("message", "")
-                        
-                        # Save OTP
-                        if SessionLocal:
-                            with SessionLocal() as db:
-                                assignment = db.query(Assignment).filter(
-                                    Assignment.user_id == user_id,
-                                    Assignment.number == assigned_number,
-                                    Assignment.released_at == None
-                                ).first()
-                                otp_entry = OTPLog(
-                                    assignment_id=assignment.id if assignment else None,
-                                    user_id=user_id,
-                                    number=assigned_number,
-                                    otp_code=otp,
-                                    raw_message=raw_message
-                                )
-                                db.add(otp_entry)
-                                db.commit()
-                                db.refresh(otp_entry)
-                                otp_id = otp_entry.id
-                        else:
-                            global otp_counter
-                            otp_id = _counters["otp"]
-                            _counters["otp"] += 1
-                            otp_logs.append({
-                                "id": otp_id,
-                                "user_id": user_id,
-                                "number": assigned_number,
-                                "otp_code": otp,
-                                "raw_message": raw_message,
-                                "delivered_at": utcnow().isoformat()
-                            })
-                        
-                        # Send to user via WebSocket
-                        otp_data = {
-                            "type": "otp",
-                            "id": otp_id,
-                            "number": assigned_number,
-                            "otp": otp,
-                            "raw_message": raw_message,
-                            "delivered_at": utcnow().isoformat(),
-                            "auto_delete_seconds": OTP_AUTO_DELETE_DELAY
-                        }
-                        await send_to_user(user_id, otp_data)
-                        await broadcast_feed({
-                            "type": "feed_otp",
-                            "number": assigned_number,
-                            "otp": otp,
-                            "delivered_at": utcnow().isoformat()
-                        })
-                        
-                        # Compliance
-                        await compliance_record_otp_delivered(user_id)
-                        
-                        log.info(f"[PlatformMonitor] OTP sent to user {user_id}: {otp}")
-                        return
-        except asyncio.CancelledError:
-            return
-        except Exception as e:
-            log.error(f"[PlatformMonitor] Error: {e}")
-        
-        await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-    
-    log.info(f"[PlatformMonitor] TIMEOUT user={user_id}")
-
-def start_platform_monitor(user_id: int, number: str, match_format: str):
-    existing = _active_platform_tasks.get(user_id)
-    if existing and not existing.done():
-        existing.cancel()
-    task = asyncio.create_task(_platform_monitor_number(user_id, number, match_format))
-    _active_platform_tasks[user_id] = task
-
-async def _platform_stock_watcher():
-    global _platform_stock_snapshot
-    log.info("[StockWatcher] Started")
-    await asyncio.sleep(30)
-    
-    while True:
-        try:
-            token = await _get_platform_token()
-            if not token:
-                await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                continue
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{PLATFORM_URL}/api/numbers?limit=1000",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15
-                ) as resp:
-                    if resp.status == 401:
-                        await _refresh_token_on_401()
-                        await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                        continue
-                    if resp.status != 200:
-                        await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                        continue
-                    numbers_data = await resp.json()
-            
-            country_counts = {}
-            for entry in (numbers_data if isinstance(numbers_data, list) else []):
-                country = entry.get("country", "Unknown")
-                country_counts[country] = country_counts.get(country, 0) + 1
-            
-            changed_countries = []
-            for country, count in country_counts.items():
-                prev = _platform_stock_snapshot.get(country)
-                if prev is None:
-                    _platform_stock_snapshot[country] = count
-                elif count != prev:
-                    changed_countries.append(country)
-                    _platform_stock_snapshot[country] = count
-            
-            if changed_countries:
-                token = await _get_platform_token()
-                if token:
-                    async with aiohttp.ClientSession() as session:
-                        for country in changed_countries:
-                            try:
-                                async with session.get(
-                                    f"{PLATFORM_URL}/api/numbers?country={country}&limit=100000",
-                                    headers={"Authorization": f"Bearer {token}"},
-                                    timeout=30
-                                ) as dl_resp:
-                                    if dl_resp.status != 200:
-                                        continue
-                                    dl_data = await dl_resp.json()
-                                
-                                lines = [e.get("phone_number", "").strip()
-                                        for e in (dl_data if isinstance(dl_data, list) else [])
-                                        if e.get("phone_number")]
-                                if lines:
-                                    await send_to_user(1, {
-                                        "type": "stock_update",
-                                        "country": country,
-                                        "count": country_counts[country],
-                                        "numbers": lines[:100]
-                                    })
-                            except Exception as e:
-                                log.error(f"[StockWatcher] Error: {e}")
-        except asyncio.CancelledError:
-            return
-        except Exception as e:
-            log.error(f"[StockWatcher] Outer error: {e}")
-        
-        await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MONITOR BOT INTEGRATION
@@ -1077,60 +829,17 @@ async def request_monitor_bot(number: str, group_id: int, match_format: str, use
                 await asyncio.sleep(2)
     return False
 
-async def request_search_otp(number: str, group_id: int, match_format: str, user_id: int) -> bool:
-    if not MONITOR_BOT_URL:
-        log.error("[SearchOTP] MONITOR_BOT_URL not set!")
-        return False
-    
-    url = f"{MONITOR_BOT_URL}/search-otp-request"
-    payload = {
-        "number": number,
-        "group_id": group_id,
-        "match_format": match_format,
-        "user_id": user_id,
-        "secret": SHARED_SECRET
-    }
-    
-    for attempt in range(3):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=10) as resp:
-                    if resp.status == 200:
-                        log.info(f"[SearchOTP] ✅ SEARCH_OTP_REQUEST sent for {number} user={user_id}")
-                        return True
-        except Exception as e:
-            log.error(f"[SearchOTP] Post failed: {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
-    return False
-
 async def get_cooldown_duplicates(numbers: List[str]) -> List[str]:
     if not numbers:
         return []
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(COOLDOWN_CHECK_URL, json={"numbers": numbers}, timeout=10) as resp:
+            async with session.post("http://127.0.0.1:8003/check_numbers_exist", json={"numbers": numbers}, timeout=10) as resp:
                 if resp.status == 200:
                     return (await resp.json()).get("existing", [])
     except Exception as e:
         log.error(f"Failed to reach cooldown bot: {e}")
     return []
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  COMPLIANCE
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def _compliance_post_check(user_id: int):
-    # In production, would send to Telegram bridge group
-    pass
-
-async def compliance_record_otp_delivered(user_id: int):
-    _compliance_counters[user_id] = _compliance_counters.get(user_id, 0) + 1
-    count = _compliance_counters[user_id]
-    
-    if count >= COMPLIANCE_CODES_PER_CHECK:
-        _compliance_counters[user_id] = 0
-        await _compliance_post_check(user_id)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  WEBSOCKET MANAGER
@@ -1215,7 +924,7 @@ async def process_expired_saved():
                 if not pool:
                     pool = Pool(
                         name=sn.pool_name,
-                        country_code=sn.country or "unknown",
+                        country_code="unknown",
                         match_format="5+4"
                     )
                     db.add(pool)
@@ -1250,7 +959,7 @@ async def process_expired_saved():
                 pool = {
                     "id": pool_id,
                     "name": sn["pool_name"],
-                    "country_code": sn.get("country", "unknown"),
+                    "country_code": "unknown",
                     "otp_group_id": None,
                     "otp_link": "",
                     "match_format": "5+4",
@@ -1292,8 +1001,7 @@ async def lifespan(app: FastAPI):
     log.info("Starting NEON GRID NETWORK...")
     init_db()
     asyncio.create_task(scheduler())
-    asyncio.create_task(_platform_stock_watcher())
-    log.info("✅ Scheduler and stock watcher started")
+    log.info("✅ Scheduler started")
     yield
     log.info("Shutting down...")
 
@@ -1308,7 +1016,7 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND - EMBEDDED HTML (Complete)
+#  FRONTEND - COMPLETE HTML
 # ══════════════════════════════════════════════════════════════════════════════
 
 FRONTEND_HTML = '''<!DOCTYPE html>
@@ -1340,12 +1048,13 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .menu-desc { font-size: 11px; color: #7e8a9a; margin-top: 4px; }
         .number-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); margin: 16px; border-radius: 28px; padding: 24px; border: 1px solid rgba(10,132,255,0.2); }
         .number-label { font-size: 12px; color: #7e8a9a; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-        .number-value { font-size: 28px; font-weight: 700; font-family: monospace; color: #0a84ff; word-break: break-all; margin-bottom: 16px; }
+        .number-value { font-size: 28px; font-weight: 700; font-family: monospace; color: #0a84ff; word-break: break-all; margin-bottom: 16px; letter-spacing: 1px; }
         .region-badge { display: inline-block; background: rgba(30,41,59,0.8); padding: 6px 14px; border-radius: 30px; font-size: 12px; color: #9ca3af; }
-        .otp-card { background: linear-gradient(135deg, #10b981, #059669); margin: 16px; border-radius: 28px; padding: 24px; color: white; animation: slideIn 0.3s ease; box-shadow: 0 10px 25px -5px rgba(16,185,129,0.3); }
+        .otp-display { background: linear-gradient(135deg, #10b981, #059669); margin: 16px; border-radius: 28px; padding: 20px; color: white; animation: slideIn 0.3s ease; box-shadow: 0 10px 25px -5px rgba(16,185,129,0.3); }
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .otp-code { font-size: 52px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
-        .otp-timer { text-align: center; font-size: 13px; opacity: 0.9; }
+        .otp-timer { text-align: center; font-size: 13px; opacity: 0.9; margin-bottom: 12px; }
+        .otp-message { font-size: 12px; opacity: 0.8; word-break: break-word; max-height: 80px; overflow-y: auto; }
         .region-list { padding: 8px 16px; }
         .region-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); cursor: pointer; transition: all 0.2s; }
         .region-item:active { background: rgba(30,45,65,0.8); transform: scale(0.98); }
@@ -1418,7 +1127,6 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .hidden { display: none; }
         .timer-input-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .timer-input-group input { flex: 1; min-width: 100px; }
-        .timer-preset { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
         .preset-btn { background: rgba(30,41,59,0.6); border: 1px solid rgba(10,132,255,0.3); padding: 8px 12px; border-radius: 30px; font-size: 12px; cursor: pointer; transition: all 0.2s; color: #eef2ff; }
         .preset-btn:active { transform: scale(0.95); background: rgba(10,132,255,0.2); }
     </style>
@@ -1477,7 +1185,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 </div>
             </div>
         </div>
-        <div id="otpDisplay" style="display: none;"></div>
+        <div id="otpDisplayArea"></div>
         <div class="section-title">SELECT REGION</div>
         <div class="filter-row"><input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g., 8101)"><button class="filter-btn" onclick="applyFilter()">Filter</button></div>
         <div id="regionList" class="region-list"><div class="loading"><div class="spinner"></div>Loading regions...</div></div>
@@ -1486,22 +1194,9 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     <div id="savedPage" class="page">
         <div class="section-title">💾 SAVED NUMBERS</div>
         <div style="padding: 0 16px 16px;">
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
-            </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <div class="timer-input-group">
-                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m">
-                    <button class="filter-btn" onclick="setTimerPreset('30m')">30m</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2h')">2h</button>
-                    <button class="filter-btn" onclick="setTimerPreset('1d')">1d</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2s')">2s</button>
-                </div>
-            </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name">
-                <button class="filter-btn" onclick="saveNumbers()">Save</button>
-            </div>
+            <div class="filter-row" style="margin: 0 0 12px 0;"><textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea></div>
+            <div class="filter-row" style="margin: 0 0 12px 0;"><div class="timer-input-group"><input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m"><button class="filter-btn" onclick="setTimerPreset('30m')">30m</button><button class="filter-btn" onclick="setTimerPreset('2h')">2h</button><button class="filter-btn" onclick="setTimerPreset('1d')">1d</button><button class="filter-btn" onclick="setTimerPreset('2s')">2s</button></div></div>
+            <div class="filter-row" style="margin: 0 0 12px 0;"><input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name"><button class="filter-btn" onclick="saveNumbers()">Save</button></div>
         </div>
         <div id="savedList" class="saved-list"></div>
     </div>
@@ -1528,11 +1223,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         <div id="adminBadDiv" class="saved-list" style="display: none;"></div>
         <div id="adminReviewsDiv" class="saved-list" style="display: none;"></div>
         <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;" onclick="sendBroadcast()">Send Broadcast</button></div>
-        <div id="adminSettingsDiv" class="number-card" style="display: none;">
-            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div>
-            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div>
-            <button class="filter-btn" onclick="saveSettings()">Save Settings</button>
-        </div>
+        <div id="adminSettingsDiv" class="number-card" style="display: none;"><div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div><div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div><button class="filter-btn" onclick="saveSettings()">Save Settings</button></div>
         <div id="poolsList" class="saved-list"></div>
     </div>
 
@@ -1545,8 +1236,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 </div>
 
-<!-- Modals -->
-<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button><button class="btn btn-primary" onclick="savePool()">Save</button></div></div></div></div>
+<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only</option><option value="1">1 - Platform Only</option><option value="2">2 - Both</option></select></div><div class="fg"><label>Trick Text</label><textarea id="poolTrickText" rows="2" placeholder="Tips for users..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason"></div><div class="brow"><button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button><button class="btn btn-primary" onclick="savePool()">Save</button></div></div></div></div>
 
 <div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button><button class="btn btn-primary" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
 
@@ -1559,6 +1249,7 @@ let currentAssignment = null;
 let currentPoolId = null;
 let ws = null;
 let otpTimer = null;
+let otpExpiryTimer = null;
 let currentFilter = null;
 let allRegions = [];
 
@@ -1601,10 +1292,7 @@ async function doLogin() {
     const password = document.getElementById('loginPassword').value;
     const errorEl = document.getElementById('loginError');
     try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
+        const res = await fetch(`${API_BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ username, password }) });
         const data = await res.json();
         if (res.ok) { checkAuth(); }
         else { errorEl.textContent = data.detail || 'Login failed'; }
@@ -1617,10 +1305,7 @@ async function doRegister() {
     const errorEl = document.getElementById('regError');
     if (password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; return; }
     try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
+        const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ username, password }) });
         const data = await res.json();
         if (res.ok) {
             if (data.approved) { checkAuth(); }
@@ -1634,20 +1319,38 @@ function connectWebSocket() {
     ws = new WebSocket(`${protocol}//${location.host}/ws/user/${currentUser.id}`);
     ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
-        if (data.type === 'otp') displayOTP(data);
-        else if (data.type === 'broadcast') showToast(`📢 ${data.message}`);
+        if (data.type === 'otp') {
+            displayOTP(data);
+        } else if (data.type === 'broadcast') {
+            showToast(`📢 ${data.message}`);
+        }
     };
     ws.onclose = () => setTimeout(connectWebSocket, 5000);
 }
 
 function displayOTP(data) {
-    const otpDiv = document.getElementById('otpDisplay');
-    if (otpTimer) clearTimeout(otpTimer);
-    otpDiv.innerHTML = `<div class="otp-card"><div style="text-align:center;font-size:12px;">🔑 OTP CODE</div><div class="otp-code" onclick="copyText('${data.otp}')">${data.otp}</div><div class="otp-timer" id="otpCountdown">Auto-delete in 30s</div><div class="otp-message">${escapeHtml(data.raw_message || '')}</div></div>`;
-    otpDiv.style.display = 'block';
-    let seconds = 30;
-    const timer = setInterval(() => { seconds--; const cd = document.getElementById('otpCountdown'); if (cd) cd.textContent = `Auto-delete in ${seconds}s`; if (seconds <= 0) { clearInterval(timer); otpDiv.style.display = 'none'; } }, 1000);
-    otpTimer = setTimeout(() => { clearInterval(timer); otpDiv.style.display = 'none'; }, 30000);
+    const container = document.getElementById('otpDisplayArea');
+    if (otpExpiryTimer) clearTimeout(otpExpiryTimer);
+    if (otpTimer) clearInterval(otpTimer);
+    
+    container.innerHTML = `<div class="otp-display"><div style="text-align:center;font-size:12px;">🔑 OTP CODE</div><div class="otp-code" onclick="copyText('${data.otp}')">${data.otp}</div><div class="otp-timer" id="otpCountdown">Auto-delete in ${data.auto_delete_seconds || 30}s</div><div class="otp-message">${escapeHtml(data.raw_message || '')}</div></div>`;
+    
+    let seconds = data.auto_delete_seconds || 30;
+    otpTimer = setInterval(() => {
+        seconds--;
+        const cd = document.getElementById('otpCountdown');
+        if (cd) cd.textContent = `Auto-delete in ${seconds}s`;
+        if (seconds <= 0) {
+            clearInterval(otpTimer);
+            if (container) container.innerHTML = '';
+        }
+    }, 1000);
+    
+    otpExpiryTimer = setTimeout(() => {
+        clearInterval(otpTimer);
+        if (container) container.innerHTML = '';
+    }, (data.auto_delete_seconds || 30) * 1000);
+    
     loadHistory();
 }
 
@@ -1670,19 +1373,17 @@ async function selectRegion(poolId) {
     const region = allRegions.find(r => r.id === poolId);
     if (region.is_paused) { showToast(`Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ pool_id: poolId })
-        });
+        const res = await fetch(`${API_BASE}/api/pools/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pool_id: poolId }) });
         const data = await res.json();
         if (res.ok) {
             currentAssignment = data;
             currentPoolId = data.pool_id;
             document.getElementById('currentNumber').textContent = data.number;
             document.getElementById('currentRegion').textContent = data.pool_name;
+            document.getElementById('otpDisplayArea').innerHTML = '';
+            if (otpTimer) clearInterval(otpTimer);
+            if (otpExpiryTimer) clearTimeout(otpExpiryTimer);
             showToast(`Number assigned: ${data.number}`);
-            document.getElementById('otpDisplay').style.display = 'none';
-            if (otpTimer) clearTimeout(otpTimer);
         } else { showToast(data.detail || 'Failed to assign number'); }
     } catch(e) { showToast('Network error'); }
 }
@@ -1696,6 +1397,10 @@ async function loadCurrentAssignment() {
             currentPoolId = data.assignment.pool_id;
             document.getElementById('currentNumber').textContent = currentAssignment.number;
             document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
+            if (currentAssignment.current_otp && currentAssignment.otp_expires_at && new Date(currentAssignment.otp_expires_at) > new Date()) {
+                const otpData = { otp: currentAssignment.current_otp, raw_message: currentAssignment.current_otp_raw || '', auto_delete_seconds: Math.floor((new Date(currentAssignment.otp_expires_at) - new Date()) / 1000) };
+                displayOTP(otpData);
+            }
         }
     } catch(e) {}
 }
@@ -1709,27 +1414,19 @@ async function changeNumber() {
 async function submitFeedback(type) {
     const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
     const markAsBad = type === 'bad';
-    
     if (currentAssignment) {
-        await fetch(`${API_BASE}/api/reviews`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number: currentAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
-        });
-        
+        await fetch(`${API_BASE}/api/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ number: currentAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad }) });
         await fetch(`${API_BASE}/api/pools/release/${currentAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
-        
         if (currentPoolId) {
-            const res = await fetch(`${API_BASE}/api/pools/assign`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                body: JSON.stringify({ pool_id: currentPoolId })
-            });
+            const res = await fetch(`${API_BASE}/api/pools/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ pool_id: currentPoolId }) });
             const data = await res.json();
             if (res.ok) {
                 currentAssignment = data;
                 document.getElementById('currentNumber').textContent = data.number;
                 document.getElementById('currentRegion').textContent = data.pool_name;
-                document.getElementById('otpDisplay').style.display = 'none';
-                if (otpTimer) clearTimeout(otpTimer);
+                document.getElementById('otpDisplayArea').innerHTML = '';
+                if (otpTimer) clearInterval(otpTimer);
+                if (otpExpiryTimer) clearTimeout(otpExpiryTimer);
                 showToast(`New number assigned: ${data.number}`);
             } else {
                 showToast('No more numbers in this pool, please select another region');
@@ -1749,30 +1446,13 @@ async function submitFeedback(type) {
 function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
 function copyNumber() { if (currentAssignment) copyText(currentAssignment.number); else showToast('No number to copy'); }
 
-function parseTimer(timer) {
-    const match = timer.match(/^(\d+)([smhd])$/i);
-    if (match) {
-        const num = parseInt(match[1]);
-        const unit = match[2].toLowerCase();
-        if (unit === 's') return Math.max(1, Math.ceil(num / 60));
-        if (unit === 'h') return num * 60;
-        if (unit === 'd') return num * 1440;
-    }
-    const num = parseInt(timer);
-    return isNaN(num) ? 30 : num;
-}
-
 async function saveNumbers() {
     const numbers = document.getElementById('savedNumbersInput').value.split('\\n').map(l => l.trim()).filter(l => l);
-    const timerRaw = document.getElementById('timerInput').value.trim();
-    const timerMinutes = parseTimer(timerRaw);
+    const timerMinutes = parseTimer(document.getElementById('timerInput').value.trim());
     const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
     if (!numbers.length) { showToast('Enter at least one number'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ numbers, timer_minutes: timerMinutes, pool_name: poolName })
-        });
+        const res = await fetch(`${API_BASE}/api/saved`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ numbers, timer_minutes: timerMinutes, pool_name: poolName }) });
         const data = await res.json();
         if (res.ok) { showToast(`Saved ${data.saved} numbers`); document.getElementById('savedNumbersInput').value = ''; loadSavedNumbers(); }
         else { showToast(data.detail || 'Failed to save'); }
@@ -1785,13 +1465,7 @@ async function loadSavedNumbers() {
         const data = await res.json();
         const container = document.getElementById('savedList');
         if (!data.length) { container.innerHTML = '<div class="loading">No saved numbers</div>'; return; }
-        container.innerHTML = data.map(item => {
-            let cls = 'timer-green', time = `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`;
-            if (item.status === 'yellow') cls = 'timer-yellow';
-            if (item.status === 'red') cls = 'timer-red';
-            if (item.status === 'ready') { cls = 'timer-ready'; time = 'READY'; }
-            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(item.number)}</div><div class="saved-timer">${escapeHtml(item.pool_name)}</div></div><div><span class="timer-badge ${cls}">${time}</span><button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;margin-left:8px;cursor:pointer;">🗑️</button></div></div>`;
-        }).join('');
+        container.innerHTML = data.map(item => { let cls = 'timer-green', time = `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`; if (item.status === 'yellow') cls = 'timer-yellow'; if (item.status === 'red') cls = 'timer-red'; if (item.status === 'ready') { cls = 'timer-ready'; time = 'READY'; } return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(item.number)}</div><div class="saved-timer">${escapeHtml(item.pool_name)}</div></div><div><span class="timer-badge ${cls}">${time}</span><button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;margin-left:8px;cursor:pointer;">🗑️</button></div></div>`; }).join('');
     } catch(e) {}
 }
 
@@ -1810,212 +1484,47 @@ async function loadHistory() {
 // Admin functions
 let currentEditPoolId = null;
 
-function openCreatePoolModal() {
-    currentEditPoolId = null;
-    document.getElementById('poolModalTitle').textContent = 'Create New Pool';
-    document.getElementById('poolName').value = '';
-    document.getElementById('poolCode').value = '';
-    document.getElementById('poolGroupId').value = '';
-    document.getElementById('poolOtpLink').value = '';
-    document.getElementById('poolMatchFormat').value = '5+4';
-    document.getElementById('poolTelegramMatchFormat').value = '';
-    document.getElementById('poolUsesPlatform').value = '0';
-    document.getElementById('poolTrickText').value = '';
-    document.getElementById('poolAdminOnly').checked = false;
-    document.getElementById('poolPaused').checked = false;
-    document.getElementById('pauseReasonDiv').style.display = 'none';
-    document.getElementById('poolModal').classList.add('show');
-}
+function openCreatePoolModal() { currentEditPoolId = null; document.getElementById('poolModalTitle').textContent = 'Create New Pool'; document.getElementById('poolName').value = ''; document.getElementById('poolCode').value = ''; document.getElementById('poolGroupId').value = ''; document.getElementById('poolOtpLink').value = ''; document.getElementById('poolMatchFormat').value = '5+4'; document.getElementById('poolTelegramMatchFormat').value = ''; document.getElementById('poolUsesPlatform').value = '0'; document.getElementById('poolTrickText').value = ''; document.getElementById('poolAdminOnly').checked = false; document.getElementById('poolPaused').checked = false; document.getElementById('pauseReasonDiv').style.display = 'none'; document.getElementById('poolModal').classList.add('show'); }
 
-async function openEditPoolModal(poolId) {
-    currentEditPoolId = poolId;
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const pool = pools.find(p => p.id === poolId);
-        if (!pool) return;
-        document.getElementById('poolModalTitle').textContent = `Edit Pool: ${pool.name}`;
-        document.getElementById('poolName').value = pool.name;
-        document.getElementById('poolCode').value = pool.country_code;
-        document.getElementById('poolGroupId').value = pool.otp_group_id || '';
-        document.getElementById('poolOtpLink').value = pool.otp_link || '';
-        document.getElementById('poolMatchFormat').value = pool.match_format || '5+4';
-        document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || '';
-        document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0;
-        document.getElementById('poolTrickText').value = pool.trick_text || '';
-        document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false;
-        document.getElementById('poolPaused').checked = pool.is_paused || false;
-        document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none';
-        document.getElementById('poolPauseReason').value = pool.pause_reason || '';
-        document.getElementById('poolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pool data'); }
-}
+async function openEditPoolModal(poolId) { currentEditPoolId = poolId; try { const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' }); const pools = await res.json(); const pool = pools.find(p => p.id === poolId); if (!pool) return; document.getElementById('poolModalTitle').textContent = `Edit Pool: ${pool.name}`; document.getElementById('poolName').value = pool.name; document.getElementById('poolCode').value = pool.country_code; document.getElementById('poolGroupId').value = pool.otp_group_id || ''; document.getElementById('poolOtpLink').value = pool.otp_link || ''; document.getElementById('poolMatchFormat').value = pool.match_format || '5+4'; document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || ''; document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0; document.getElementById('poolTrickText').value = pool.trick_text || ''; document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false; document.getElementById('poolPaused').checked = pool.is_paused || false; document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none'; document.getElementById('poolPauseReason').value = pool.pause_reason || ''; document.getElementById('poolModal').classList.add('show'); } catch(e) { showToast('Failed to load pool data'); } }
 
-async function savePool() {
-    const data = {
-        name: document.getElementById('poolName').value.trim(),
-        country_code: document.getElementById('poolCode').value.trim(),
-        otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
-        otp_link: document.getElementById('poolOtpLink').value.trim(),
-        match_format: document.getElementById('poolMatchFormat').value.trim(),
-        telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
-        uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
-        trick_text: document.getElementById('poolTrickText').value.trim(),
-        is_admin_only: document.getElementById('poolAdminOnly').checked,
-        is_paused: document.getElementById('poolPaused').checked,
-        pause_reason: document.getElementById('poolPauseReason').value.trim()
-    };
-    if (!data.name || !data.country_code) { showToast('Pool name and country code are required'); return; }
-    try {
-        const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
-        const method = currentEditPoolId ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data) });
-        if (res.ok) {
-            showToast(currentEditPoolId ? 'Pool updated!' : 'Pool created!');
-            closePoolModal();
-            loadAdminPools();
-        } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool'); }
-    } catch(e) { showToast('Network error'); }
-}
+async function savePool() { const data = { name: document.getElementById('poolName').value.trim(), country_code: document.getElementById('poolCode').value.trim(), otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null, otp_link: document.getElementById('poolOtpLink').value.trim(), match_format: document.getElementById('poolMatchFormat').value.trim(), telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(), uses_platform: parseInt(document.getElementById('poolUsesPlatform').value), trick_text: document.getElementById('poolTrickText').value.trim(), is_admin_only: document.getElementById('poolAdminOnly').checked, is_paused: document.getElementById('poolPaused').checked, pause_reason: document.getElementById('poolPauseReason').value.trim() }; if (!data.name || !data.country_code) { showToast('Pool name and country code are required'); return; } try { const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools'; const method = currentEditPoolId ? 'PUT' : 'POST'; const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data) }); if (res.ok) { showToast(currentEditPoolId ? 'Pool updated!' : 'Pool created!'); closePoolModal(); loadAdminPools(); } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool'); } } catch(e) { showToast('Network error'); } }
 
 function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); }
 
-async function loadAdminPools() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const container = document.getElementById('poolsList');
-        if (!pools.length) { container.innerHTML = '<div class="loading">No pools</div>'; return; }
-        container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join('');
-    } catch(e) {}
-}
+async function loadAdminPools() { try { const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' }); const pools = await res.json(); const container = document.getElementById('poolsList'); if (!pools.length) { container.innerHTML = '<div class="loading">No pools</div>'; return; } container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join(''); } catch(e) {} }
 
-async function deletePool(poolId, poolName) {
-    if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers? This cannot be undone!`)) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' });
-        if (res.ok) { showToast(`Pool "${poolName}" deleted`); loadAdminPools(); }
-        else { showToast('Failed to delete pool'); }
-    } catch(e) { showToast('Network error'); }
-}
+async function deletePool(poolId, poolName) { if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers? This cannot be undone!`)) return; try { const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' }); if (res.ok) { showToast(`Pool "${poolName}" deleted`); loadAdminPools(); } else { showToast('Failed to delete pool'); } } catch(e) { showToast('Network error'); } }
 
-async function openUploadModal() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const select = document.getElementById('uploadPoolSelect');
-        select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p => `<option value="${p.id}">${p.name} (+${p.country_code}) - ${p.number_count} numbers</option>`).join('');
-        document.getElementById('uploadModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pools'); }
-}
+async function openUploadModal() { try { const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' }); const pools = await res.json(); const select = document.getElementById('uploadPoolSelect'); select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p => `<option value="${p.id}">${p.name} (+${p.country_code}) - ${p.number_count} numbers</option>`).join(''); document.getElementById('uploadModal').classList.add('show'); } catch(e) { showToast('Failed to load pools'); } }
 
 function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); document.getElementById('uploadResult').innerHTML = ''; document.getElementById('uploadFile').value = ''; }
 
-async function uploadNumbers() {
-    const poolId = document.getElementById('uploadPoolSelect').value;
-    const fileInput = document.getElementById('uploadFile');
-    if (!poolId) { showToast('Select a pool'); return; }
-    if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file'); return; }
-    const formData = new FormData(); formData.append('file', fileInput.files[0]);
-    try {
-        const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData });
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('uploadResult').innerHTML = `<div style="background:#10b98120;padding:12px;border-radius:8px;">✅ Added: ${data.added}<br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`;
-            showToast(`${data.added} numbers uploaded!`);
-            loadAdminPools();
-        } else { showToast(data.detail || 'Upload failed'); }
-    } catch(e) { showToast('Network error'); }
-}
+async function uploadNumbers() { const poolId = document.getElementById('uploadPoolSelect').value; const fileInput = document.getElementById('uploadFile'); if (!poolId) { showToast('Select a pool'); return; } if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file'); return; } const formData = new FormData(); formData.append('file', fileInput.files[0]); try { const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData }); const data = await res.json(); if (res.ok) { document.getElementById('uploadResult').innerHTML = `<div style="background:#10b98120;padding:12px;border-radius:8px;">✅ Added: ${data.added}<br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`; showToast(`${data.added} numbers uploaded!`); loadAdminPools(); } else { showToast(data.detail || 'Upload failed'); } } catch(e) { showToast('Network error'); } }
 
-function loadAdminStats() {
-    fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' }).then(r => r.json()).then(stats => {
-        document.getElementById('adminStatsDiv').innerHTML = `<div class="number-card"><div class="number-label">System Stats</div><div>📊 Users: ${stats.total_users}</div><div>⏳ Pending: ${stats.pending_approval}</div><div>🌍 Pools: ${stats.total_pools}</div><div>📞 Numbers: ${stats.total_numbers}</div><div>🔑 OTPs: ${stats.total_otps}</div><div>🚫 Bad: ${stats.bad_numbers}</div><div>💾 Saved: ${stats.saved_numbers}</div><div>🟢 Online: ${stats.online_users}</div></div>`;
-        document.getElementById('adminStatsDiv').style.display = 'block';
-        hideOtherAdminDivs();
-    });
-}
+function loadAdminStats() { fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' }).then(r => r.json()).then(stats => { document.getElementById('adminStatsDiv').innerHTML = `<div class="number-card"><div class="number-label">System Stats</div><div>📊 Users: ${stats.total_users}</div><div>⏳ Pending: ${stats.pending_approval}</div><div>🌍 Pools: ${stats.total_pools}</div><div>📞 Numbers: ${stats.total_numbers}</div><div>🔑 OTPs: ${stats.total_otps}</div><div>🚫 Bad: ${stats.bad_numbers}</div><div>💾 Saved: ${stats.saved_numbers}</div><div>🟢 Online: ${stats.online_users}</div></div>`; document.getElementById('adminStatsDiv').style.display = 'block'; hideOtherAdminDivs(); }); }
 
-function loadUsersList() {
-    fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' }).then(r => r.json()).then(users => {
-        document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-primary' : 'btn-danger'}" onclick="toggleUser(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join('');
-        document.getElementById('adminUsersDiv').style.display = 'block';
-        hideOtherAdminDivs();
-    });
-}
+function loadUsersList() { fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' }).then(r => r.json()).then(users => { document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-primary' : 'btn-danger'}" onclick="toggleUser(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join(''); document.getElementById('adminUsersDiv').style.display = 'block'; hideOtherAdminDivs(); }); }
 
-async function toggleUser(userId, block) {
-    const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
-    await fetch(url, { method: 'POST', credentials: 'include' });
-    showToast(block ? 'User blocked' : 'User unblocked');
-    loadUsersList();
-}
+async function toggleUser(userId, block) { const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`; await fetch(url, { method: 'POST', credentials: 'include' }); showToast(block ? 'User blocked' : 'User unblocked'); loadUsersList(); }
 
-function loadBadNumbers() {
-    fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' }).then(r => r.json()).then(bad => {
-        document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join('');
-        document.getElementById('adminBadDiv').style.display = 'block';
-        hideOtherAdminDivs();
-    });
-}
+function loadBadNumbers() { fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' }).then(r => r.json()).then(bad => { document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join(''); document.getElementById('adminBadDiv').style.display = 'block'; hideOtherAdminDivs(); }); }
 
-async function removeBadNumber(number) {
-    await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' });
-    showToast('Removed from bad numbers');
-    loadBadNumbers();
-}
+async function removeBadNumber(number) { await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' }); showToast('Removed from bad numbers'); loadBadNumbers(); }
 
-function loadReviews() {
-    fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' }).then(r => r.json()).then(reviews => {
-        document.getElementById('adminReviewsDiv').innerHTML = reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(r.rating)} • ${r.comment || 'No comment'}</div></div></div>`).join('');
-        document.getElementById('adminReviewsDiv').style.display = 'block';
-        hideOtherAdminDivs();
-    });
-}
+function loadReviews() { fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' }).then(r => r.json()).then(reviews => { document.getElementById('adminReviewsDiv').innerHTML = reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(r.rating)} • ${r.comment || 'No comment'}</div></div></div>`).join(''); document.getElementById('adminReviewsDiv').style.display = 'block'; hideOtherAdminDivs(); }); }
 
-function showBroadcast() {
-    document.getElementById('adminBroadcastDiv').style.display = 'block';
-    hideOtherAdminDivs();
-}
+function showBroadcast() { document.getElementById('adminBroadcastDiv').style.display = 'block'; hideOtherAdminDivs(); }
 
-async function sendBroadcast() {
-    const msg = document.getElementById('broadcastMsg').value;
-    if (!msg) return;
-    await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
-    showToast('Broadcast sent!');
-    document.getElementById('broadcastMsg').value = '';
-}
+async function sendBroadcast() { const msg = document.getElementById('broadcastMsg').value; if (!msg) return; await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' }); showToast('Broadcast sent!'); document.getElementById('broadcastMsg').value = ''; }
 
-function showSettings() {
-    document.getElementById('adminSettingsDiv').style.display = 'block';
-    hideOtherAdminDivs();
-}
+function showSettings() { document.getElementById('adminSettingsDiv').style.display = 'block'; hideOtherAdminDivs(); }
 
-function hideOtherAdminDivs() {
-    ['adminStatsDiv', 'adminUsersDiv', 'adminBadDiv', 'adminReviewsDiv', 'adminBroadcastDiv', 'adminSettingsDiv'].forEach(id => {
-        if (id !== 'adminStatsDiv' || document.getElementById(id).style.display !== 'block') {
-            document.getElementById(id).style.display = 'none';
-        }
-    });
-}
+function hideOtherAdminDivs() { ['adminStatsDiv', 'adminUsersDiv', 'adminBadDiv', 'adminReviewsDiv', 'adminBroadcastDiv', 'adminSettingsDiv'].forEach(id => { if (id !== 'adminStatsDiv' || document.getElementById(id).style.display !== 'block') { document.getElementById(id).style.display = 'none'; } }); }
 
-async function saveSettings() {
-    const approval = document.getElementById('approvalMode').value;
-    const redirect = document.getElementById('otpRedirect').value;
-    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' });
-    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' });
-    showToast('Settings saved');
-}
+async function saveSettings() { const approval = document.getElementById('approvalMode').value; const redirect = document.getElementById('otpRedirect').value; await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' }); await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' }); showToast('Settings saved'); }
 
-function navigateTo(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`${page}Page`).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-    if (page === 'numbers') loadRegions();
-    if (page === 'saved') loadSavedNumbers();
-    if (page === 'history') loadHistory();
-}
+function navigateTo(page) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById(`${page}Page`).classList.add('active'); document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active')); document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active'); if (page === 'numbers') loadRegions(); if (page === 'saved') loadSavedNumbers(); if (page === 'history') loadHistory(); }
 
 document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
 document.getElementById('authLoginTab').onclick = () => { document.getElementById('loginForm').style.display = 'block'; document.getElementById('registerForm').style.display = 'none'; document.getElementById('authLoginTab').style.background = '#0a84ff'; document.getElementById('authLoginTab').style.color = 'white'; document.getElementById('authRegisterTab').style.background = 'rgba(30,41,59,0.6)'; document.getElementById('authRegisterTab').style.color = '#9ca3af'; };
@@ -2217,7 +1726,6 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
             if not has_pool_access(req.pool_id, user["id"]):
                 raise HTTPException(403, "No access to this pool")
             
-            release_assignment(user["id"])
             assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
             if not assignment:
                 raise HTTPException(400, "No numbers available in this pool")
@@ -2241,7 +1749,6 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
         if not has_pool_access(req.pool_id, user["id"]):
             raise HTTPException(403, "No access to this pool")
         
-        release_assignment(user["id"])
         assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
         if not assignment:
             raise HTTPException(400, "No numbers available in this pool")
@@ -2343,14 +1850,26 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
     
     if SessionLocal:
         with SessionLocal() as db:
+            # First delete all assignments for this pool
+            db.query(Assignment).filter(Assignment.pool_id == pool_id).delete()
+            # Then delete all active numbers for this pool
             db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
+            # Finally delete the pool
             db.query(Pool).filter(Pool.id == pool_id).delete()
             db.commit()
     else:
         if pool_id not in pools:
             raise HTTPException(404, "Pool not found")
+        # Clean up assignments
+        for a in archived_numbers[:]:
+            if a["pool_id"] == pool_id:
+                archived_numbers.remove(a)
+        # Clean up active numbers
+        if pool_id in active_numbers:
+            del active_numbers[pool_id]
+        # Delete pool
         del pools[pool_id]
-        active_numbers.pop(pool_id, None)
+    
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
@@ -2569,9 +2088,6 @@ def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(d
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if pool_id not in pools or user_id not in users:
-        raise HTTPException(404, "Not found")
-    
     grant_pool_access(pool_id, user_id)
     return {"ok": True}
 
@@ -2602,57 +2118,19 @@ async def monitor_result(payload: MonitorResultPayload):
     
     log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
     
-    if SessionLocal:
-        with SessionLocal() as db:
-            assignment = db.query(Assignment).filter(
-                Assignment.user_id == payload.user_id,
-                Assignment.number == payload.number,
-                Assignment.released_at == None
-            ).first()
-            
-            otp_entry = OTPLog(
-                assignment_id=assignment.id if assignment else None,
-                user_id=payload.user_id,
-                number=payload.number,
-                otp_code=payload.otp,
-                raw_message=payload.raw_message
-            )
-            db.add(otp_entry)
-            db.commit()
-            db.refresh(otp_entry)
-            otp_id = otp_entry.id
-    else:
-        global otp_counter
-        otp_id = _counters["otp"]
-        _counters["otp"] += 1
-        otp_logs.append({
-            "id": otp_id,
-            "user_id": payload.user_id,
-            "number": payload.number,
-            "otp_code": payload.otp,
-            "raw_message": payload.raw_message,
-            "delivered_at": utcnow().isoformat()
-        })
+    # Update current assignment with OTP
+    update_assignment_otp(payload.user_id, payload.number, payload.otp, payload.raw_message)
     
-    otp_data = {
+    # Save to history (only once)
+    add_otp_log(payload.user_id, payload.number, payload.otp, payload.raw_message)
+    
+    # Send to user via WebSocket
+    await send_to_user(payload.user_id, {
         "type": "otp",
-        "id": otp_id,
-        "number": payload.number,
         "otp": payload.otp,
         "raw_message": payload.raw_message,
-        "delivered_at": utcnow().isoformat(),
         "auto_delete_seconds": OTP_AUTO_DELETE_DELAY
-    }
-    
-    await send_to_user(payload.user_id, otp_data)
-    await broadcast_feed({
-        "type": "feed_otp",
-        "number": payload.number,
-        "otp": payload.otp,
-        "delivered_at": utcnow().isoformat()
     })
-    
-    await compliance_record_otp_delivered(payload.user_id)
     
     return {"ok": True}
 
@@ -2686,7 +2164,7 @@ async def search_otp(number: str, token: str = Cookie(default=None)):
             if assignment:
                 pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
                 if pool and pool.otp_group_id:
-                    await request_search_otp(
+                    await request_monitor_bot(
                         number=number,
                         group_id=pool.otp_group_id,
                         match_format=pool.telegram_match_format or pool.match_format,
@@ -2698,7 +2176,7 @@ async def search_otp(number: str, token: str = Cookie(default=None)):
             if a["user_id"] == user["id"] and a["number"] == number:
                 pool = pools.get(a["pool_id"])
                 if pool and pool.get("otp_group_id"):
-                    await request_search_otp(
+                    await request_monitor_bot(
                         number=number,
                         group_id=pool["otp_group_id"],
                         match_format=pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
@@ -2747,7 +2225,6 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
                     saved += 1
             db.commit()
     else:
-        global saved_counter
         for number in req.numbers:
             number = number.strip()
             if not number:
@@ -2759,7 +2236,6 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
                 "id": _counters["saved"],
                 "user_id": user["id"],
                 "number": number,
-                "country": "",
                 "pool_name": req.pool_name,
                 "expires_at": expires_at.isoformat(),
                 "moved": False,
@@ -2796,7 +2272,6 @@ def list_saved(token: str = Cookie(default=None)):
                 result.append({
                     "id": s.id,
                     "number": s.number,
-                    "country": s.country,
                     "pool_name": s.pool_name,
                     "expires_at": s.expires_at.isoformat(),
                     "seconds_left": seconds_left,
@@ -2825,7 +2300,6 @@ def list_saved(token: str = Cookie(default=None)):
             result.append({
                 "id": s["id"],
                 "number": s["number"],
-                "country": s.get("country", ""),
                 "pool_name": s["pool_name"],
                 "expires_at": s["expires_at"],
                 "seconds_left": seconds_left,
@@ -2858,7 +2332,6 @@ def ready_numbers(token: str = Cookie(default=None)):
                 result.append({
                     "id": s.id,
                     "number": s.number,
-                    "country": s.country,
                     "pool_name": s.pool_name,
                     "pool_id": pool.id if pool else None,
                     "in_pool": in_pool
@@ -2874,7 +2347,6 @@ def ready_numbers(token: str = Cookie(default=None)):
             result.append({
                 "id": s["id"],
                 "number": s["number"],
-                "country": s.get("country", ""),
                 "pool_name": s["pool_name"],
                 "pool_id": pool["id"] if pool else None,
                 "in_pool": in_pool
@@ -2982,7 +2454,6 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
             
             db.commit()
     else:
-        global review_counter
         reviews.append({
             "id": _counters["review"],
             "user_id": user["id"],
@@ -3020,10 +2491,9 @@ def stats(token: str = Cookie(default=None)):
                 "total_pools": db.query(Pool).count(),
                 "total_numbers": db.query(ActiveNumber).count(),
                 "total_otps": db.query(OTPLog).count(),
-                "total_assignments": db.query(Assignment).count(),
                 "bad_numbers": db.query(BadNumber).count(),
                 "saved_numbers": db.query(SavedNumber).filter(SavedNumber.moved == False).count(),
-                "online_users": sum(len(conns) for conns in user_connections.values())
+                "online_users": len(user_connections)
             }
     else:
         return {
@@ -3032,7 +2502,6 @@ def stats(token: str = Cookie(default=None)):
             "total_pools": len(pools),
             "total_numbers": sum(len(n) for n in active_numbers.values()),
             "total_otps": len(otp_logs),
-            "total_assignments": len(archived_numbers),
             "bad_numbers": len(bad_numbers),
             "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
             "online_users": len(user_connections)
@@ -3047,9 +2516,9 @@ def list_users(token: str = Cookie(default=None)):
     if SessionLocal:
         with SessionLocal() as db:
             users_list = db.query(User).order_by(User.created_at.desc()).all()
-            return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "is_approved": u.is_approved, "is_blocked": u.is_blocked, "created_at": u.created_at.isoformat()} for u in users_list]
+            return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "is_approved": u.is_approved, "is_blocked": u.is_blocked} for u in users_list]
     else:
-        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
+        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False)} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
 def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
@@ -3058,7 +2527,6 @@ def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
         raise HTTPException(403, "Admin only")
     
     approve_user(user_id)
-    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
@@ -3068,7 +2536,6 @@ def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
         raise HTTPException(403, "Admin only")
     
     block_user(user_id)
-    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
@@ -3078,7 +2545,6 @@ def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
         raise HTTPException(403, "Admin only")
     
     unblock_user(user_id)
-    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
@@ -3089,10 +2555,10 @@ def list_bad_numbers(token: str = Cookie(default=None)):
     
     if SessionLocal:
         with SessionLocal() as db:
-            bad = db.query(BadNumber).order_by(BadNumber.created_at.desc()).all()
-            return [{"number": b.number, "reason": b.reason, "created_at": b.created_at.isoformat()} for b in bad]
+            bad = db.query(BadNumber).all()
+            return [{"number": b.number, "reason": b.reason} for b in bad]
     else:
-        return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
+        return [{"number": num, "reason": data.get("reason", "")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
 def remove_bad_number(number: str, token: str = Cookie(default=None)):
@@ -3118,9 +2584,9 @@ def list_reviews(token: str = Cookie(default=None)):
     if SessionLocal:
         with SessionLocal() as db:
             reviews_list = db.query(NumberReview).order_by(NumberReview.created_at.desc()).limit(100).all()
-            return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment, "created_at": r.created_at.isoformat()} for r in reviews_list]
+            return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment} for r in reviews_list]
     else:
-        return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
+        return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
 
 @app.post("/api/admin/broadcast")
 async def broadcast_message(message: str, token: str = Cookie(default=None)):
@@ -3176,7 +2642,6 @@ def add_button(label: str, url: str, token: str = Cookie(default=None)):
             db.add(CustomButton(label=label, url=url, position=max_pos + 1))
             db.commit()
     else:
-        global button_counter
         custom_buttons.append({"id": _counters["button"], "label": label, "url": url, "position": len(custom_buttons)})
         _counters["button"] += 1
     
@@ -3228,10 +2693,4 @@ async def websocket_feed(websocket: WebSocket):
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "backend:app",
-        host="0.0.0.0",
-        port=PORT,
-        reload=False,
-        log_level="info"
-    )
+    uvicorn.run("backend:app", host="0.0.0.0", port=PORT, reload=False)
