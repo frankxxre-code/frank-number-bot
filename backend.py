@@ -2,23 +2,8 @@
 """
 NEON GRID NETWORK — Complete Platform Backend
 ================================================
-All features from numberbot.py converted to web platform:
-- Pool management (create/edit/delete)
-- Number assignments with prefix filter
-- OTP monitoring via monitor bot
-- Saved numbers with timer expiry
-- Bad numbers tracking
-- User reviews and feedback
-- Admin panel with user management
-- Pool access control (restricted pools)
-- Broadcast messaging
-- Platform stock watcher
-- Custom dashboard buttons
-- Pause/Resume pools with reason
-- Admin-only pools
-- Trick text per pool
-- Multiple monitoring modes (0=Telegram,1=Platform,2=Both)
-- Match formats for OTP extraction
+Single file with embedded frontend - deploy on Railway
+All features from numberbot.py converted to web platform
 """
 
 import asyncio
@@ -44,7 +29,7 @@ from fastapi import (FastAPI, WebSocket, WebSocketDisconnect,
                      APIRouter, Depends, HTTPException, Cookie,
                      UploadFile, File, BackgroundTasks, Form, Query)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
 
 # Configure logging
@@ -80,27 +65,34 @@ OTP_AUTO_DELETE_DELAY = 30
 DEFAULT_LOCAL_PREFIX = "+234"
 OTP_CHANNEL_LINK = "https://t.me/earnplusz"
 NUMBER_CHANNEL_LINK = "https://t.me/Finalsearchbot"
+HARDCODED_OTP_GROUP = "https://t.me/earnplusz"
 
 # Monitoring modes
 MONITOR_TELEGRAM = 0
 MONITOR_PLATFORM = 1
 MONITOR_BOTH = 2
 
-log.info(f"Starting Frank Number Bot on port {PORT}")
-log.info(f"Database URL: {'configured' if DATABASE_URL else 'NOT SET'}")
+# Compliance
+COMPLIANCE_BRIDGE_GROUP_ID = -1003817159179
+COMPLIANCE_CODES_PER_CHECK = 5
+
+# Cooldown check URL
+COOLDOWN_CHECK_URL = "http://127.0.0.1:8003/check_numbers_exist"
+
+log.info(f"Starting NEON GRID NETWORK on port {PORT}")
 log.info(f"Monitor Bot URL: {MONITOR_BOT_URL or 'NOT SET'}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  IN-MEMORY DATABASE (All features)
+#  IN-MEMORY DATABASE
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Core tables
 users: Dict[int, Dict] = {}
 sessions: Dict[str, int] = {}
 pools: Dict[int, Dict] = {}
-active_numbers: Dict[int, List[str]] = {}  # pool_id -> list of numbers
-archived_numbers: List[Dict] = []  # assignment history
-bad_numbers: Dict[str, Dict] = {}  # number -> {reason, flagged_by, flagged_at}
+active_numbers: Dict[int, List[str]] = {}
+archived_numbers: List[Dict] = []
+bad_numbers: Dict[str, Dict] = {}
 feedbacks: List[Dict] = []
 custom_buttons: List[Dict] = []
 blocked_users: set = set()
@@ -108,21 +100,21 @@ denied_users: set = set()
 approved_users: set = set()
 pending_notified: set = set()
 agreement_users: Dict[int, bool] = {}
-pool_access: Dict[int, set] = {}  # pool_id -> set of user_ids
+pool_access: Dict[int, set] = {}
 otp_logs: List[Dict] = []
 saved_numbers: List[Dict] = []
 reviews: List[Dict] = []
-broadcasts: List[Dict] = []
+uploaded_numbers: set = set()
 
 # Counters
 user_counter = 1
-pool_counter = 1
+pool_counter = 6
 assignment_counter = 1
 otp_counter = 1
 saved_counter = 1
 review_counter = 1
 feedback_counter = 1
-button_counter = 1
+button_counter = 3
 
 # Platform monitoring
 _platform_token: Optional[str] = None
@@ -133,10 +125,14 @@ _platform_stock_snapshot: Dict[str, int] = {}
 user_connections: Dict[int, List[WebSocket]] = {}
 feed_connections: List[WebSocket] = []
 
-# OTP delivery tracking for compliance
+# OTP tracking
 _compliance_counters: Dict[int, int] = {}
-COMPLIANCE_BRIDGE_GROUP_ID = -1003817159179
-COMPLIANCE_CODES_PER_CHECK = 5
+
+# Bot settings
+bot_settings = {
+    "approval_mode": "on",
+    "otp_redirect_mode": "pool"
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  UTILITY FUNCTIONS
@@ -187,24 +183,26 @@ def is_approved(user_id: int) -> bool:
 
 def block_user(user_id: int):
     blocked_users.add(user_id)
-    if user_id in approved_users:
-        approved_users.remove(user_id)
+    approved_users.discard(user_id)
 
 def unblock_user(user_id: int):
     blocked_users.discard(user_id)
 
 def deny_user(user_id: int):
     denied_users.add(user_id)
-    if user_id in approved_users:
-        approved_users.remove(user_id)
+    approved_users.discard(user_id)
 
 def undeny_user(user_id: int):
     denied_users.discard(user_id)
 
-def approve_user(user_id: int):
+def approve_user(user_id: int, approved_by: int = 0):
     approved_users.add(user_id)
     denied_users.discard(user_id)
     blocked_users.discard(user_id)
+
+def revoke_user(user_id: int):
+    approved_users.discard(user_id)
+    denied_users.add(user_id)
 
 def can_use_bot(user_id: int) -> bool:
     if is_admin(user_id):
@@ -213,11 +211,26 @@ def can_use_bot(user_id: int) -> bool:
         return False
     if is_denied(user_id):
         return False
-    return is_approved(user_id)
+    if bot_settings.get("approval_mode") == "on" and not is_approved(user_id):
+        return False
+    return True
 
 def get_approval_mode() -> bool:
-    # Always require approval unless admin
-    return True
+    return bot_settings.get("approval_mode") == "on"
+
+def set_approval_mode(enabled: bool):
+    bot_settings["approval_mode"] = "on" if enabled else "off"
+
+def get_otp_redirect_mode() -> str:
+    return bot_settings.get("otp_redirect_mode", "pool")
+
+def set_otp_redirect_mode(mode: str):
+    bot_settings["otp_redirect_mode"] = mode
+
+def resolve_otp_url(pool_otp_link: str) -> str:
+    if get_otp_redirect_mode() == "hardcoded":
+        return HARDCODED_OTP_GROUP
+    return pool_otp_link or "https://t.me/frank_otp_forwardeer"
 
 def has_pool_access(pool_id: int, user_id: int) -> bool:
     if is_admin(user_id):
@@ -228,18 +241,15 @@ def has_pool_access(pool_id: int, user_id: int) -> bool:
     return user_id in restricted
 
 def grant_pool_access(pool_id: int, user_id: int):
-    if pool_id not in pool_access:
-        pool_access[pool_id] = set()
-    pool_access[pool_id].add(user_id)
+    pool_access.setdefault(pool_id, set()).add(user_id)
 
 def revoke_pool_access(pool_id: int, user_id: int):
     if pool_id in pool_access:
         pool_access[pool_id].discard(user_id)
 
 def get_pool_access_users(pool_id: int) -> List[Dict]:
-    users_in_pool = pool_access.get(pool_id, set())
     result = []
-    for uid in users_in_pool:
+    for uid in pool_access.get(pool_id, set()):
         u = users.get(uid)
         if u:
             result.append({
@@ -248,6 +258,9 @@ def get_pool_access_users(pool_id: int) -> List[Dict]:
                 "first_name": u.get("username", "")
             })
     return result
+
+def pool_is_restricted(pool_id: int) -> bool:
+    return len(pool_access.get(pool_id, set())) > 0
 
 def normalize_number(raw: str) -> str:
     s = re.sub(r'[^\d+]', '', raw)
@@ -267,8 +280,7 @@ def add_bad_number(number: str, marked_by: int, reason: str = "marked as bad"):
         "marked_by": marked_by,
         "marked_at": utcnow().isoformat()
     }
-    # Remove from active numbers
-    for pool_id, numbers in active_numbers.items():
+    for pid, numbers in active_numbers.items():
         if number in numbers:
             numbers.remove(number)
 
@@ -297,16 +309,14 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
                 selected = num
                 break
     if not selected and numbers:
-        selected = numbers[-1]  # Last in list (newest)
+        selected = numbers[-1]
     
     if not selected:
         return None
     
-    # Remove from active
     numbers.remove(selected)
     active_numbers[pool_id] = numbers
     
-    # Create assignment
     pool = pools.get(pool_id, {})
     assignment = {
         "id": assignment_counter,
@@ -326,6 +336,7 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
         "pool_name": pool.get("name", "Unknown"),
         "pool_code": pool.get("country_code", ""),
         "otp_link": pool.get("otp_link", ""),
+        "otp_group_id": pool.get("otp_group_id"),
         "uses_platform": pool.get("uses_platform", 0),
         "match_format": pool.get("match_format", "5+4"),
         "telegram_match_format": pool.get("telegram_match_format", ""),
@@ -351,12 +362,15 @@ def get_current_assignment(user_id: int) -> Optional[Dict]:
                 "pool_id": a["pool_id"],
                 "country_code": pool.get("country_code", ""),
                 "otp_link": pool.get("otp_link", ""),
-                "trick_text": pool.get("trick_text", ""),
                 "otp_group_id": pool.get("otp_group_id"),
+                "trick_text": pool.get("trick_text", ""),
                 "match_format": pool.get("match_format", "5+4"),
                 "telegram_match_format": pool.get("telegram_match_format", "")
             }
     return None
+
+def _get_custom_buttons() -> List[Dict]:
+    return custom_buttons
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PLATFORM MONITORING
@@ -387,6 +401,11 @@ async def _get_platform_token() -> Optional[str]:
     if not _platform_token:
         return await _platform_login()
     return _platform_token
+
+async def _refresh_token_on_401() -> Optional[str]:
+    global _platform_token
+    _platform_token = None
+    return await _platform_login()
 
 def _build_mask(number: str, match_format: str):
     try:
@@ -437,7 +456,7 @@ async def _platform_monitor_number(user_id: int, assigned_number: str, match_for
                     timeout=10
                 ) as resp:
                     if resp.status == 401:
-                        _platform_token = None
+                        await _refresh_token_on_401()
                         await asyncio.sleep(PLATFORM_POLL_INTERVAL)
                         continue
                     if resp.status != 200:
@@ -460,7 +479,7 @@ async def _platform_monitor_number(user_id: int, assigned_number: str, match_for
                         otp = msg.get("otp") or "N/A"
                         raw_message = msg.get("message", "")
                         
-                        # Save OTP
+                        global otp_counter
                         otp_entry = {
                             "id": otp_counter,
                             "user_id": user_id,
@@ -470,8 +489,8 @@ async def _platform_monitor_number(user_id: int, assigned_number: str, match_for
                             "delivered_at": utcnow().isoformat()
                         }
                         otp_logs.append(otp_entry)
+                        otp_counter += 1
                         
-                        # Send to user via WebSocket
                         otp_data = {
                             "type": "otp",
                             "id": otp_counter,
@@ -489,9 +508,7 @@ async def _platform_monitor_number(user_id: int, assigned_number: str, match_for
                             "delivered_at": utcnow().isoformat()
                         })
                         
-                        # Compliance
                         await compliance_record_otp_delivered(user_id)
-                        
                         log.info(f"[PlatformMonitor] OTP sent to user {user_id}: {otp}")
                         return
         except asyncio.CancelledError:
@@ -529,7 +546,7 @@ async def _platform_stock_watcher():
                     timeout=15
                 ) as resp:
                     if resp.status == 401:
-                        _platform_token = None
+                        await _refresh_token_on_401()
                         await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
                         continue
                     if resp.status != 200:
@@ -552,7 +569,6 @@ async def _platform_stock_watcher():
                     _platform_stock_snapshot[country] = count
             
             if changed_countries:
-                # Notify admin (send file with numbers)
                 token = await _get_platform_token()
                 if token:
                     async with aiohttp.ClientSession() as session:
@@ -570,16 +586,13 @@ async def _platform_stock_watcher():
                                 lines = [e.get("phone_number", "").strip()
                                         for e in (dl_data if isinstance(dl_data, list) else [])
                                         if e.get("phone_number")]
-                                if not lines:
-                                    continue
-                                
-                                # Send to admin
-                                await send_to_user(1, {
-                                    "type": "stock_update",
-                                    "country": country,
-                                    "count": country_counts[country],
-                                    "numbers": lines[:100]  # First 100 as preview
-                                })
+                                if lines:
+                                    await send_to_user(1, {
+                                        "type": "stock_update",
+                                        "country": country,
+                                        "count": country_counts[country],
+                                        "numbers": lines[:100]
+                                    })
                             except Exception as e:
                                 log.error(f"[StockWatcher] Error: {e}")
         except asyncio.CancelledError:
@@ -653,12 +666,23 @@ async def request_search_otp(number: str, group_id: int, match_format: str, user
                 await asyncio.sleep(2)
     return False
 
+async def get_cooldown_duplicates(numbers: List[str]) -> List[str]:
+    if not numbers:
+        return []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(COOLDOWN_CHECK_URL, json={"numbers": numbers}, timeout=10) as resp:
+                if resp.status == 200:
+                    return (await resp.json()).get("existing", [])
+    except Exception as e:
+        log.error(f"Failed to reach cooldown bot: {e}")
+    return []
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  COMPLIANCE
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _compliance_post_check(user_id: int):
-    """Post a COMPLIANCE_CHECK to the bridge group"""
     await broadcast_to_compliance({
         "type": "COMPLIANCE_CHECK",
         "user_id": user_id
@@ -678,9 +702,7 @@ async def compliance_record_otp_delivered(user_id: int):
 
 async def connect_user(ws: WebSocket, user_id: int):
     await ws.accept()
-    if user_id not in user_connections:
-        user_connections[user_id] = []
-    user_connections[user_id].append(ws)
+    user_connections.setdefault(user_id, []).append(ws)
     log.info(f"[WS] User {user_id} connected")
 
 async def connect_feed(ws: WebSocket):
@@ -717,27 +739,19 @@ async def broadcast_feed(data: dict):
         disconnect_feed(ws)
 
 async def broadcast_all(data: dict):
-    dead_user = []
     for user_id, conns in user_connections.items():
         for ws in conns:
             try:
                 await ws.send_text(json.dumps(data))
             except Exception:
-                dead_user.append((user_id, ws))
-    for user_id, ws in dead_user:
-        disconnect_user(ws, user_id)
-    
-    dead_feed = []
+                pass
     for ws in feed_connections:
         try:
             await ws.send_text(json.dumps(data))
         except Exception:
-            dead_feed.append(ws)
-    for ws in dead_feed:
-        disconnect_feed(ws)
+            pass
 
 async def broadcast_to_compliance(data: dict):
-    # In production, would send to Telegram bridge group
     pass
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -751,7 +765,6 @@ async def process_expired_saved():
                datetime.fromisoformat(s["expires_at"]) <= now]
     
     for sn in expired:
-        # Find or create pool
         pool = None
         for p in pools.values():
             if p["name"] == sn["pool_name"]:
@@ -759,6 +772,7 @@ async def process_expired_saved():
                 break
         
         if not pool:
+            global pool_counter
             pool_id = pool_counter
             pool_counter += 1
             pool = {
@@ -780,7 +794,6 @@ async def process_expired_saved():
             pools[pool_id] = pool
             active_numbers[pool_id] = []
         
-        # Check if number is bad
         if sn["number"] not in bad_numbers:
             if sn["number"] not in active_numbers.get(pool["id"], []):
                 active_numbers.setdefault(pool["id"], []).append(sn["number"])
@@ -788,7 +801,7 @@ async def process_expired_saved():
         sn["moved"] = True
     
     if expired:
-        log.info(f"[Scheduler] Moved {len(expired)} expired saved numbers to pools")
+        log.info(f"[Scheduler] Moved {len(expired)} expired saved numbers")
 
 async def scheduler():
     while True:
@@ -803,9 +816,8 @@ async def scheduler():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def init_data():
-    global user_counter, pool_counter
+    global user_counter, pool_counter, button_counter
     
-    # Create default admin
     if not users:
         users[1] = {
             "id": 1,
@@ -820,24 +832,22 @@ def init_data():
         user_counter = 2
         log.info("✅ Default admin created: admin / admin123")
     
-    # Create default pools
     if not pools:
         default_pools = [
-            {"name": "Nigeria", "country_code": "234", "number_count": 1250, "trick_text": "Best for WhatsApp"},
-            {"name": "USA", "country_code": "1", "number_count": 842, "trick_text": "Best for Telegram"},
-            {"name": "United Kingdom", "country_code": "44", "number_count": 567},
-            {"name": "Canada", "country_code": "1", "number_count": 321},
-            {"name": "Australia", "country_code": "61", "number_count": 234},
+            {"id": 1, "name": "Nigeria", "country_code": "234", "number_count": 1250, "trick_text": "Best for WhatsApp", "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
+            {"id": 2, "name": "USA", "country_code": "1", "number_count": 842, "trick_text": "Best for Telegram", "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
+            {"id": 3, "name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
+            {"id": 4, "name": "Canada", "country_code": "1", "number_count": 321, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
+            {"id": 5, "name": "Australia", "country_code": "61", "number_count": 234, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
         ]
         
-        for i, p in enumerate(default_pools, 1):
-            pool_id = i
-            pools[pool_id] = {
-                "id": pool_id,
+        for p in default_pools:
+            pools[p["id"]] = {
+                "id": p["id"],
                 "name": p["name"],
                 "country_code": p["country_code"],
-                "otp_group_id": None,
-                "otp_link": "https://t.me/earnplusz",
+                "otp_group_id": p.get("otp_group_id"),
+                "otp_link": p.get("otp_link", "https://t.me/earnplusz"),
                 "match_format": "5+4",
                 "telegram_match_format": "",
                 "uses_platform": 0,
@@ -848,28 +858,21 @@ def init_data():
                 "last_restocked": utcnow().isoformat(),
                 "created_at": utcnow().isoformat()
             }
-            active_numbers[pool_id] = []
-            # Generate demo numbers
+            active_numbers[p["id"]] = []
             for j in range(p.get("number_count", 100)):
                 num = f"+{p['country_code']}{random.randint(7000000000, 7999999999)}"
-                active_numbers[pool_id].append(num)
+                active_numbers[p["id"]].append(num)
         
-        pool_counter = len(pools) + 1
-        log.info(f"✅ Created {len(pools)} default pools")
+        pool_counter = 6
+        log.info(f"✅ Created {len(default_pools)} default pools")
     
-    # Create custom buttons
     if not custom_buttons:
-        default_buttons = [
-            {"label": "📢 Join Channel", "url": "https://t.me/earnplusz", "position": 0},
-            {"label": "📱 Number Channel", "url": "https://t.me/Finalsearchbot", "position": 1},
-        ]
-        for btn in default_buttons:
-            custom_buttons.append({
-                "id": len(custom_buttons) + 1,
-                "label": btn["label"],
-                "url": btn["url"],
-                "position": btn["position"]
-            })
+        custom_buttons.extend([
+            {"id": 1, "label": "📢 Join Channel", "url": "https://t.me/earnplusz", "position": 0},
+            {"id": 2, "label": "📱 Number Channel", "url": "https://t.me/Finalsearchbot", "position": 1},
+        ])
+        button_counter = 3
+        log.info("✅ Created default custom buttons")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  FASTAPI APP
@@ -877,17 +880,16 @@ def init_data():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("Starting Frank Number Bot...")
+    log.info("Starting NEON GRID NETWORK...")
     init_data()
     asyncio.create_task(scheduler())
     asyncio.create_task(_platform_stock_watcher())
     log.info("✅ Scheduler and stock watcher started")
     yield
-    log.info("Shutting down Frank Number Bot...")
+    log.info("Shutting down...")
 
 app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
@@ -897,7 +899,7 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND
+#  FRONTEND - EMBEDDED HTML
 # ══════════════════════════════════════════════════════════════════════════════
 
 FRONTEND_HTML = '''<!DOCTYPE html>
@@ -968,12 +970,12 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .loading { text-align: center; padding: 40px; color: #94a3b8; }
         .spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #0a84ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: flex-end; }
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
         .modal.show { display: flex; }
-        .modal-content { background: white; border-radius: 28px 28px 0 0; max-height: 80vh; overflow-y: auto; width: 100%; animation: slideUp 0.3s ease; }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .modal-content { background: white; border-radius: 28px; max-height: 85vh; overflow-y: auto; width: 100%; max-width: 500px; margin: 20px; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         .modal-header { padding: 20px; border-bottom: 1px solid #e2e8f0; font-weight: 600; font-size: 18px; }
-        .feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 16px; padding: 20px; }
+        .feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 20px; }
         .feedback-btn { background: #f1f5f9; border: none; padding: 12px; border-radius: 40px; font-size: 14px; font-weight: 500; cursor: pointer; }
         .feedback-btn.bad { background: #fee2e2; color: #dc2626; }
         .feedback-btn.good { background: #dcfce7; color: #16a34a; }
@@ -984,9 +986,25 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .auth-input:focus { border-color: #0a84ff; }
         .auth-btn { width: 100%; background: #0a84ff; color: white; border: none; padding: 14px; border-radius: 40px; font-size: 16px; font-weight: 600; margin-top: 8px; cursor: pointer; }
         .auth-switch { text-align: center; margin-top: 16px; color: #64748b; font-size: 13px; }
-        .auth-switch span { color: #0a84ff; font-weight: 600; cursor: pointer; }
         .error-msg { color: #ef4444; font-size: 12px; margin-top: 8px; text-align: center; }
         .admin-badge { background: #f59e0b; color: white; padding: 2px 8px; border-radius: 20px; font-size: 10px; margin-left: 8px; }
+        .fg { margin-bottom: 16px; }
+        .fg label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .fg input, .fg select, .fg textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 14px; outline: none; transition: all 0.2s; }
+        .fg input:focus, .fg select:focus, .fg textarea:focus { border-color: #0a84ff; box-shadow: 0 0 0 2px rgba(10,132,255,0.1); }
+        .brow { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+        .btn { padding: 10px 20px; border-radius: 40px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; }
+        .btn-p { background: #0a84ff; color: white; }
+        .btn-p:hover { background: #0066cc; }
+        .btn-g { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+        .btn-g:hover { background: #e2e8f0; }
+        .btn-d { background: #fee2e2; color: #dc2626; }
+        .btn-d:hover { background: #fecaca; }
+        .admin-grid { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 16px; }
+        .admin-card { background: white; border-radius: 20px; padding: 16px; flex: 1; min-width: 180px; cursor: pointer; border: 1px solid #e2e8f0; text-align: center; transition: all 0.2s; }
+        .admin-card:active { transform: scale(0.97); background: #f8fafc; }
+        .admin-icon { font-size: 32px; margin-bottom: 8px; }
+        .admin-label { font-size: 14px; font-weight: 600; color: #334155; }
     </style>
 </head>
 <body>
@@ -1056,11 +1074,27 @@ FRONTEND_HTML = '''<!DOCTYPE html>
 
     <div id="adminPage" class="page">
         <div class="section-title">🛠️ ADMIN PANEL</div>
-        <div class="number-card"><div class="number-label">System Stats</div><div id="adminStats" style="font-size: 14px;"></div></div>
-        <div class="number-card"><div class="number-label">Broadcast Message</div><textarea id="broadcastMsg" rows="3" style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid #e2e8f0; margin: 12px 0;"></textarea><button class="filter-btn" onclick="sendBroadcast()">📢 Send</button></div>
-        <div class="section-title">Users</div><div id="adminUsersList" class="saved-list"></div>
-        <div class="section-title">Bad Numbers</div><div id="adminBadList" class="saved-list"></div>
-        <div class="section-title">Reviews</div><div id="adminReviewsList" class="saved-list"></div>
+        <div class="admin-grid">
+            <div class="admin-card" onclick="loadAdminStats()"><div class="admin-icon">📊</div><div class="admin-label">Stats</div></div>
+            <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-icon">➕</div><div class="admin-label">Create Pool</div></div>
+            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload Numbers</div></div>
+            <div class="admin-card" onclick="loadUsersList()"><div class="admin-icon">👥</div><div class="admin-label">Users</div></div>
+            <div class="admin-card" onclick="loadBadNumbers()"><div class="admin-icon">🚫</div><div class="admin-label">Bad Numbers</div></div>
+            <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
+            <div class="admin-card" onclick="showBroadcast()"><div class="admin-icon">📢</div><div class="admin-label">Broadcast</div></div>
+            <div class="admin-card" onclick="showSettings()"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
+        </div>
+        <div id="adminStatsDiv" class="number-card" style="display: none;"></div>
+        <div id="adminUsersDiv" class="saved-list" style="display: none;"></div>
+        <div id="adminBadDiv" class="saved-list" style="display: none;"></div>
+        <div id="adminReviewsDiv" class="saved-list" style="display: none;"></div>
+        <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:16px;margin-bottom:12px;"></textarea><button class="filter-btn" onclick="sendBroadcast()">Send Broadcast</button></div>
+        <div id="adminSettingsDiv" class="number-card" style="display: none;">
+            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div>
+            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div>
+            <button class="filter-btn" onclick="saveSettings()">Save Settings</button>
+        </div>
+        <div id="poolsList" class="saved-list"></div>
     </div>
 
     <div class="bottom-nav">
@@ -1072,7 +1106,12 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 </div>
 
-<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid #e2e8f0;"></textarea><button class="filter-btn" style="margin-top: 12px; width: 100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
+<!-- Modals -->
+<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID (Telegram) *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link (Telegram Channel)</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-g" onclick="closePoolModal()">Cancel</button><button class="btn btn-p" onclick="savePool()">Save Pool</button></div></div></div></div>
+
+<div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-g" onclick="closeUploadModal()">Cancel</button><button class="btn btn-p" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
+
+<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:16px;"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
 
 <script>
 const API_BASE = window.location.origin;
@@ -1101,7 +1140,7 @@ async function checkAuth() {
             if (currentUser.is_admin) {
                 document.getElementById('adminBadge').style.display = 'block';
                 document.getElementById('adminNavItem').style.display = 'flex';
-                loadAdminData();
+                loadAdminPools();
             }
             connectWebSocket();
             loadRegions();
@@ -1299,31 +1338,231 @@ async function loadHistory() {
     } catch(e) {}
 }
 
-async function loadAdminData() {
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' });
-        const stats = await res.json();
-        document.getElementById('adminStats').innerHTML = `<div>📊 Users: ${stats.total_users}</div><div>⏳ Pending: ${stats.pending_approval}</div><div>🌍 Pools: ${stats.total_pools}</div><div>📞 Numbers: ${stats.total_numbers}</div><div>🔑 OTPs: ${stats.total_otps}</div><div>🚫 Bad: ${stats.bad_numbers}</div><div>💾 Saved: ${stats.saved_numbers}</div><div>🟢 Online: ${stats.online_users}</div>`;
-        
-        const usersRes = await fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' });
-        const users = await usersRes.json();
-        document.getElementById('adminUsersList').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id}</div></div><div>${!u.is_approved ? `<button onclick="approveUser(${u.id})" style="background:#10b981;color:white;border:none;padding:6px 12px;border-radius:20px;">Approve</button>` : ''}${u.is_blocked ? `<button onclick="unblockUser(${u.id})" style="background:#f59e0b;border:none;padding:6px 12px;border-radius:20px;">Unblock</button>` : `<button onclick="blockUser(${u.id})" style="background:#ef4444;border:none;padding:6px 12px;border-radius:20px;">Block</button>`}</div></div>`).join('');
-        
-        const badRes = await fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' });
-        const bad = await badRes.json();
-        document.getElementById('adminBadList').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button onclick="removeBadNumber('${b.number}')" style="background:#ef4444;color:white;border:none;padding:6px 12px;border-radius:20px;">Remove</button></div></div>`).join('');
-        
-        const reviewsRes = await fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' });
-        const reviews = await reviewsRes.json();
-        document.getElementById('adminReviewsList').innerHTML = reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">${r.comment || 'No comment'}</div></div><div>⭐ ${r.rating}</div></div>`).join('');
-    } catch(e) {}
+// Admin functions
+let currentEditPoolId = null;
+
+function openCreatePoolModal() {
+    currentEditPoolId = null;
+    document.getElementById('poolModalTitle').textContent = 'Create New Pool';
+    document.getElementById('poolName').value = '';
+    document.getElementById('poolCode').value = '';
+    document.getElementById('poolGroupId').value = '';
+    document.getElementById('poolOtpLink').value = '';
+    document.getElementById('poolMatchFormat').value = '5+4';
+    document.getElementById('poolTelegramMatchFormat').value = '';
+    document.getElementById('poolUsesPlatform').value = '0';
+    document.getElementById('poolTrickText').value = '';
+    document.getElementById('poolAdminOnly').checked = false;
+    document.getElementById('poolPaused').checked = false;
+    document.getElementById('pauseReasonDiv').style.display = 'none';
+    document.getElementById('poolModal').classList.add('show');
 }
 
-async function approveUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/approve`, { method: 'POST', credentials: 'include' }); loadAdminData(); }
-async function blockUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/block`, { method: 'POST', credentials: 'include' }); loadAdminData(); }
-async function unblockUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/unblock`, { method: 'POST', credentials: 'include' }); loadAdminData(); }
-async function removeBadNumber(number) { await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' }); loadAdminData(); }
-async function sendBroadcast() { const msg = document.getElementById('broadcastMsg').value; if (!msg) return; await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' }); showToast('Broadcast sent!', 'success'); document.getElementById('broadcastMsg').value = ''; }
+async function openEditPoolModal(poolId) {
+    currentEditPoolId = poolId;
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const pools = await res.json();
+        const pool = pools.find(p => p.id === poolId);
+        if (!pool) return;
+        document.getElementById('poolModalTitle').textContent = `Edit Pool: ${pool.name}`;
+        document.getElementById('poolName').value = pool.name;
+        document.getElementById('poolCode').value = pool.country_code;
+        document.getElementById('poolGroupId').value = pool.otp_group_id || '';
+        document.getElementById('poolOtpLink').value = pool.otp_link || '';
+        document.getElementById('poolMatchFormat').value = pool.match_format || '5+4';
+        document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || '';
+        document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0;
+        document.getElementById('poolTrickText').value = pool.trick_text || '';
+        document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false;
+        document.getElementById('poolPaused').checked = pool.is_paused || false;
+        document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none';
+        document.getElementById('poolPauseReason').value = pool.pause_reason || '';
+        document.getElementById('poolModal').classList.add('show');
+    } catch(e) { showToast('Failed to load pool data', 'error'); }
+}
+
+async function savePool() {
+    const data = {
+        name: document.getElementById('poolName').value.trim(),
+        country_code: document.getElementById('poolCode').value.trim(),
+        otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
+        otp_link: document.getElementById('poolOtpLink').value.trim(),
+        match_format: document.getElementById('poolMatchFormat').value.trim(),
+        telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
+        uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
+        trick_text: document.getElementById('poolTrickText').value.trim(),
+        is_admin_only: document.getElementById('poolAdminOnly').checked,
+        is_paused: document.getElementById('poolPaused').checked,
+        pause_reason: document.getElementById('poolPauseReason').value.trim()
+    };
+    if (!data.name || !data.country_code) { showToast('Pool name and country code are required', 'error'); return; }
+    try {
+        const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
+        const method = currentEditPoolId ? 'PUT' : 'POST';
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data) });
+        if (res.ok) {
+            showToast(currentEditPoolId ? 'Pool updated!' : 'Pool created!', 'success');
+            closePoolModal();
+            loadAdminPools();
+        } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool', 'error'); }
+    } catch(e) { showToast('Network error', 'error'); }
+}
+
+function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); currentEditPoolId = null; }
+
+async function loadAdminPools() {
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const pools = await res.json();
+        const container = document.getElementById('poolsList');
+        if (!pools.length) { container.innerHTML = '<div class="loading">No pools</div>'; return; }
+        container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-g btn-sm" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-d btn-sm" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join('');
+    } catch(e) { console.error(e); }
+}
+
+async function deletePool(poolId, poolName) {
+    if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers? This cannot be undone!`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' });
+        if (res.ok) { showToast(`Pool "${poolName}" deleted`, 'success'); loadAdminPools(); }
+        else { showToast('Failed to delete pool', 'error'); }
+    } catch(e) { showToast('Network error', 'error'); }
+}
+
+async function openUploadModal() {
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const pools = await res.json();
+        const select = document.getElementById('uploadPoolSelect');
+        select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p => `<option value="${p.id}">${p.name} (+${p.country_code}) - ${p.number_count} numbers</option>`).join('');
+        document.getElementById('uploadModal').classList.add('show');
+    } catch(e) { showToast('Failed to load pools', 'error'); }
+}
+
+function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); document.getElementById('uploadResult').innerHTML = ''; document.getElementById('uploadFile').value = ''; }
+
+async function uploadNumbers() {
+    const poolId = document.getElementById('uploadPoolSelect').value;
+    const fileInput = document.getElementById('uploadFile');
+    if (!poolId) { showToast('Select a pool', 'error'); return; }
+    if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file', 'error'); return; }
+    const formData = new FormData(); formData.append('file', fileInput.files[0]);
+    try {
+        const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById('uploadResult').innerHTML = `<div style="background:#10b98120;padding:12px;border-radius:8px;">✅ Added: ${data.added}<br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`;
+            showToast(`${data.added} numbers uploaded!`, 'success');
+            loadAdminPools();
+        } else { showToast(data.detail || 'Upload failed', 'error'); }
+    } catch(e) { showToast('Network error', 'error'); }
+}
+
+function loadAdminStats() {
+    fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' })
+        .then(res => res.json())
+        .then(stats => {
+            document.getElementById('adminStatsDiv').innerHTML = `<div class="number-card"><div class="number-label">System Stats</div><div>📊 Users: ${stats.total_users}</div><div>⏳ Pending: ${stats.pending_approval}</div><div>🌍 Pools: ${stats.total_pools}</div><div>📞 Numbers: ${stats.total_numbers}</div><div>🔑 OTPs: ${stats.total_otps}</div><div>🚫 Bad: ${stats.bad_numbers}</div><div>💾 Saved: ${stats.saved_numbers}</div><div>🟢 Online: ${stats.online_users}</div></div>`;
+            document.getElementById('adminStatsDiv').style.display = 'block';
+            document.getElementById('adminUsersDiv').style.display = 'none';
+            document.getElementById('adminBadDiv').style.display = 'none';
+            document.getElementById('adminReviewsDiv').style.display = 'none';
+            document.getElementById('adminBroadcastDiv').style.display = 'none';
+            document.getElementById('adminSettingsDiv').style.display = 'none';
+        });
+}
+
+function loadUsersList() {
+    fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' })
+        .then(res => res.json())
+        .then(users => {
+            document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-ok' : 'btn-d'}" onclick="toggleUserBlock(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join('');
+            document.getElementById('adminUsersDiv').style.display = 'block';
+            document.getElementById('adminStatsDiv').style.display = 'none';
+            document.getElementById('adminBadDiv').style.display = 'none';
+            document.getElementById('adminReviewsDiv').style.display = 'none';
+            document.getElementById('adminBroadcastDiv').style.display = 'none';
+            document.getElementById('adminSettingsDiv').style.display = 'none';
+        });
+}
+
+async function toggleUserBlock(userId, block) {
+    const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
+    await fetch(url, { method: 'POST', credentials: 'include' });
+    showToast(block ? 'User blocked' : 'User unblocked', 'success');
+    loadUsersList();
+}
+
+function loadBadNumbers() {
+    fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' })
+        .then(res => res.json())
+        .then(bad => {
+            document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-ok btn-sm" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join('');
+            document.getElementById('adminBadDiv').style.display = 'block';
+            document.getElementById('adminStatsDiv').style.display = 'none';
+            document.getElementById('adminUsersDiv').style.display = 'none';
+            document.getElementById('adminReviewsDiv').style.display = 'none';
+            document.getElementById('adminBroadcastDiv').style.display = 'none';
+            document.getElementById('adminSettingsDiv').style.display = 'none';
+        });
+}
+
+async function removeBadNumber(number) {
+    await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' });
+    showToast('Removed from bad numbers', 'success');
+    loadBadNumbers();
+}
+
+function loadReviews() {
+    fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' })
+        .then(res => res.json())
+        .then(reviews => {
+            document.getElementById('adminReviewsDiv').innerHTML = reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(r.rating)} • ${r.comment || 'No comment'}</div></div></div>`).join('');
+            document.getElementById('adminReviewsDiv').style.display = 'block';
+            document.getElementById('adminStatsDiv').style.display = 'none';
+            document.getElementById('adminUsersDiv').style.display = 'none';
+            document.getElementById('adminBadDiv').style.display = 'none';
+            document.getElementById('adminBroadcastDiv').style.display = 'none';
+            document.getElementById('adminSettingsDiv').style.display = 'none';
+        });
+}
+
+function showBroadcast() {
+    document.getElementById('adminBroadcastDiv').style.display = 'block';
+    document.getElementById('adminStatsDiv').style.display = 'none';
+    document.getElementById('adminUsersDiv').style.display = 'none';
+    document.getElementById('adminBadDiv').style.display = 'none';
+    document.getElementById('adminReviewsDiv').style.display = 'none';
+    document.getElementById('adminSettingsDiv').style.display = 'none';
+}
+
+async function sendBroadcast() {
+    const msg = document.getElementById('broadcastMsg').value;
+    if (!msg) return;
+    await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
+    showToast('Broadcast sent!', 'success');
+    document.getElementById('broadcastMsg').value = '';
+}
+
+function showSettings() {
+    document.getElementById('approvalMode').value = 'on'; // TODO: fetch current
+    document.getElementById('otpRedirect').value = 'pool';
+    document.getElementById('adminSettingsDiv').style.display = 'block';
+    document.getElementById('adminStatsDiv').style.display = 'none';
+    document.getElementById('adminUsersDiv').style.display = 'none';
+    document.getElementById('adminBadDiv').style.display = 'none';
+    document.getElementById('adminReviewsDiv').style.display = 'none';
+    document.getElementById('adminBroadcastDiv').style.display = 'none';
+}
+
+async function saveSettings() {
+    const approval = document.getElementById('approvalMode').value;
+    const redirect = document.getElementById('otpRedirect').value;
+    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' });
+    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' });
+    showToast('Settings saved', 'success');
+}
 
 function navigateTo(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1333,7 +1572,7 @@ function navigateTo(page) {
     if (page === 'numbers') loadRegions();
     if (page === 'saved') loadSavedNumbers();
     if (page === 'history') loadHistory();
-    if (page === 'admin' && currentUser?.is_admin) loadAdminData();
+    if (page === 'admin' && currentUser?.is_admin) loadAdminPools();
 }
 
 document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
@@ -1370,24 +1609,18 @@ class LoginRequest(BaseModel):
 @app.post("/api/auth/register")
 async def register(req: RegisterRequest):
     global user_counter
-    
     username = req.username.strip()
     password = req.password
-    
     if len(username) < 3:
         raise HTTPException(400, "Username must be at least 3 characters")
     if len(password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
-    
-    # Check if username exists
     for u in users.values():
         if u["username"] == username:
             raise HTTPException(400, "Username already taken")
-    
     is_first = len(users) == 0
     user_id = user_counter
     user_counter += 1
-    
     users[user_id] = {
         "id": user_id,
         "username": username,
@@ -1397,45 +1630,33 @@ async def register(req: RegisterRequest):
         "is_blocked": False,
         "created_at": utcnow().isoformat()
     }
-    
     if is_first:
         approved_users.add(user_id)
         token = create_token(user_id)
         resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
         resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
         return resp
-    
     return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest):
     username = req.username.strip()
     password = req.password
-    
     user = None
     for u in users.values():
         if u["username"] == username:
             user = u
             break
-    
     if not user:
         raise HTTPException(401, "Invalid username or password")
-    
     if not verify_password(password, user["password_hash"]):
         raise HTTPException(401, "Invalid username or password")
-    
     if user["is_blocked"]:
         raise HTTPException(403, "Account blocked")
     if not user["is_approved"]:
         raise HTTPException(403, "Account pending approval")
-    
     token = create_token(user["id"])
-    resp = JSONResponse({
-        "ok": True,
-        "user_id": user["id"],
-        "username": user["username"],
-        "is_admin": user["is_admin"]
-    })
+    resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
     resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
     return resp
 
@@ -1452,12 +1673,7 @@ def me(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    return {
-        "id": user["id"],
-        "username": user["username"],
-        "is_admin": user["is_admin"],
-        "is_approved": user["is_approved"]
-    }
+    return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  POOLS ENDPOINTS
@@ -1468,34 +1684,23 @@ def list_pools(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     result = []
     for pid, pool in pools.items():
         if not is_admin(user["id"]) and pool.get("is_admin_only", False):
             continue
         if not has_pool_access(pid, user["id"]):
             continue
-        
         count = len(active_numbers.get(pid, []))
         restricted = len(pool_access.get(pid, set())) > 0
-        
         result.append({
-            "id": pid,
-            "name": pool.get("name", ""),
-            "country_code": pool.get("country_code", ""),
-            "otp_link": pool.get("otp_link", ""),
-            "match_format": pool.get("match_format", "5+4"),
-            "telegram_match_format": pool.get("telegram_match_format", ""),
-            "uses_platform": pool.get("uses_platform", 0),
-            "is_paused": pool.get("is_paused", False),
-            "pause_reason": pool.get("pause_reason", ""),
-            "trick_text": pool.get("trick_text", ""),
-            "is_admin_only": pool.get("is_admin_only", False),
-            "number_count": count,
-            "restricted": restricted,
+            "id": pid, "name": pool.get("name", ""), "country_code": pool.get("country_code", ""),
+            "otp_link": pool.get("otp_link", ""), "otp_group_id": pool.get("otp_group_id"),
+            "match_format": pool.get("match_format", "5+4"), "telegram_match_format": pool.get("telegram_match_format", ""),
+            "uses_platform": pool.get("uses_platform", 0), "is_paused": pool.get("is_paused", False),
+            "pause_reason": pool.get("pause_reason", ""), "trick_text": pool.get("trick_text", ""),
+            "is_admin_only": pool.get("is_admin_only", False), "number_count": count, "restricted": restricted,
             "last_restocked": pool.get("last_restocked")
         })
-    
     return result
 
 class AssignRequest(BaseModel):
@@ -1507,42 +1712,24 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     pool = pools.get(req.pool_id)
     if not pool:
         raise HTTPException(404, "Pool not found")
-    
     if pool.get("is_paused"):
         raise HTTPException(400, f"Pool paused: {pool.get('pause_reason', 'No reason')}")
-    
     if pool.get("is_admin_only") and not is_admin(user["id"]):
         raise HTTPException(403, "Admin only pool")
-    
     if not has_pool_access(req.pool_id, user["id"]):
         raise HTTPException(403, "No access to this pool")
-    
-    # Release current assignment
     release_assignment(user["id"])
-    
-    # Assign new number
     assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
     if not assignment:
         raise HTTPException(400, "No numbers available in this pool")
-    
-    # Send monitor request if otp_group_id exists
     if pool.get("otp_group_id"):
         match_format = assignment.get("telegram_match_format") or assignment.get("match_format", "5+4")
-        await request_monitor_bot(
-            number=assignment["number"],
-            group_id=pool["otp_group_id"],
-            match_format=match_format,
-            user_id=user["id"]
-        )
-    
-    # Start platform monitor if needed
+        await request_monitor_bot(number=assignment["number"], group_id=pool["otp_group_id"], match_format=match_format, user_id=user["id"])
     if pool.get("uses_platform") in (MONITOR_PLATFORM, MONITOR_BOTH):
         start_platform_monitor(user["id"], assignment["number"], assignment.get("match_format", "5+4"))
-    
     return assignment
 
 @app.get("/api/pools/my-assignment")
@@ -1550,17 +1737,226 @@ def my_assignment(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    assignment = get_current_assignment(user["id"])
-    return {"assignment": assignment}
+    return {"assignment": get_current_assignment(user["id"])}
 
 @app.post("/api/pools/release/{assignment_id}")
 def release_number(assignment_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     release_assignment(user["id"], assignment_id)
+    return {"ok": True}
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN POOL MANAGEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class PoolCreate(BaseModel):
+    name: str
+    country_code: str
+    otp_group_id: Optional[int] = None
+    otp_link: Optional[str] = ""
+    match_format: Optional[str] = "5+4"
+    telegram_match_format: Optional[str] = ""
+    uses_platform: Optional[int] = 0
+    trick_text: Optional[str] = ""
+    is_admin_only: Optional[bool] = False
+    is_paused: Optional[bool] = False
+    pause_reason: Optional[str] = ""
+
+@app.post("/api/admin/pools")
+def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
+    global pool_counter
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    for p in pools.values():
+        if p["name"] == req.name:
+            raise HTTPException(400, "Pool name already exists")
+    pool_id = pool_counter
+    pool_counter += 1
+    pools[pool_id] = {
+        "id": pool_id, "name": req.name, "country_code": req.country_code,
+        "otp_group_id": req.otp_group_id, "otp_link": req.otp_link or "",
+        "match_format": req.match_format, "telegram_match_format": req.telegram_match_format or "",
+        "uses_platform": req.uses_platform, "is_paused": req.is_paused, "pause_reason": req.pause_reason or "",
+        "trick_text": req.trick_text or "", "is_admin_only": req.is_admin_only,
+        "last_restocked": utcnow().isoformat() if not req.is_paused else None, "created_at": utcnow().isoformat()
+    }
+    active_numbers[pool_id] = []
+    return {"ok": True, "id": pool_id}
+
+@app.put("/api/admin/pools/{pool_id}")
+def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    pools[pool_id].update(req.dict(exclude_unset=True))
+    return {"ok": True}
+
+@app.delete("/api/admin/pools/{pool_id}")
+def delete_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    del pools[pool_id]
+    active_numbers.pop(pool_id, None)
+    pool_access.pop(pool_id, None)
+    return {"ok": True}
+
+@app.post("/api/admin/pools/{pool_id}/upload")
+async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    content = await file.read()
+    lines = content.decode("utf-8", errors="ignore").splitlines()
+    numbers = []
+    phone_re = re.compile(r'(\+?\d{6,15})')
+    for line in lines:
+        m = phone_re.search(line.strip())
+        if m:
+            numbers.append(m.group(1))
+    if not numbers:
+        raise HTTPException(400, "No valid numbers found")
+    filtered = []
+    skipped_bad = 0
+    for num in numbers:
+        if num in bad_numbers:
+            skipped_bad += 1
+        else:
+            filtered.append(num)
+    cooldown_dups = await get_cooldown_duplicates(filtered)
+    skipped_cooldown = len(cooldown_dups)
+    filtered = [n for n in filtered if n not in cooldown_dups]
+    new_numbers = []
+    duplicates = 0
+    for num in filtered:
+        if num in uploaded_numbers:
+            duplicates += 1
+        else:
+            new_numbers.append(num)
+            uploaded_numbers.add(num)
+    added = 0
+    for num in new_numbers:
+        if num not in active_numbers.get(pool_id, []):
+            active_numbers.setdefault(pool_id, []).append(num)
+            added += 1
+    pools[pool_id]["last_restocked"] = utcnow().isoformat()
+    if added > 0:
+        asyncio.create_task(broadcast_all({"type": "notification", "message": f"📦 Numbers Restocked! {added} new numbers added to {pools[pool_id]['name']} region."}))
+    return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
+
+@app.get("/api/admin/pools/{pool_id}/export")
+def export_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    numbers = active_numbers.get(pool_id, [])
+    return Response(content="\n".join(numbers), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename=pool_{pool_id}.txt"})
+
+@app.post("/api/admin/pools/{pool_id}/cut")
+def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    numbers = active_numbers.get(pool_id, [])
+    removed = numbers[:count]
+    active_numbers[pool_id] = numbers[count:]
+    return {"ok": True, "removed": len(removed)}
+
+@app.post("/api/admin/pools/{pool_id}/clear")
+def clear_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    deleted_count = len(active_numbers.get(pool_id, []))
+    active_numbers[pool_id] = []
+    return {"ok": True, "deleted": deleted_count}
+
+@app.post("/api/admin/pools/{pool_id}/pause")
+def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    pools[pool_id]["is_paused"] = True
+    pools[pool_id]["pause_reason"] = reason
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ Region {pools[pool_id]['name']} is paused. {reason}"}))
+    return {"ok": True}
+
+@app.post("/api/admin/pools/{pool_id}/resume")
+def resume_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    pools[pool_id]["is_paused"] = False
+    pools[pool_id]["pause_reason"] = ""
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ Region {pools[pool_id]['name']} is now available!"}))
+    return {"ok": True}
+
+@app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
+def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
+    return {"ok": True, "is_admin_only": pools[pool_id]["is_admin_only"]}
+
+@app.post("/api/admin/pools/{pool_id}/trick")
+def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools:
+        raise HTTPException(404, "Pool not found")
+    pools[pool_id]["trick_text"] = trick_text
+    return {"ok": True}
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POOL ACCESS CONTROL
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/pools/{pool_id}/access")
+def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    return get_pool_access_users(pool_id)
+
+@app.post("/api/admin/pools/{pool_id}/access/{user_id}")
+def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if pool_id not in pools or user_id not in users:
+        raise HTTPException(404, "Not found")
+    grant_pool_access(pool_id, user_id)
+    return {"ok": True}
+
+@app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
+def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    revoke_pool_access(pool_id, user_id)
     return {"ok": True}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1577,45 +1973,16 @@ class MonitorResultPayload(BaseModel):
 @app.post("/api/otp/monitor-result")
 async def monitor_result(payload: MonitorResultPayload):
     global otp_counter
-    
     if SHARED_SECRET and payload.secret != SHARED_SECRET:
         raise HTTPException(403, "Invalid secret")
-    
     log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
-    
-    # Save OTP
-    otp_entry = {
-        "id": otp_counter,
-        "user_id": payload.user_id,
-        "number": payload.number,
-        "otp_code": payload.otp,
-        "raw_message": payload.raw_message,
-        "delivered_at": utcnow().isoformat()
-    }
+    otp_entry = {"id": otp_counter, "user_id": payload.user_id, "number": payload.number, "otp_code": payload.otp, "raw_message": payload.raw_message, "delivered_at": utcnow().isoformat()}
     otp_logs.append(otp_entry)
     otp_counter += 1
-    
-    # Send to user
-    otp_data = {
-        "type": "otp",
-        "id": otp_entry["id"],
-        "number": payload.number,
-        "otp": payload.otp,
-        "raw_message": payload.raw_message,
-        "delivered_at": otp_entry["delivered_at"],
-        "auto_delete_seconds": OTP_AUTO_DELETE_DELAY
-    }
+    otp_data = {"type": "otp", "id": otp_entry["id"], "number": payload.number, "otp": payload.otp, "raw_message": payload.raw_message, "delivered_at": otp_entry["delivered_at"], "auto_delete_seconds": OTP_AUTO_DELETE_DELAY}
     await send_to_user(payload.user_id, otp_data)
-    await broadcast_feed({
-        "type": "feed_otp",
-        "number": payload.number,
-        "otp": payload.otp,
-        "delivered_at": otp_entry["delivered_at"]
-    })
-    
-    # Compliance
+    await broadcast_feed({"type": "feed_otp", "number": payload.number, "otp": payload.otp, "delivered_at": otp_entry["delivered_at"]})
     await compliance_record_otp_delivered(payload.user_id)
-    
     return {"ok": True}
 
 @app.get("/api/otp/my")
@@ -1623,17 +1990,22 @@ def my_otps(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     user_otps = [o for o in otp_logs if o["user_id"] == user["id"]]
     user_otps.sort(key=lambda x: x["delivered_at"], reverse=True)
-    
-    return [{
-        "id": o["id"],
-        "number": o["number"],
-        "otp_code": o["otp_code"],
-        "raw_message": o.get("raw_message", ""),
-        "delivered_at": o["delivered_at"]
-    } for o in user_otps[:50]]
+    return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
+
+@app.post("/api/otp/search")
+async def search_otp(number: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    for a in archived_numbers:
+        if a["user_id"] == user["id"] and a["number"] == number:
+            pool = pools.get(a["pool_id"])
+            if pool and pool.get("otp_group_id"):
+                await request_search_otp(number=number, group_id=pool["otp_group_id"], match_format=pool.get("telegram_match_format") or pool.get("match_format", "5+4"), user_id=user["id"])
+                return {"ok": True, "message": f"Searching OTP for {number}"}
+    raise HTTPException(404, "Number not found in your history")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SAVED NUMBERS ENDPOINTS
@@ -1647,79 +2019,37 @@ class SaveRequest(BaseModel):
 @app.post("/api/saved")
 def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
     global saved_counter
-    
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     expires_at = utcnow() + timedelta(minutes=req.timer_minutes)
     saved = 0
-    skipped = 0
-    
     for number in req.numbers:
         number = number.strip()
         if not number:
             continue
-        
-        # Check if already saved
         existing = [s for s in saved_numbers if s["user_id"] == user["id"] and s["number"] == number and not s.get("moved", False)]
         if existing:
-            skipped += 1
             continue
-        
-        saved_numbers.append({
-            "id": saved_counter,
-            "user_id": user["id"],
-            "number": number,
-            "country": "",
-            "pool_name": req.pool_name,
-            "expires_at": expires_at.isoformat(),
-            "moved": False,
-            "created_at": utcnow().isoformat()
-        })
+        saved_numbers.append({"id": saved_counter, "user_id": user["id"], "number": number, "country": "", "pool_name": req.pool_name, "expires_at": expires_at.isoformat(), "moved": False, "created_at": utcnow().isoformat()})
         saved_counter += 1
         saved += 1
-    
-    return {"ok": True, "saved": saved, "skipped": skipped, "expires_at": expires_at.isoformat()}
+    return {"ok": True, "saved": saved, "expires_at": expires_at.isoformat()}
 
 @app.get("/api/saved")
 def list_saved(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     user_saved = [s for s in saved_numbers if s["user_id"] == user["id"]]
     user_saved.sort(key=lambda x: x["expires_at"])
-    
     now = utcnow()
     result = []
-    
     for s in user_saved:
         expires = datetime.fromisoformat(s["expires_at"])
         seconds_left = max(0, int((expires - now).total_seconds()))
-        
-        if s.get("moved", False):
-            status = "ready"
-        elif seconds_left == 0:
-            status = "expired"
-        elif seconds_left < 600:
-            status = "red"
-        elif seconds_left < 3600:
-            status = "yellow"
-        else:
-            status = "green"
-        
-        result.append({
-            "id": s["id"],
-            "number": s["number"],
-            "country": s.get("country", ""),
-            "pool_name": s["pool_name"],
-            "expires_at": s["expires_at"],
-            "seconds_left": seconds_left,
-            "status": status,
-            "moved": s.get("moved", False)
-        })
-    
+        status = "ready" if s.get("moved") else ("expired" if seconds_left == 0 else ("red" if seconds_left < 600 else ("yellow" if seconds_left < 3600 else "green")))
+        result.append({"id": s["id"], "number": s["number"], "country": s.get("country", ""), "pool_name": s["pool_name"], "expires_at": s["expires_at"], "seconds_left": seconds_left, "status": status, "moved": s.get("moved", False)})
     return result
 
 @app.get("/api/saved/ready")
@@ -1727,31 +2057,13 @@ def ready_numbers(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     ready = [s for s in saved_numbers if s["user_id"] == user["id"] and s.get("moved", False)]
     ready.sort(key=lambda x: x["created_at"], reverse=True)
-    
     result = []
     for s in ready:
-        pool = None
-        for p in pools.values():
-            if p["name"] == s["pool_name"]:
-                pool = p
-                break
-        
-        in_pool = False
-        if pool:
-            in_pool = s["number"] in active_numbers.get(pool["id"], [])
-        
-        result.append({
-            "id": s["id"],
-            "number": s["number"],
-            "country": s.get("country", ""),
-            "pool_name": s["pool_name"],
-            "pool_id": pool["id"] if pool else None,
-            "in_pool": in_pool
-        })
-    
+        pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
+        in_pool = pool and s["number"] in active_numbers.get(pool["id"], [])
+        result.append({"id": s["id"], "number": s["number"], "country": s.get("country", ""), "pool_name": s["pool_name"], "pool_id": pool["id"] if pool else None, "in_pool": in_pool})
     return result
 
 @app.put("/api/saved/{saved_id}")
@@ -1759,13 +2071,11 @@ def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     for s in saved_numbers:
         if s["id"] == saved_id and s["user_id"] == user["id"]:
             s["expires_at"] = (utcnow() + timedelta(minutes=timer_minutes)).isoformat()
             s["moved"] = False
             return {"ok": True}
-    
     raise HTTPException(404, "Not found")
 
 @app.delete("/api/saved/{saved_id}")
@@ -1773,12 +2083,10 @@ def delete_saved(saved_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     for i, s in enumerate(saved_numbers):
         if s["id"] == saved_id and s["user_id"] == user["id"]:
             saved_numbers.pop(i)
             return {"ok": True}
-    
     raise HTTPException(404, "Not found")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1794,32 +2102,18 @@ class ReviewRequest(BaseModel):
 @app.post("/api/reviews")
 def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
     global review_counter
-    
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     if not (1 <= req.rating <= 5):
         raise HTTPException(400, "Rating must be 1-5")
-    
-    reviews.append({
-        "id": review_counter,
-        "user_id": user["id"],
-        "number": req.number,
-        "rating": req.rating,
-        "comment": req.comment,
-        "created_at": utcnow().isoformat()
-    })
+    reviews.append({"id": review_counter, "user_id": user["id"], "number": req.number, "rating": req.rating, "comment": req.comment, "created_at": utcnow().isoformat()})
     review_counter += 1
-    
     if req.mark_as_bad or req.rating == 1:
         add_bad_number(req.number, user["id"], req.comment or "Flagged by user")
-    
-    # Release assignment if this is the active number
     current = get_current_assignment(user["id"])
     if current and current["number"] == req.number:
         release_assignment(user["id"])
-    
     return {"ok": True, "marked_bad": req.mark_as_bad or req.rating == 1}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1829,344 +2123,101 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
 @app.get("/api/admin/stats")
 def stats(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     return {
-        "total_users": len(users),
-        "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u["is_blocked"]),
-        "total_pools": len(pools),
-        "total_numbers": sum(len(n) for n in active_numbers.values()),
-        "total_otps": len(otp_logs),
-        "total_assignments": len(archived_numbers),
-        "bad_numbers": len(bad_numbers),
-        "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
+        "total_users": len(users), "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u["is_blocked"]),
+        "total_pools": len(pools), "total_numbers": sum(len(n) for n in active_numbers.values()),
+        "total_otps": len(otp_logs), "total_assignments": len(archived_numbers),
+        "bad_numbers": len(bad_numbers), "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
         "online_users": sum(len(conns) for conns in user_connections.values())
     }
 
 @app.get("/api/admin/users")
 def list_users(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    return [
-        {
-            "id": u["id"],
-            "username": u["username"],
-            "is_admin": u["is_admin"],
-            "is_approved": u["is_approved"],
-            "is_blocked": u["is_blocked"],
-            "created_at": u["created_at"]
-        }
-        for u in users.values()
-    ]
+    return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u["is_blocked"], "created_at": u["created_at"]} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
 def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(token)
-    if not admin or not admin["is_admin"]:
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if user_id in users:
-        approve_user(user_id)
+        approve_user(user_id, user["id"])
+        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved! You can now use the bot."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
 def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(token)
-    if not admin or not admin["is_admin"]:
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if user_id in users:
         block_user(user_id)
+        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked by the administrator."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
 def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(token)
-    if not admin or not admin["is_admin"]:
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if user_id in users:
         unblock_user(user_id)
-        approve_user(user_id)
+        approve_user(user_id, user["id"])
+        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked! You can now use the bot again."}))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
 def list_bad_numbers(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    return [
-        {"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")}
-        for num, data in bad_numbers.items()
-    ]
+    return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
 def remove_bad_number(number: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    if number in bad_numbers:
-        del bad_numbers[number]
+    bad_numbers.pop(number, None)
     return {"ok": True}
 
 @app.get("/api/admin/reviews")
 def list_reviews(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    reviews_sorted = sorted(reviews, key=lambda x: x["created_at"], reverse=True)
-    return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in reviews_sorted[:100]]
+    return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
 
 @app.post("/api/admin/broadcast")
 async def broadcast_message(message: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     await broadcast_all({"type": "broadcast", "message": message})
     return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POOL MANAGEMENT ENDPOINTS (Admin)
-# ══════════════════════════════════════════════════════════════════════════════
-
-class PoolCreate(BaseModel):
-    name: str
-    country_code: str
-    otp_group_id: Optional[int] = None
-    otp_link: Optional[str] = ""
-    match_format: Optional[str] = "5+4"
-    telegram_match_format: Optional[str] = ""
-    uses_platform: Optional[int] = 0
-    trick_text: Optional[str] = ""
-    is_admin_only: Optional[bool] = False
-    is_paused: Optional[bool] = False
-    pause_reason: Optional[str] = ""
-
-@app.post("/api/pools")
-def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
-    global pool_counter
-    
+@app.post("/api/admin/settings/approval")
+def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    # Check if name exists
-    for p in pools.values():
-        if p["name"] == req.name:
-            raise HTTPException(400, "Pool name already exists")
-    
-    pool_id = pool_counter
-    pool_counter += 1
-    
-    pools[pool_id] = {
-        "id": pool_id,
-        "name": req.name,
-        "country_code": req.country_code,
-        "otp_group_id": req.otp_group_id,
-        "otp_link": req.otp_link or "",
-        "match_format": req.match_format,
-        "telegram_match_format": req.telegram_match_format or "",
-        "uses_platform": req.uses_platform,
-        "is_paused": req.is_paused,
-        "pause_reason": req.pause_reason or "",
-        "trick_text": req.trick_text or "",
-        "is_admin_only": req.is_admin_only,
-        "last_restocked": utcnow().isoformat() if not req.is_paused else None,
-        "created_at": utcnow().isoformat()
-    }
-    active_numbers[pool_id] = []
-    
-    return {"ok": True, "id": pool_id}
+    set_approval_mode(enabled)
+    return {"ok": True, "mode": "on" if enabled else "off"}
 
-@app.put("/api/pools/{pool_id}")
-def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
+@app.post("/api/admin/settings/otp-redirect")
+def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    
-    pool = pools[pool_id]
-    pool.update({
-        "name": req.name,
-        "country_code": req.country_code,
-        "otp_group_id": req.otp_group_id,
-        "otp_link": req.otp_link or "",
-        "match_format": req.match_format,
-        "telegram_match_format": req.telegram_match_format or "",
-        "uses_platform": req.uses_platform,
-        "is_paused": req.is_paused,
-        "pause_reason": req.pause_reason or "",
-        "trick_text": req.trick_text or "",
-        "is_admin_only": req.is_admin_only
-    })
-    
-    return {"ok": True}
-
-@app.delete("/api/pools/{pool_id}")
-def delete_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    
-    del pools[pool_id]
-    if pool_id in active_numbers:
-        del active_numbers[pool_id]
-    if pool_id in pool_access:
-        del pool_access[pool_id]
-    
-    return {"ok": True}
-
-@app.post("/api/pools/{pool_id}/upload")
-async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    
-    content = await file.read()
-    lines = content.decode("utf-8", errors="ignore").splitlines()
-    
-    added = 0
-    skipped_bad = 0
-    skipped_dup = 0
-    
-    phone_re = re.compile(r'(\+?\d{6,15})')
-    numbers_set = set(active_numbers.get(pool_id, []))
-    
-    for line in lines:
-        m = phone_re.search(line.strip())
-        if not m:
-            continue
-        
-        number = m.group(1)
-        
-        if number in bad_numbers:
-            skipped_bad += 1
-            continue
-        if number in numbers_set:
-            skipped_dup += 1
-            continue
-        
-        numbers_set.add(number)
-        active_numbers.setdefault(pool_id, []).append(number)
-        added += 1
-    
-    pools[pool_id]["last_restocked"] = utcnow().isoformat()
-    
-    return {
-        "ok": True,
-        "added": added,
-        "skipped_bad": skipped_bad,
-        "skipped_duplicate": skipped_dup
-    }
-
-@app.get("/api/pools/{pool_id}/export")
-def export_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    
-    numbers = active_numbers.get(pool_id, [])
-    content = "\n".join(numbers)
-    
-    return Response(
-        content=content,
-        media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename=pool_{pool_id}.txt"}
-    )
-
-@app.post("/api/pools/{pool_id}/cut")
-def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    
-    numbers = active_numbers.get(pool_id, [])
-    removed = numbers[:count]
-    active_numbers[pool_id] = numbers[count:]
-    
-    return {"ok": True, "removed": len(removed)}
-
-@app.get("/api/pools/{pool_id}/access")
-def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    return get_pool_access_users(pool_id)
-
-@app.post("/api/pools/{pool_id}/access/{user_id}")
-def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if pool_id not in pools:
-        raise HTTPException(404, "Pool not found")
-    if user_id not in users:
-        raise HTTPException(404, "User not found")
-    
-    grant_pool_access(pool_id, user_id)
-    return {"ok": True}
-
-@app.delete("/api/pools/{pool_id}/access/{user_id}")
-def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    revoke_pool_access(pool_id, user_id)
-    return {"ok": True}
+    if mode not in ["pool", "hardcoded"]:
+        raise HTTPException(400, "Mode must be 'pool' or 'hardcoded'")
+    set_otp_redirect_mode(mode)
+    return {"ok": True, "mode": mode}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CUSTOM BUTTONS ENDPOINTS
@@ -2177,42 +2228,27 @@ def get_buttons(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     return [{"label": b["label"], "url": b["url"]} for b in custom_buttons]
 
-@app.post("/api/buttons")
+@app.post("/api/admin/buttons")
 def add_button(label: str, url: str, token: str = Cookie(default=None)):
     global button_counter
-    
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
-    custom_buttons.append({
-        "id": button_counter,
-        "label": label,
-        "url": url,
-        "position": len(custom_buttons)
-    })
+    custom_buttons.append({"id": button_counter, "label": label, "url": url, "position": len(custom_buttons)})
     button_counter += 1
-    
     return {"ok": True}
 
-@app.delete("/api/buttons/{button_id}")
+@app.delete("/api/admin/buttons/{button_id}")
 def delete_button(button_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    if not user["is_admin"]:
+    if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     for i, b in enumerate(custom_buttons):
         if b["id"] == button_id:
             custom_buttons.pop(i)
             return {"ok": True}
-    
     raise HTTPException(404, "Button not found")
 
 # ══════════════════════════════════════════════════════════════════════════════
