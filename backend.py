@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-NEON GRID NETWORK — Complete Platform Backend
-================================================
-Single file with embedded frontend - deploy on Railway
+NEON GRID NETWORK — COMPLETE PLATFORM BACKEND
+===============================================
 All features from numberbot.py converted to web platform
+Single file deployment on Railway
 """
 
 import asyncio
@@ -340,7 +340,8 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
         "uses_platform": pool.get("uses_platform", 0),
         "match_format": pool.get("match_format", "5+4"),
         "telegram_match_format": pool.get("telegram_match_format", ""),
-        "trick_text": pool.get("trick_text", "")
+        "trick_text": pool.get("trick_text", ""),
+        "pool_id": pool_id
     }
 
 def release_assignment(user_id: int, assignment_id: int = None):
@@ -368,6 +369,12 @@ def get_current_assignment(user_id: int) -> Optional[Dict]:
                 "telegram_match_format": pool.get("telegram_match_format", "")
             }
     return None
+
+def get_stored_message_id(user_id: int) -> Optional[int]:
+    return None
+
+def save_message_id(user_id: int, message_id: int):
+    pass
 
 def _get_custom_buttons() -> List[Dict]:
     return custom_buttons
@@ -739,17 +746,24 @@ async def broadcast_feed(data: dict):
         disconnect_feed(ws)
 
 async def broadcast_all(data: dict):
+    dead_user = []
     for user_id, conns in user_connections.items():
         for ws in conns:
             try:
                 await ws.send_text(json.dumps(data))
             except Exception:
-                pass
+                dead_user.append((user_id, ws))
+    for user_id, ws in dead_user:
+        disconnect_user(ws, user_id)
+    
+    dead_feed = []
     for ws in feed_connections:
         try:
             await ws.send_text(json.dumps(data))
         except Exception:
-            pass
+            dead_feed.append(ws)
+    for ws in dead_feed:
+        disconnect_feed(ws)
 
 async def broadcast_to_compliance(data: dict):
     pass
@@ -834,11 +848,11 @@ def init_data():
     
     if not pools:
         default_pools = [
-            {"id": 1, "name": "Nigeria", "country_code": "234", "number_count": 1250, "trick_text": "Best for WhatsApp", "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
-            {"id": 2, "name": "USA", "country_code": "1", "number_count": 842, "trick_text": "Best for Telegram", "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
-            {"id": 3, "name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
-            {"id": 4, "name": "Canada", "country_code": "1", "number_count": 321, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
-            {"id": 5, "name": "Australia", "country_code": "61", "number_count": 234, "otp_link": "https://t.me/earnplusz", "otp_group_id": None},
+            {"id": 1, "name": "Nigeria", "country_code": "234", "number_count": 1250, "trick_text": "Best for WhatsApp", "otp_link": "https://t.me/earnplusz", "otp_group_id": -1003388744078},
+            {"id": 2, "name": "USA", "country_code": "1", "number_count": 842, "trick_text": "Best for Telegram", "otp_link": "https://t.me/earnplusz", "otp_group_id": -1003388744078},
+            {"id": 3, "name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_link": "https://t.me/earnplusz", "otp_group_id": -1003388744078},
+            {"id": 4, "name": "Canada", "country_code": "1", "number_count": 321, "otp_link": "https://t.me/earnplusz", "otp_group_id": -1003388744078},
+            {"id": 5, "name": "Australia", "country_code": "61", "number_count": 234, "otp_link": "https://t.me/earnplusz", "otp_group_id": -1003388744078},
         ]
         
         for p in default_pools:
@@ -846,7 +860,7 @@ def init_data():
                 "id": p["id"],
                 "name": p["name"],
                 "country_code": p["country_code"],
-                "otp_group_id": p.get("otp_group_id"),
+                "otp_group_id": p["otp_group_id"],
                 "otp_link": p.get("otp_link", "https://t.me/earnplusz"),
                 "match_format": "5+4",
                 "telegram_match_format": "",
@@ -899,7 +913,7 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND - EMBEDDED HTML
+#  FRONTEND - EMBEDDED HTML (Full dark mode with all features)
 # ══════════════════════════════════════════════════════════════════════════════
 
 FRONTEND_HTML = '''<!DOCTYPE html>
@@ -910,56 +924,60 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     <title>NEON GRID NETWORK</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #f5f7ff 0%, #eef2ff 100%); min-height: 100vh; padding-bottom: 70px; color: #1e293b; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0c15; min-height: 100vh; padding-bottom: 70px; color: #e2e8f0; }
         .status-bar { background: #0a84ff; padding: 12px 16px 8px; color: white; font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-        .header { background: white; padding: 16px; border-bottom: 1px solid #e2e8f0; }
+        .header { background: #0f121f; padding: 16px; border-bottom: 1px solid #1e293b; }
         .user-info { display: flex; justify-content: space-between; align-items: center; }
         .user-name { font-size: 20px; font-weight: 700; color: #0a84ff; }
-        .user-id { font-size: 12px; color: #64748b; background: #f1f5f9; padding: 4px 10px; border-radius: 20px; }
+        .user-id { font-size: 12px; color: #94a3b8; background: #1e293b; padding: 4px 10px; border-radius: 20px; }
         .balance-card { background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%); border-radius: 24px; padding: 20px; margin: 16px; color: white; box-shadow: 0 8px 24px rgba(10,132,255,0.25); }
         .balance-label { font-size: 14px; opacity: 0.9; margin-bottom: 8px; }
         .balance-amount { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
         .balance-sub { font-size: 12px; opacity: 0.8; }
         .withdraw-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 30px; color: white; font-weight: 600; font-size: 14px; margin-top: 12px; display: inline-block; cursor: pointer; }
-        .section-title { font-size: 16px; font-weight: 600; color: #334155; padding: 16px 16px 8px; }
+        .section-title { font-size: 16px; font-weight: 600; color: #94a3b8; padding: 16px 16px 8px; letter-spacing: 1px; }
         .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 8px 16px; }
-        .menu-card { background: white; border-radius: 20px; padding: 16px; text-align: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #eef2ff; }
-        .menu-card:active { transform: scale(0.97); background: #f8fafc; }
+        .menu-card { background: #0f121f; border-radius: 20px; padding: 16px; text-align: center; cursor: pointer; border: 1px solid #1e293b; transition: all 0.2s; }
+        .menu-card:active { transform: scale(0.97); background: #1a1f2e; }
         .menu-icon { font-size: 32px; margin-bottom: 8px; }
-        .menu-label { font-size: 13px; font-weight: 500; color: #334155; }
-        .menu-desc { font-size: 11px; color: #94a3b8; margin-top: 4px; }
-        .number-card { background: white; margin: 16px; border-radius: 24px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .menu-label { font-size: 13px; font-weight: 500; color: #e2e8f0; }
+        .menu-desc { font-size: 11px; color: #64748b; margin-top: 4px; }
+        .number-card { background: #0f121f; margin: 16px; border-radius: 24px; padding: 20px; border: 1px solid #1e293b; }
         .number-label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
         .number-value { font-size: 28px; font-weight: 700; font-family: monospace; color: #0a84ff; word-break: break-all; margin-bottom: 12px; }
-        .region-badge { display: inline-block; background: #f1f5f9; padding: 4px 12px; border-radius: 20px; font-size: 12px; color: #475569; }
+        .region-badge { display: inline-block; background: #1e293b; padding: 4px 12px; border-radius: 20px; font-size: 12px; color: #94a3b8; }
         .otp-card { background: linear-gradient(135deg, #10b981 0%, #059669 100%); margin: 16px; border-radius: 24px; padding: 20px; color: white; animation: slideIn 0.3s ease; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .otp-code { font-size: 48px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
         .otp-timer { text-align: center; font-size: 14px; opacity: 0.9; }
+        .otp-message { font-size: 12px; opacity: 0.8; margin-top: 12px; word-break: break-word; }
         .region-list { padding: 8px 16px; }
-        .region-item { background: white; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e2e8f0; cursor: pointer; }
-        .region-item:active { background: #f8fafc; }
-        .region-name { font-weight: 500; }
+        .region-item { background: #0f121f; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1e293b; cursor: pointer; transition: all 0.2s; }
+        .region-item:active { background: #1a1f2e; }
+        .region-name { font-weight: 500; color: #e2e8f0; }
         .region-code { font-size: 12px; color: #64748b; }
-        .region-count { background: #f1f5f9; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #0a84ff; }
-        .filter-row { display: flex; gap: 10px; padding: 12px 16px; background: white; margin: 8px 16px; border-radius: 40px; border: 1px solid #e2e8f0; }
-        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; }
-        .filter-btn { background: #0a84ff; color: white; border: none; padding: 6px 16px; border-radius: 30px; font-size: 12px; font-weight: 500; cursor: pointer; }
+        .region-count { background: #1e293b; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #0a84ff; }
+        .filter-row { display: flex; gap: 10px; padding: 12px 16px; background: #0f121f; margin: 8px 16px; border-radius: 40px; border: 1px solid #1e293b; }
+        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: #e2e8f0; }
+        .filter-input::placeholder { color: #475569; }
+        .filter-btn { background: #0a84ff; color: white; border: none; padding: 6px 16px; border-radius: 30px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .filter-btn:active { transform: scale(0.95); }
         .saved-list { padding: 8px 16px; }
-        .saved-item { background: white; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e2e8f0; }
+        .saved-item { background: #0f121f; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1e293b; }
         .saved-number { font-family: monospace; font-weight: 600; color: #0a84ff; }
         .saved-timer { font-size: 12px; color: #64748b; }
         .timer-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-        .timer-green { background: #dcfce7; color: #166534; }
-        .timer-yellow { background: #fef9c3; color: #854d0e; }
-        .timer-red { background: #fee2e2; color: #991b1b; }
-        .timer-ready { background: #dbeafe; color: #1e40af; }
-        .history-item { background: white; border-radius: 16px; padding: 14px; margin-bottom: 10px; border: 1px solid #e2e8f0; }
-        .history-number { font-family: monospace; font-size: 13px; color: #475569; }
+        .timer-green { background: #064e3b; color: #10b981; }
+        .timer-yellow { background: #854d0e; color: #f59e0b; }
+        .timer-red { background: #991b1b; color: #ef4444; }
+        .timer-ready { background: #1e3a8a; color: #60a5fa; }
+        .history-item { background: #0f121f; border-radius: 16px; padding: 14px; margin-bottom: 10px; border: 1px solid #1e293b; }
+        .history-number { font-family: monospace; font-size: 13px; color: #94a3b8; }
         .history-otp { font-size: 20px; font-weight: 700; font-family: monospace; color: #10b981; margin: 8px 0; cursor: pointer; }
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 8px 16px 20px; box-shadow: 0 -4px 12px rgba(0,0,0,0.05); border-top: 1px solid #eef2ff; z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 12px; border-radius: 30px; }
-        .nav-item:active { background: #f1f5f9; }
+        .history-time { font-size: 11px; color: #64748b; }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #0f121f; display: flex; justify-content: space-around; padding: 8px 16px 20px; border-top: 1px solid #1e293b; z-index: 100; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 12px; border-radius: 30px; transition: all 0.2s; }
+        .nav-item:active { background: #1e293b; }
         .nav-icon { font-size: 24px; }
         .nav-label { font-size: 11px; font-weight: 500; color: #64748b; }
         .nav-item.active .nav-label { color: #0a84ff; }
@@ -967,44 +985,44 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .page.active { display: block; }
         .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 20px; border-radius: 40px; font-size: 14px; z-index: 1000; max-width: 90%; text-align: center; animation: fadeInOut 2s ease; }
         @keyframes fadeInOut { 0% { opacity: 0; transform: translateX(-50%) translateY(20px); } 15% { opacity: 1; transform: translateX(-50%) translateY(0); } 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
-        .loading { text-align: center; padding: 40px; color: #94a3b8; }
-        .spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #0a84ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+        .loading { text-align: center; padding: 40px; color: #64748b; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #1e293b; border-top-color: #0a84ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
         .modal.show { display: flex; }
-        .modal-content { background: white; border-radius: 28px; max-height: 85vh; overflow-y: auto; width: 100%; max-width: 500px; margin: 20px; animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .modal-header { padding: 20px; border-bottom: 1px solid #e2e8f0; font-weight: 600; font-size: 18px; }
+        .modal-content { background: #0f121f; border-radius: 28px; max-height: 85vh; overflow-y: auto; width: 100%; max-width: 500px; margin: 20px; border: 1px solid #1e293b; }
+        .modal-header { padding: 20px; border-bottom: 1px solid #1e293b; font-weight: 600; font-size: 18px; color: #e2e8f0; }
         .feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 20px; }
-        .feedback-btn { background: #f1f5f9; border: none; padding: 12px; border-radius: 40px; font-size: 14px; font-weight: 500; cursor: pointer; }
-        .feedback-btn.bad { background: #fee2e2; color: #dc2626; }
-        .feedback-btn.good { background: #dcfce7; color: #16a34a; }
+        .feedback-btn { background: #1e293b; border: none; padding: 12px; border-radius: 40px; font-size: 14px; font-weight: 500; cursor: pointer; color: #e2e8f0; transition: all 0.2s; }
+        .feedback-btn:active { transform: scale(0.97); }
+        .feedback-btn.bad { background: #7f1a1a; color: #fecaca; }
+        .feedback-btn.good { background: #065f46; color: #a7f3d0; }
         .auth-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%); }
-        .auth-card { background: white; border-radius: 32px; padding: 32px 24px; width: 100%; max-width: 320px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+        .auth-card { background: #0f121f; border-radius: 32px; padding: 32px 24px; width: 100%; max-width: 320px; border: 1px solid #1e293b; }
         .auth-logo { text-align: center; font-size: 48px; margin-bottom: 24px; }
-        .auth-input { width: 100%; padding: 14px; border: 1px solid #e2e8f0; border-radius: 40px; font-size: 16px; margin-bottom: 12px; outline: none; }
+        .auth-input { width: 100%; padding: 14px; border: 1px solid #1e293b; border-radius: 40px; font-size: 16px; margin-bottom: 12px; outline: none; background: #1e293b; color: #e2e8f0; }
         .auth-input:focus { border-color: #0a84ff; }
-        .auth-btn { width: 100%; background: #0a84ff; color: white; border: none; padding: 14px; border-radius: 40px; font-size: 16px; font-weight: 600; margin-top: 8px; cursor: pointer; }
-        .auth-switch { text-align: center; margin-top: 16px; color: #64748b; font-size: 13px; }
+        .auth-btn { width: 100%; background: #0a84ff; color: white; border: none; padding: 14px; border-radius: 40px; font-size: 16px; font-weight: 600; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
+        .auth-btn:active { transform: scale(0.97); }
         .error-msg { color: #ef4444; font-size: 12px; margin-top: 8px; text-align: center; }
         .admin-badge { background: #f59e0b; color: white; padding: 2px 8px; border-radius: 20px; font-size: 10px; margin-left: 8px; }
-        .fg { margin-bottom: 16px; }
-        .fg label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .fg input, .fg select, .fg textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 14px; outline: none; transition: all 0.2s; }
-        .fg input:focus, .fg select:focus, .fg textarea:focus { border-color: #0a84ff; box-shadow: 0 0 0 2px rgba(10,132,255,0.1); }
-        .brow { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
-        .btn { padding: 10px 20px; border-radius: 40px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; }
-        .btn-p { background: #0a84ff; color: white; }
-        .btn-p:hover { background: #0066cc; }
-        .btn-g { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
-        .btn-g:hover { background: #e2e8f0; }
-        .btn-d { background: #fee2e2; color: #dc2626; }
-        .btn-d:hover { background: #fecaca; }
         .admin-grid { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 16px; }
-        .admin-card { background: white; border-radius: 20px; padding: 16px; flex: 1; min-width: 180px; cursor: pointer; border: 1px solid #e2e8f0; text-align: center; transition: all 0.2s; }
-        .admin-card:active { transform: scale(0.97); background: #f8fafc; }
-        .admin-icon { font-size: 32px; margin-bottom: 8px; }
-        .admin-label { font-size: 14px; font-weight: 600; color: #334155; }
+        .admin-card { background: #0f121f; border-radius: 20px; padding: 16px; flex: 1; min-width: 150px; cursor: pointer; border: 1px solid #1e293b; text-align: center; transition: all 0.2s; }
+        .admin-card:active { transform: scale(0.97); background: #1a1f2e; }
+        .admin-icon { font-size: 28px; margin-bottom: 8px; }
+        .admin-label { font-size: 13px; font-weight: 500; color: #e2e8f0; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .btn { padding: 8px 16px; border-radius: 40px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
+        .btn-primary { background: #0a84ff; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-secondary { background: #1e293b; color: #e2e8f0; }
+        .btn:active { transform: scale(0.95); }
+        .fg { margin-bottom: 16px; }
+        .fg label { display: block; font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .fg input, .fg select, .fg textarea { width: 100%; padding: 12px; border: 1px solid #1e293b; border-radius: 12px; background: #1e293b; color: #e2e8f0; outline: none; font-size: 14px; }
+        .fg input:focus, .fg select:focus { border-color: #0a84ff; }
+        .brow { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
+        textarea { resize: vertical; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -1016,7 +1034,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
             <h2 style="text-align: center; margin-bottom: 24px; color: #0a84ff;">NEON GRID</h2>
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                 <button id="authLoginTab" class="auth-btn" style="background: #0a84ff; margin: 0;">Login</button>
-                <button id="authRegisterTab" class="auth-btn" style="background: #e2e8f0; color: #334155; margin: 0;">Register</button>
+                <button id="authRegisterTab" class="auth-btn" style="background: #1e293b; color: #94a3b8; margin: 0;">Register</button>
             </div>
             <div id="loginForm">
                 <input type="text" id="loginUsername" class="auth-input" placeholder="Username">
@@ -1030,7 +1048,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 <button class="auth-btn" onclick="doRegister()">Create Account</button>
                 <div id="regError" class="error-msg"></div>
             </div>
-            <div class="auth-switch">First user becomes admin automatically</div>
+            <div class="auth-switch" style="text-align:center; margin-top:16px; color:#64748b;">First user becomes admin automatically</div>
         </div>
     </div>
 </div>
@@ -1051,7 +1069,17 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 
     <div id="numbersPage" class="page">
-        <div class="number-card" id="currentNumberCard"><div class="number-label">YOUR ACTIVE NUMBER</div><div class="number-value" id="currentNumber">—</div><div style="display: flex; justify-content: space-between; align-items: center;"><span class="region-badge" id="currentRegion">No region selected</span><div style="display: flex; gap: 10px;"><button class="withdraw-btn" style="background: #f1f5f9; color: #334155; padding: 6px 16px;" onclick="changeNumber()">🔄 Change</button><button class="withdraw-btn" style="background: #f1f5f9; color: #334155; padding: 6px 16px;" onclick="copyNumber()">📋 Copy</button></div></div></div>
+        <div class="number-card" id="currentNumberCard">
+            <div class="number-label">YOUR ACTIVE NUMBER</div>
+            <div class="number-value" id="currentNumber">—</div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="region-badge" id="currentRegion">No region selected</span>
+                <div style="display: flex; gap: 10px;">
+                    <button class="withdraw-btn" style="background: #1e293b; color: #e2e8f0; padding: 6px 16px;" onclick="changeNumber()">🔄 Change</button>
+                    <button class="withdraw-btn" style="background: #1e293b; color: #e2e8f0; padding: 6px 16px;" onclick="copyNumber()">📋 Copy</button>
+                </div>
+            </div>
+        </div>
         <div id="otpDisplay" style="display: none;"></div>
         <div class="section-title">SELECT REGION</div>
         <div class="filter-row"><input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g., 8101)"><button class="filter-btn" onclick="applyFilter()">Filter</button></div>
@@ -1088,7 +1116,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         <div id="adminUsersDiv" class="saved-list" style="display: none;"></div>
         <div id="adminBadDiv" class="saved-list" style="display: none;"></div>
         <div id="adminReviewsDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:16px;margin-bottom:12px;"></textarea><button class="filter-btn" onclick="sendBroadcast()">Send Broadcast</button></div>
+        <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:16px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;"></textarea><button class="filter-btn" style="margin-top:12px;" onclick="sendBroadcast()">Send Broadcast</button></div>
         <div id="adminSettingsDiv" class="number-card" style="display: none;">
             <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div>
             <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div>
@@ -1106,20 +1134,22 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 </div>
 
-<!-- Modals -->
-<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID (Telegram) *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link (Telegram Channel)</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-g" onclick="closePoolModal()">Cancel</button><button class="btn btn-p" onclick="savePool()">Save Pool</button></div></div></div></div>
+<!-- Pool Modal -->
+<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID (Telegram) *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link (Telegram Channel)</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button><button class="btn btn-primary" onclick="savePool()">Save Pool</button></div></div></div></div>
 
-<div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-g" onclick="closeUploadModal()">Cancel</button><button class="btn btn-p" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
+<!-- Upload Modal -->
+<div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button><button class="btn btn-primary" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
 
-<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:16px;"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
+<!-- Feedback Modal -->
+<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:16px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
 
 <script>
 const API_BASE = window.location.origin;
 let currentUser = null;
 let currentAssignment = null;
+let currentPoolId = null;
 let ws = null;
 let otpTimer = null;
-let pendingFeedbackNumber = null;
 let currentFilter = null;
 let allRegions = [];
 
@@ -1242,6 +1272,7 @@ async function selectRegion(poolId) {
         const data = await res.json();
         if (res.ok) {
             currentAssignment = data;
+            currentPoolId = data.pool_id;
             document.getElementById('currentNumber').textContent = data.number;
             document.getElementById('currentRegion').textContent = data.pool_name;
             showToast(`Number assigned: ${data.number}`, 'success');
@@ -1255,13 +1286,20 @@ async function loadCurrentAssignment() {
     try {
         const res = await fetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
         const data = await res.json();
-        if (data.assignment) { currentAssignment = data.assignment; document.getElementById('currentNumber').textContent = currentAssignment.number; document.getElementById('currentRegion').textContent = currentAssignment.pool_name; }
+        if (data.assignment) {
+            currentAssignment = data.assignment;
+            currentPoolId = data.assignment.pool_id;
+            document.getElementById('currentNumber').textContent = currentAssignment.number;
+            document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
+        }
     } catch(e) {}
 }
 
-function changeNumber() {
-    if (!currentAssignment) { showToast('No active number to change', 'warning'); return; }
-    pendingFeedbackNumber = currentAssignment.number;
+async function changeNumber() {
+    if (!currentAssignment) {
+        showToast('No active number to change', 'warning');
+        return;
+    }
     document.getElementById('feedbackNumber').textContent = currentAssignment.number;
     document.getElementById('feedbackModal').classList.add('show');
 }
@@ -1269,23 +1307,56 @@ function changeNumber() {
 async function submitFeedback(type) {
     const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
     const markAsBad = type === 'bad';
-    if (pendingFeedbackNumber) {
+    
+    if (currentAssignment) {
         await fetch(`${API_BASE}/api/reviews`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ number: pendingFeedbackNumber, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
+            body: JSON.stringify({ 
+                number: currentAssignment.number, 
+                rating: markAsBad ? 1 : 4, 
+                comment: comment, 
+                mark_as_bad: markAsBad 
+            })
         });
-        if (currentAssignment) { await fetch(`${API_BASE}/api/pools/release/${currentAssignment.assignment_id}`, { method: 'POST', credentials: 'include' }); }
-        currentAssignment = null;
-        document.getElementById('currentNumber').textContent = '—';
-        document.getElementById('currentRegion').textContent = 'No region selected';
-        showToast('Number released. Select a new region', 'success');
+        
+        // Release current number
+        await fetch(`${API_BASE}/api/pools/release/${currentAssignment.assignment_id}`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        // Assign new number from SAME POOL automatically
+        if (currentPoolId) {
+            const res = await fetch(`${API_BASE}/api/pools/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ pool_id: currentPoolId })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                currentAssignment = data;
+                document.getElementById('currentNumber').textContent = data.number;
+                document.getElementById('currentRegion').textContent = data.pool_name;
+                document.getElementById('otpDisplay').style.display = 'none';
+                if (otpTimer) clearTimeout(otpTimer);
+                showToast(`New number assigned: ${data.number}`, 'success');
+            } else {
+                showToast('No more numbers in this pool, please select another region', 'warning');
+                currentAssignment = null;
+                currentPoolId = null;
+                document.getElementById('currentNumber').textContent = '—';
+                document.getElementById('currentRegion').textContent = 'No region selected';
+            }
+        }
     }
+    
     document.getElementById('feedbackModal').classList.remove('show');
     document.getElementById('otherFeedbackDiv').style.display = 'none';
     document.getElementById('otherFeedbackText').value = '';
-    pendingFeedbackNumber = null;
+    
     loadRegions();
 }
 
@@ -1417,7 +1488,7 @@ async function loadAdminPools() {
         const pools = await res.json();
         const container = document.getElementById('poolsList');
         if (!pools.length) { container.innerHTML = '<div class="loading">No pools</div>'; return; }
-        container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-g btn-sm" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-d btn-sm" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join('');
+        container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join('');
     } catch(e) { console.error(e); }
 }
 
@@ -1477,7 +1548,7 @@ function loadUsersList() {
     fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' })
         .then(res => res.json())
         .then(users => {
-            document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-ok' : 'btn-d'}" onclick="toggleUserBlock(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join('');
+            document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-primary' : 'btn-danger'}" onclick="toggleUser(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join('');
             document.getElementById('adminUsersDiv').style.display = 'block';
             document.getElementById('adminStatsDiv').style.display = 'none';
             document.getElementById('adminBadDiv').style.display = 'none';
@@ -1487,7 +1558,7 @@ function loadUsersList() {
         });
 }
 
-async function toggleUserBlock(userId, block) {
+async function toggleUser(userId, block) {
     const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
     await fetch(url, { method: 'POST', credentials: 'include' });
     showToast(block ? 'User blocked' : 'User unblocked', 'success');
@@ -1498,7 +1569,7 @@ function loadBadNumbers() {
     fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' })
         .then(res => res.json())
         .then(bad => {
-            document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-ok btn-sm" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join('');
+            document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join('');
             document.getElementById('adminBadDiv').style.display = 'block';
             document.getElementById('adminStatsDiv').style.display = 'none';
             document.getElementById('adminUsersDiv').style.display = 'none';
@@ -1546,7 +1617,7 @@ async function sendBroadcast() {
 }
 
 function showSettings() {
-    document.getElementById('approvalMode').value = 'on'; // TODO: fetch current
+    document.getElementById('approvalMode').value = 'on';
     document.getElementById('otpRedirect').value = 'pool';
     document.getElementById('adminSettingsDiv').style.display = 'block';
     document.getElementById('adminStatsDiv').style.display = 'none';
@@ -1576,8 +1647,8 @@ function navigateTo(page) {
 }
 
 document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
-document.getElementById('authLoginTab').onclick = () => { document.getElementById('loginForm').style.display = 'block'; document.getElementById('registerForm').style.display = 'none'; document.getElementById('authLoginTab').style.background = '#0a84ff'; document.getElementById('authLoginTab').style.color = 'white'; document.getElementById('authRegisterTab').style.background = '#e2e8f0'; document.getElementById('authRegisterTab').style.color = '#334155'; };
-document.getElementById('authRegisterTab').onclick = () => { document.getElementById('loginForm').style.display = 'none'; document.getElementById('registerForm').style.display = 'block'; document.getElementById('authRegisterTab').style.background = '#0a84ff'; document.getElementById('authRegisterTab').style.color = 'white'; document.getElementById('authLoginTab').style.background = '#e2e8f0'; document.getElementById('authLoginTab').style.color = '#334155'; };
+document.getElementById('authLoginTab').onclick = () => { document.getElementById('loginForm').style.display = 'block'; document.getElementById('registerForm').style.display = 'none'; document.getElementById('authLoginTab').style.background = '#0a84ff'; document.getElementById('authLoginTab').style.color = 'white'; document.getElementById('authRegisterTab').style.background = '#1e293b'; document.getElementById('authRegisterTab').style.color = '#94a3b8'; };
+document.getElementById('authRegisterTab').onclick = () => { document.getElementById('loginForm').style.display = 'none'; document.getElementById('registerForm').style.display = 'block'; document.getElementById('authRegisterTab').style.background = '#0a84ff'; document.getElementById('authRegisterTab').style.color = 'white'; document.getElementById('authLoginTab').style.background = '#1e293b'; document.getElementById('authLoginTab').style.color = '#94a3b8'; };
 
 function escapeHtml(t) { if (!t) return ''; return t.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
 
@@ -1727,9 +1798,12 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
         raise HTTPException(400, "No numbers available in this pool")
     if pool.get("otp_group_id"):
         match_format = assignment.get("telegram_match_format") or assignment.get("match_format", "5+4")
-        await request_monitor_bot(number=assignment["number"], group_id=pool["otp_group_id"], match_format=match_format, user_id=user["id"])
-    if pool.get("uses_platform") in (MONITOR_PLATFORM, MONITOR_BOTH):
-        start_platform_monitor(user["id"], assignment["number"], assignment.get("match_format", "5+4"))
+        await request_monitor_bot(
+            number=assignment["number"],
+            group_id=pool["otp_group_id"],
+            match_format=match_format,
+            user_id=user["id"]
+        )
     return assignment
 
 @app.get("/api/pools/my-assignment")
