@@ -3,7 +3,6 @@
 NEON GRID NETWORK — Complete Platform Backend
 =================================================
 All features from numberbot.py converted to web platform
-No email column - username only authentication
 """
 
 import asyncio
@@ -20,7 +19,6 @@ import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
-from collections import defaultdict
 
 import aiohttp
 import uvicorn
@@ -33,9 +31,9 @@ from pydantic import BaseModel
 
 # SQLAlchemy for PostgreSQL
 from sqlalchemy import (create_engine, Column, Integer, String, Boolean, DateTime,
-                        Text, ForeignKey, BigInteger, UniqueConstraint, select, func)
+                        Text, ForeignKey, BigInteger, UniqueConstraint, select, func, text)
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -85,11 +83,9 @@ COMPLIANCE_CODES_PER_CHECK = 5
 COOLDOWN_CHECK_URL = "http://127.0.0.1:8003/check_numbers_exist"
 
 log.info(f"Starting NEON GRID NETWORK on port {PORT}")
-log.info(f"Database: {'PostgreSQL' if DATABASE_URL else 'Memory (fallback)'}")
-log.info(f"Monitor Bot URL: {MONITOR_BOT_URL or 'NOT SET'}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE SETUP
+#  DATABASE SETUP - FIXED TABLE DEFINITIONS (NO EMAIL COLUMN)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if DATABASE_URL:
@@ -104,13 +100,13 @@ if DATABASE_URL:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
 else:
-    log.warning("No DATABASE_URL, running in memory-only mode")
     engine = None
     SessionLocal = None
     Base = None
+    log.warning("No DATABASE_URL, running in memory-only mode")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE MODELS (No Email Column)
+#  DATABASE MODELS (NO EMAIL COLUMN)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if Base:
@@ -220,6 +216,17 @@ if Base:
         granted_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     def init_db():
+        # Drop old tables if they have email column? No - better to alter
+        with engine.connect() as conn:
+            # Check if email column exists and drop it
+            try:
+                conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS email"))
+                conn.commit()
+                log.info("Dropped email column if it existed")
+            except Exception as e:
+                log.info(f"Email column drop not needed: {e}")
+        
+        # Create all tables
         Base.metadata.create_all(bind=engine)
         log.info("Database tables created")
 
@@ -269,6 +276,7 @@ else:
     def init_db():
         log.warning("Using in-memory fallback")
     
+    # In-memory storage
     users = {1: {"id": 1, "username": "admin", "password_hash": hash_password("admin123"), "is_admin": True, "is_approved": True, "is_blocked": False}}
     sessions = {}
     pools = {1: {"id": 1, "name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4"}}
@@ -286,6 +294,7 @@ else:
     _active_platform_tasks = {}
     _platform_stock_snapshot = {}
     bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
+    pool_access = {}
     _counters = {"user": 2, "pool": 2, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "button": 3}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -307,30 +316,31 @@ def verify_password(p: str, hashed: str) -> bool:
     except:
         return False
 
-def create_token(db, user_id: int) -> str:
+def create_token(user_id: int) -> str:
     token = secrets.token_urlsafe(48)
     expires = utcnow() + timedelta(days=30)
     
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.add(UserSession(user_id=user_id, token=token, expires_at=expires))
-            session.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            session = UserSession(user_id=user_id, token=token, expires_at=expires)
+            db.add(session)
+            db.commit()
     else:
         sessions[token] = user_id
     return token
 
-def get_user_from_token(db, token: str):
+def get_user_from_token(token: str):
     if not token:
         return None
     
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            user_session = session.query(UserSession).filter(
+    if SessionLocal:
+        with SessionLocal() as db:
+            user_session = db.query(UserSession).filter(
                 UserSession.token == token,
                 UserSession.expires_at > utcnow()
             ).first()
             if user_session:
-                user = session.query(User).filter(User.id == user_session.user_id).first()
+                user = db.query(User).filter(User.id == user_session.user_id).first()
                 if user and not user.is_blocked:
                     return {"id": user.id, "username": user.username, "is_admin": user.is_admin, "is_approved": user.is_approved}
     else:
@@ -341,71 +351,71 @@ def get_user_from_token(db, token: str):
                 return user
     return None
 
-def revoke_token(db, token: str):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.query(UserSession).filter(UserSession.token == token).delete()
-            session.commit()
+def revoke_token(token: str):
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(UserSession).filter(UserSession.token == token).delete()
+            db.commit()
     else:
         sessions.pop(token, None)
 
-def is_admin(db, user_id: int) -> bool:
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            user = session.query(User).filter(User.id == user_id).first()
+def is_admin(user_id: int) -> bool:
+    if SessionLocal:
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.id == user_id).first()
             return user.is_admin if user else False
     else:
         user = users.get(user_id)
         return user.get("is_admin", False) if user else False
 
-def is_approved(db, user_id: int) -> bool:
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            user = session.query(User).filter(User.id == user_id).first()
+def is_approved(user_id: int) -> bool:
+    if SessionLocal:
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.id == user_id).first()
             return user.is_approved if user else False
     else:
         user = users.get(user_id)
         return user.get("is_approved", False) if user else False
 
-def approve_user(db, user_id: int):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.query(User).filter(User.id == user_id).update({"is_approved": True, "is_blocked": False})
-            session.commit()
+def approve_user(user_id: int):
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(User).filter(User.id == user_id).update({"is_approved": True, "is_blocked": False})
+            db.commit()
     else:
         if user_id in users:
             users[user_id]["is_approved"] = True
             users[user_id]["is_blocked"] = False
 
-def block_user(db, user_id: int):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.query(User).filter(User.id == user_id).update({"is_blocked": True, "is_approved": False})
-            session.commit()
+def block_user(user_id: int):
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(User).filter(User.id == user_id).update({"is_blocked": True, "is_approved": False})
+            db.commit()
     else:
         if user_id in users:
             users[user_id]["is_blocked"] = True
             users[user_id]["is_approved"] = False
 
-def unblock_user(db, user_id: int):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.query(User).filter(User.id == user_id).update({"is_blocked": False, "is_approved": True})
-            session.commit()
+def unblock_user(user_id: int):
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(User).filter(User.id == user_id).update({"is_blocked": False, "is_approved": True})
+            db.commit()
     else:
         if user_id in users:
             users[user_id]["is_blocked"] = False
             users[user_id]["is_approved"] = True
 
-def has_pool_access(db, pool_id: int, user_id: int) -> bool:
-    if is_admin(db, user_id):
+def has_pool_access(pool_id: int, user_id: int) -> bool:
+    if is_admin(user_id):
         return True
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            count = session.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).count()
+    if SessionLocal:
+        with SessionLocal() as db:
+            count = db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).count()
             if count == 0:
                 return True
-            return session.query(PoolAccess).filter(
+            return db.query(PoolAccess).filter(
                 PoolAccess.pool_id == pool_id,
                 PoolAccess.user_id == user_id
             ).first() is not None
@@ -415,40 +425,31 @@ def has_pool_access(db, pool_id: int, user_id: int) -> bool:
             return True
         return user_id in restricted
 
-def get_remaining_count(db, pool_id: int) -> int:
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            return session.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).count()
+def get_remaining_count(pool_id: int) -> int:
+    if SessionLocal:
+        with SessionLocal() as db:
+            return db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).count()
     else:
         return len(active_numbers.get(pool_id, []))
 
-def add_bad_number(db, number: str, marked_by: int, reason: str = "marked as bad"):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            existing = session.query(BadNumber).filter(BadNumber.number == number).first()
+def add_bad_number(number: str, marked_by: int, reason: str = "marked as bad"):
+    if SessionLocal:
+        with SessionLocal() as db:
+            existing = db.query(BadNumber).filter(BadNumber.number == number).first()
             if not existing:
-                session.add(BadNumber(number=number, reason=reason, flagged_by=marked_by))
-            session.query(ActiveNumber).filter(ActiveNumber.number == number).delete()
-            session.commit()
+                db.add(BadNumber(number=number, reason=reason, flagged_by=marked_by))
+            db.query(ActiveNumber).filter(ActiveNumber.number == number).delete()
+            db.commit()
     else:
         bad_numbers[number] = {"number": number, "reason": reason, "marked_by": marked_by, "marked_at": utcnow().isoformat()}
-        for pid, numbers in active_numbers.items():
-            if number in numbers:
-                numbers.remove(number)
+        for pid, nums in active_numbers.items():
+            if number in nums:
+                nums.remove(number)
 
-def save_feedback(db, number: str, user_id: int, feedback: str):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            session.execute(
-                "INSERT INTO feedbacks (number, user_id, feedback, created_at) VALUES (?, ?, ?, ?)",
-                (number, user_id, feedback, utcnow().isoformat())
-            )
-            session.commit()
-
-def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = None):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            query = session.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id)
+def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None):
+    if SessionLocal:
+        with SessionLocal() as db:
+            query = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id)
             if prefix:
                 query = query.filter(ActiveNumber.number.like(f"+{prefix}%"))
             number_row = query.order_by(ActiveNumber.id.desc()).first()
@@ -456,18 +457,18 @@ def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = No
                 return None
             
             number = number_row.number
-            session.delete(number_row)
+            db.delete(number_row)
             
-            pool = session.query(Pool).filter(Pool.id == pool_id).first()
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
             
             assignment = Assignment(
                 user_id=user_id,
                 pool_id=pool_id,
                 number=number
             )
-            session.add(assignment)
-            session.commit()
-            session.refresh(assignment)
+            db.add(assignment)
+            db.commit()
+            db.refresh(assignment)
             
             return {
                 "assignment_id": assignment.id,
@@ -475,6 +476,7 @@ def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = No
                 "pool_name": pool.name if pool else "Unknown",
                 "pool_code": pool.country_code if pool else "",
                 "otp_link": pool.otp_link if pool else "",
+                "otp_group_id": pool.otp_group_id if pool else None,
                 "uses_platform": pool.uses_platform if pool else 0,
                 "match_format": pool.match_format if pool else "5+4",
                 "telegram_match_format": pool.telegram_match_format if pool else "",
@@ -520,6 +522,7 @@ def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = No
             "pool_name": pool.get("name", "Unknown"),
             "pool_code": pool.get("country_code", ""),
             "otp_link": pool.get("otp_link", ""),
+            "otp_group_id": pool.get("otp_group_id"),
             "uses_platform": pool.get("uses_platform", 0),
             "match_format": pool.get("match_format", "5+4"),
             "telegram_match_format": pool.get("telegram_match_format", ""),
@@ -527,17 +530,17 @@ def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = No
             "pool_id": pool_id
         }
 
-def release_assignment(db, user_id: int, assignment_id: int = None):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            query = session.query(Assignment).filter(
+def release_assignment(user_id: int, assignment_id: int = None):
+    if SessionLocal:
+        with SessionLocal() as db:
+            query = db.query(Assignment).filter(
                 Assignment.user_id == user_id,
                 Assignment.released_at == None
             )
             if assignment_id:
                 query = query.filter(Assignment.id == assignment_id)
             query.update({"released_at": utcnow()})
-            session.commit()
+            db.commit()
     else:
         for a in archived_numbers:
             if a["user_id"] == user_id and a.get("released_at") is None:
@@ -545,15 +548,15 @@ def release_assignment(db, user_id: int, assignment_id: int = None):
                     a["released_at"] = utcnow().isoformat()
                     return a
 
-def get_current_assignment(db, user_id: int):
-    if db and SessionLocal:
-        with SessionLocal() as session:
-            assignment = session.query(Assignment).filter(
+def get_current_assignment(user_id: int):
+    if SessionLocal:
+        with SessionLocal() as db:
+            assignment = db.query(Assignment).filter(
                 Assignment.user_id == user_id,
                 Assignment.released_at == None
             ).order_by(Assignment.assigned_at.desc()).first()
             if assignment:
-                pool = session.query(Pool).filter(Pool.id == assignment.pool_id).first()
+                pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
                 return {
                     "assignment_id": assignment.id,
                     "number": assignment.number,
@@ -561,8 +564,8 @@ def get_current_assignment(db, user_id: int):
                     "pool_id": assignment.pool_id,
                     "country_code": pool.country_code if pool else "",
                     "otp_link": pool.otp_link if pool else "",
-                    "trick_text": pool.trick_text if pool else "",
                     "otp_group_id": pool.otp_group_id if pool else None,
+                    "trick_text": pool.trick_text if pool else "",
                     "match_format": pool.match_format if pool else "5+4",
                     "telegram_match_format": pool.telegram_match_format if pool else ""
                 }
@@ -577,8 +580,8 @@ def get_current_assignment(db, user_id: int):
                     "pool_id": a["pool_id"],
                     "country_code": pool.get("country_code", ""),
                     "otp_link": pool.get("otp_link", ""),
-                    "trick_text": pool.get("trick_text", ""),
                     "otp_group_id": pool.get("otp_group_id"),
+                    "trick_text": pool.get("trick_text", ""),
                     "match_format": pool.get("match_format", "5+4"),
                     "telegram_match_format": pool.get("telegram_match_format", "")
                 }
@@ -590,6 +593,10 @@ def get_current_assignment(db, user_id: int):
 
 user_connections = {}
 feed_connections = []
+_platform_token = None
+_active_platform_tasks = {}
+_platform_stock_snapshot = {}
+_compliance_counters = {}
 
 async def connect_user(ws: WebSocket, user_id: int):
     await ws.accept()
@@ -668,33 +675,6 @@ async def request_monitor_bot(number: str, group_id: int, match_format: str, use
                 await asyncio.sleep(2)
     return False
 
-async def request_search_otp(number: str, group_id: int, match_format: str, user_id: int) -> bool:
-    if not MONITOR_BOT_URL:
-        log.error("[SearchOTP] MONITOR_BOT_URL not set!")
-        return False
-    
-    url = f"{MONITOR_BOT_URL}/search-otp-request"
-    payload = {
-        "number": number,
-        "group_id": group_id,
-        "match_format": match_format,
-        "user_id": user_id,
-        "secret": SHARED_SECRET
-    }
-    
-    for attempt in range(3):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=10) as resp:
-                    if resp.status == 200:
-                        log.info(f"[SearchOTP] ✅ SEARCH_OTP_REQUEST sent for {number} user={user_id}")
-                        return True
-        except Exception as e:
-            log.error(f"[SearchOTP] Post failed: {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
-    return False
-
 async def get_cooldown_duplicates(numbers: List[str]) -> List[str]:
     if not numbers:
         return []
@@ -707,18 +687,10 @@ async def get_cooldown_duplicates(numbers: List[str]) -> List[str]:
         log.error(f"Failed to reach cooldown bot: {e}")
     return []
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  COMPLIANCE
-# ══════════════════════════════════════════════════════════════════════════════
-
 async def compliance_record_otp_delivered(user_id: int):
     _compliance_counters[user_id] = _compliance_counters.get(user_id, 0) + 1
     if _compliance_counters[user_id] >= COMPLIANCE_CODES_PER_CHECK:
         _compliance_counters[user_id] = 0
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SAVED NUMBERS EXPIRY PROCESSOR
-# ══════════════════════════════════════════════════════════════════════════════
 
 async def process_expired_saved():
     if not SessionLocal:
@@ -786,8 +758,11 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND (Same as before - included in the final paste)
+#  FRONTEND - EMBEDDED HTML (SAME AS PREVIOUS)
 # ══════════════════════════════════════════════════════════════════════════════
+
+# [FRONTEND HTML - include the same frontend from previous response]
+# For brevity, I'll include the essential frontend structure
 
 FRONTEND_HTML = '''<!DOCTYPE html>
 <html lang="en">
@@ -1551,16 +1526,14 @@ async def register(req: RegisterRequest):
             db.refresh(user)
             
             if is_first:
-                token = create_token(db, user.id)
+                token = create_token(user.id)
                 resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
                 resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
                 return resp
             return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
     else:
-        # In-memory fallback
-        for u in users.values():
-            if u["username"] == username:
-                raise HTTPException(400, "Username already taken")
+        if username in [u["username"] for u in users.values()]:
+            raise HTTPException(400, "Username already taken")
         is_first = len(users) == 0
         user_id = _counters["user"]
         _counters["user"] += 1
@@ -1573,7 +1546,7 @@ async def register(req: RegisterRequest):
             "is_blocked": False
         }
         if is_first:
-            token = create_token(None, user_id)
+            token = create_token(user_id)
             resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
             resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
             return resp
@@ -1598,37 +1571,33 @@ async def login(req: LoginRequest):
             if not user.is_approved:
                 raise HTTPException(403, "Account pending approval")
             
-            token = create_token(db, user.id)
+            token = create_token(user.id)
             resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
             resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
             return resp
     else:
-        user = None
-        for u in users.values():
-            if u["username"] == username:
-                user = u
-                break
+        user = users.get(username)
         if not user or not verify_password(password, user["password_hash"]):
             raise HTTPException(401, "Invalid username or password")
         if user.get("is_blocked"):
             raise HTTPException(403, "Account blocked")
         if not user.get("is_approved"):
             raise HTTPException(403, "Account pending approval")
-        token = create_token(None, user["id"])
+        token = create_token(user["id"])
         resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
         resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
         return resp
 
 @app.post("/api/auth/logout")
 def logout(token: str = Cookie(default=None)):
-    revoke_token(None if not SessionLocal else None, token)
+    revoke_token(token)
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("token", path="/")
     return resp
 
 @app.get("/api/auth/me")
 def me(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
@@ -1639,7 +1608,7 @@ def me(token: str = Cookie(default=None)):
 
 @app.get("/api/pools")
 def list_pools(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -1650,7 +1619,7 @@ def list_pools(token: str = Cookie(default=None)):
             for p in pools_list:
                 if p.is_admin_only and not user["is_admin"]:
                     continue
-                if not has_pool_access(db, p.id, user["id"]):
+                if not has_pool_access(p.id, user["id"]):
                     continue
                 count = db.query(ActiveNumber).filter(ActiveNumber.pool_id == p.id).count()
                 result.append({
@@ -1668,7 +1637,7 @@ def list_pools(token: str = Cookie(default=None)):
         for pid, pool in pools.items():
             if pool.get("is_admin_only") and not user["is_admin"]:
                 continue
-            if not has_pool_access(None, pid, user["id"]):
+            if not has_pool_access(pid, user["id"]):
                 continue
             result.append({
                 "id": pid, "name": pool["name"], "country_code": pool["country_code"],
@@ -1687,7 +1656,7 @@ class AssignRequest(BaseModel):
 
 @app.post("/api/pools/assign")
 async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -1700,11 +1669,11 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
                 raise HTTPException(400, f"Pool paused: {pool.pause_reason or 'No reason'}")
             if pool.is_admin_only and not user["is_admin"]:
                 raise HTTPException(403, "Admin only pool")
-            if not has_pool_access(db, req.pool_id, user["id"]):
+            if not has_pool_access(req.pool_id, user["id"]):
                 raise HTTPException(403, "No access to this pool")
             
-            release_assignment(db, user["id"])
-            assignment = assign_one_number(db, user["id"], req.pool_id, req.prefix)
+            release_assignment(user["id"])
+            assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
             if not assignment:
                 raise HTTPException(400, "No numbers available in this pool")
             
@@ -1724,11 +1693,11 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
             raise HTTPException(400, f"Pool paused: {pool.get('pause_reason', 'No reason')}")
         if pool.get("is_admin_only") and not user["is_admin"]:
             raise HTTPException(403, "Admin only pool")
-        if not has_pool_access(None, req.pool_id, user["id"]):
+        if not has_pool_access(req.pool_id, user["id"]):
             raise HTTPException(403, "No access to this pool")
         
-        release_assignment(None, user["id"])
-        assignment = assign_one_number(None, user["id"], req.pool_id, req.prefix)
+        release_assignment(user["id"])
+        assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
         if not assignment:
             raise HTTPException(400, "No numbers available in this pool")
         
@@ -1743,18 +1712,18 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
 
 @app.get("/api/pools/my-assignment")
 def my_assignment(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    assignment = get_current_assignment(None if not SessionLocal else None, user["id"])
+    assignment = get_current_assignment(user["id"])
     return {"assignment": assignment}
 
 @app.post("/api/pools/release/{assignment_id}")
 def release_number(assignment_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    release_assignment(None if not SessionLocal else None, user["id"], assignment_id)
+    release_assignment(user["id"], assignment_id)
     return {"ok": True}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1776,7 +1745,7 @@ class PoolCreate(BaseModel):
 
 @app.post("/api/admin/pools")
 def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1817,7 +1786,7 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
 
 @app.put("/api/admin/pools/{pool_id}")
 def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1838,7 +1807,7 @@ def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)
 
 @app.delete("/api/admin/pools/{pool_id}")
 def delete_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1856,7 +1825,7 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/upload")
 async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1919,7 +1888,7 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
 
 @app.get("/api/admin/pools/{pool_id}/export")
 def export_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1933,7 +1902,7 @@ def export_pool(pool_id: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/cut")
 def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1953,7 +1922,7 @@ def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/clear")
 def clear_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1970,7 +1939,7 @@ def clear_pool(pool_id: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/pause")
 def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1991,7 +1960,7 @@ def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)
 
 @app.post("/api/admin/pools/{pool_id}/resume")
 def resume_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2012,7 +1981,7 @@ def resume_pool(pool_id: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
 def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2032,7 +2001,7 @@ def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/pools/{pool_id}/trick")
 def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2054,7 +2023,7 @@ def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=No
 
 @app.get("/api/admin/pools/{pool_id}/access")
 def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2068,11 +2037,16 @@ def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
                     result.append({"user_id": a.user_id, "username": u.username})
             return result
     else:
-        return get_pool_access_users(pool_id)
+        users_list = []
+        for uid in pool_access.get(pool_id, set()):
+            u = users.get(uid)
+            if u:
+                users_list.append({"user_id": uid, "username": u["username"]})
+        return users_list
 
 @app.post("/api/admin/pools/{pool_id}/access/{user_id}")
 def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2086,13 +2060,15 @@ def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(d
                 db.add(PoolAccess(pool_id=pool_id, user_id=user_id))
                 db.commit()
     else:
-        grant_pool_access(pool_id, user_id)
+        if pool_id not in pool_access:
+            pool_access[pool_id] = set()
+        pool_access[pool_id].add(user_id)
     
     return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
 def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2104,7 +2080,8 @@ def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(
             ).delete()
             db.commit()
     else:
-        revoke_pool_access(pool_id, user_id)
+        if pool_id in pool_access:
+            pool_access[pool_id].discard(user_id)
     
     return {"ok": True}
 
@@ -2176,7 +2153,7 @@ async def monitor_result(payload: MonitorResultPayload):
 
 @app.get("/api/otp/my")
 def my_otps(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2191,7 +2168,7 @@ def my_otps(token: str = Cookie(default=None)):
 
 @app.post("/api/otp/search")
 async def search_otp(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2204,7 +2181,7 @@ async def search_otp(number: str, token: str = Cookie(default=None)):
             if assignment:
                 pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
                 if pool and pool.otp_group_id:
-                    await request_search_otp(
+                    await request_monitor_bot(
                         number=number,
                         group_id=pool.otp_group_id,
                         match_format=pool.telegram_match_format or pool.match_format,
@@ -2216,7 +2193,7 @@ async def search_otp(number: str, token: str = Cookie(default=None)):
             if a["user_id"] == user["id"] and a["number"] == number:
                 pool = pools.get(a["pool_id"])
                 if pool and pool.get("otp_group_id"):
-                    await request_search_otp(
+                    await request_monitor_bot(
                         number=number,
                         group_id=pool["otp_group_id"],
                         match_format=pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
@@ -2237,7 +2214,7 @@ class SaveRequest(BaseModel):
 
 @app.post("/api/saved")
 def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2290,7 +2267,7 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
 
 @app.get("/api/saved")
 def list_saved(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2354,7 +2331,7 @@ def list_saved(token: str = Cookie(default=None)):
 
 @app.get("/api/saved/ready")
 def ready_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2401,7 +2378,7 @@ def ready_numbers(token: str = Cookie(default=None)):
 
 @app.put("/api/saved/{saved_id}")
 def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2428,7 +2405,7 @@ def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=
 
 @app.delete("/api/saved/{saved_id}")
 def delete_saved(saved_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2463,7 +2440,7 @@ class ReviewRequest(BaseModel):
 
 @app.post("/api/reviews")
 def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2512,11 +2489,11 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
         review_counter += 1
         
         if req.mark_as_bad or req.rating == 1:
-            add_bad_number(None, req.number, user["id"], req.comment or "Flagged by user")
+            add_bad_number(req.number, user["id"], req.comment or "Flagged by user")
         
-        current = get_current_assignment(None, user["id"])
+        current = get_current_assignment(user["id"])
         if current and current["number"] == req.number:
-            release_assignment(None, user["id"])
+            release_assignment(user["id"])
     
     return {"ok": True, "marked_bad": req.mark_as_bad or req.rating == 1}
 
@@ -2526,7 +2503,7 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
 
 @app.get("/api/admin/stats")
 def stats(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2558,7 +2535,7 @@ def stats(token: str = Cookie(default=None)):
 
 @app.get("/api/admin/users")
 def list_users(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2571,37 +2548,37 @@ def list_users(token: str = Cookie(default=None)):
 
 @app.post("/api/admin/users/{user_id}/approve")
 def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(None if not SessionLocal else None, token)
+    admin = get_user_from_token(token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    approve_user(None if not SessionLocal else None, user_id)
+    approve_user(user_id)
     asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
 def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(None if not SessionLocal else None, token)
+    admin = get_user_from_token(token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    block_user(None if not SessionLocal else None, user_id)
+    block_user(user_id)
     asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
 def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    admin = get_user_from_token(None if not SessionLocal else None, token)
+    admin = get_user_from_token(token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    unblock_user(None if not SessionLocal else None, user_id)
+    unblock_user(user_id)
     asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
 def list_bad_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2614,7 +2591,7 @@ def list_bad_numbers(token: str = Cookie(default=None)):
 
 @app.delete("/api/admin/bad-numbers")
 def remove_bad_number(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2629,7 +2606,7 @@ def remove_bad_number(number: str, token: str = Cookie(default=None)):
 
 @app.get("/api/admin/reviews")
 def list_reviews(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2642,7 +2619,7 @@ def list_reviews(token: str = Cookie(default=None)):
 
 @app.post("/api/admin/broadcast")
 async def broadcast_message(message: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2651,7 +2628,7 @@ async def broadcast_message(message: str, token: str = Cookie(default=None)):
 
 @app.post("/api/admin/settings/approval")
 def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2660,7 +2637,7 @@ def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None))
 
 @app.post("/api/admin/settings/otp-redirect")
 def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2676,7 +2653,7 @@ def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None))
 
 @app.get("/api/buttons")
 def get_buttons(token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2689,7 +2666,7 @@ def get_buttons(token: str = Cookie(default=None)):
 
 @app.post("/api/admin/buttons")
 def add_button(label: str, url: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2707,7 +2684,7 @@ def add_button(label: str, url: str, token: str = Cookie(default=None)):
 
 @app.delete("/api/admin/buttons/{button_id}")
 def delete_button(button_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(None if not SessionLocal else None, token)
+    user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
