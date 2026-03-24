@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-NEON GRID NETWORK — Complete PostgreSQL Backend
+NEON GRID NETWORK — Complete Platform Backend
 =================================================
-Data persists across redeploys
-All features from numberbot.py
+All features from numberbot.py converted to web platform
+No email column - username only authentication
 """
 
 import asyncio
@@ -20,6 +20,7 @@ import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
+from collections import defaultdict
 
 import aiohttp
 import uvicorn
@@ -32,7 +33,7 @@ from pydantic import BaseModel
 
 # SQLAlchemy for PostgreSQL
 from sqlalchemy import (create_engine, Column, Integer, String, Boolean, DateTime,
-                        Text, ForeignKey, BigInteger, UniqueConstraint, select, func, and_)
+                        Text, ForeignKey, BigInteger, UniqueConstraint, select, func)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from sqlalchemy.pool import QueuePool
@@ -92,7 +93,6 @@ log.info(f"Monitor Bot URL: {MONITOR_BOT_URL or 'NOT SET'}")
 # ══════════════════════════════════════════════════════════════════════════════
 
 if DATABASE_URL:
-    # PostgreSQL engine
     engine = create_engine(
         DATABASE_URL,
         poolclass=QueuePool,
@@ -104,20 +104,193 @@ if DATABASE_URL:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
 else:
-    log.warning("No DATABASE_URL, running in memory-only mode (data will not persist)")
+    log.warning("No DATABASE_URL, running in memory-only mode")
     engine = None
     SessionLocal = None
     Base = None
 
-def get_db():
-    if SessionLocal:
-        db = SessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-    else:
-        yield None
+# ══════════════════════════════════════════════════════════════════════════════
+#  DATABASE MODELS (No Email Column)
+# ══════════════════════════════════════════════════════════════════════════════
+
+if Base:
+    class User(Base):
+        __tablename__ = "users"
+        id = Column(Integer, primary_key=True, index=True)
+        username = Column(String(64), unique=True, nullable=False, index=True)
+        password_hash = Column(String(256), nullable=False)
+        is_admin = Column(Boolean, default=False)
+        is_approved = Column(Boolean, default=False)
+        is_blocked = Column(Boolean, default=False)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class UserSession(Base):
+        __tablename__ = "user_sessions"
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        token = Column(String(256), unique=True, nullable=False, index=True)
+        expires_at = Column(DateTime(timezone=True), nullable=False)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class Pool(Base):
+        __tablename__ = "pools"
+        id = Column(Integer, primary_key=True, index=True)
+        name = Column(String(128), unique=True, nullable=False)
+        country_code = Column(String(10), nullable=False)
+        otp_group_id = Column(BigInteger, nullable=True)
+        otp_link = Column(String(256), default="")
+        match_format = Column(String(32), default="5+4")
+        telegram_match_format = Column(String(32), default="")
+        uses_platform = Column(Integer, default=0)
+        is_paused = Column(Boolean, default=False)
+        pause_reason = Column(Text, default="")
+        trick_text = Column(Text, default="")
+        is_admin_only = Column(Boolean, default=False)
+        last_restocked = Column(DateTime(timezone=True), nullable=True)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class ActiveNumber(Base):
+        __tablename__ = "active_numbers"
+        id = Column(Integer, primary_key=True, index=True)
+        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
+        number = Column(String(32), unique=True, nullable=False, index=True)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class Assignment(Base):
+        __tablename__ = "assignments"
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
+        number = Column(String(32), nullable=False, index=True)
+        assigned_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+        released_at = Column(DateTime(timezone=True), nullable=True)
+        feedback = Column(String(64), default="")
+
+    class OTPLog(Base):
+        __tablename__ = "otp_logs"
+        id = Column(Integer, primary_key=True, index=True)
+        assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        number = Column(String(32), nullable=False)
+        otp_code = Column(String(32), nullable=False)
+        raw_message = Column(Text, default="")
+        delivered_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class SavedNumber(Base):
+        __tablename__ = "saved_numbers"
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        number = Column(String(32), nullable=False)
+        country = Column(String(64), default="")
+        pool_name = Column(String(128), nullable=False)
+        expires_at = Column(DateTime(timezone=True), nullable=False)
+        moved = Column(Boolean, default=False)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class NumberReview(Base):
+        __tablename__ = "number_reviews"
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        number = Column(String(32), nullable=False)
+        rating = Column(Integer, default=5)
+        comment = Column(Text, default="")
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class BadNumber(Base):
+        __tablename__ = "bad_numbers"
+        id = Column(Integer, primary_key=True, index=True)
+        number = Column(String(32), unique=True, nullable=False, index=True)
+        reason = Column(String(256), default="not available")
+        flagged_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+        created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    class CustomButton(Base):
+        __tablename__ = "custom_buttons"
+        id = Column(Integer, primary_key=True, index=True)
+        label = Column(String(128), nullable=False)
+        url = Column(String(512), nullable=False)
+        position = Column(Integer, default=0)
+
+    class PoolAccess(Base):
+        __tablename__ = "pool_access"
+        __table_args__ = (UniqueConstraint("pool_id", "user_id"),)
+        id = Column(Integer, primary_key=True, index=True)
+        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
+        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+        granted_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    def init_db():
+        Base.metadata.create_all(bind=engine)
+        log.info("Database tables created")
+
+        with SessionLocal() as db:
+            if db.query(User).count() == 0:
+                admin = User(
+                    username="admin",
+                    password_hash=hash_password("admin123"),
+                    is_admin=True,
+                    is_approved=True
+                )
+                db.add(admin)
+                db.commit()
+                log.info("Default admin created: admin / admin123")
+
+            if db.query(Pool).count() == 0:
+                default_pools = [
+                    {"name": "Nigeria", "country_code": "234", "number_count": 1250, "otp_group_id": -1003388744078},
+                    {"name": "USA", "country_code": "1", "number_count": 842, "otp_group_id": -1003388744078},
+                    {"name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_group_id": -1003388744078},
+                    {"name": "Canada", "country_code": "1", "number_count": 321, "otp_group_id": -1003388744078},
+                    {"name": "Australia", "country_code": "61", "number_count": 234, "otp_group_id": -1003388744078},
+                ]
+                for p in default_pools:
+                    pool = Pool(
+                        name=p["name"],
+                        country_code=p["country_code"],
+                        otp_group_id=p["otp_group_id"],
+                        otp_link="https://t.me/earnplusz",
+                        match_format="5+4"
+                    )
+                    db.add(pool)
+                    db.flush()
+                    for j in range(p["number_count"]):
+                        num = f"+{p['country_code']}{random.randint(7000000000, 7999999999)}"
+                        db.add(ActiveNumber(pool_id=pool.id, number=num))
+                db.commit()
+                log.info(f"Created {len(default_pools)} default pools")
+
+            if db.query(CustomButton).count() == 0:
+                db.add_all([
+                    CustomButton(label="📢 Join Channel", url="https://t.me/earnplusz", position=0),
+                    CustomButton(label="📱 Number Channel", url="https://t.me/Finalsearchbot", position=1),
+                ])
+                db.commit()
+else:
+    def init_db():
+        log.warning("Using in-memory fallback")
+    
+    users = {1: {"id": 1, "username": "admin", "password_hash": hash_password("admin123"), "is_admin": True, "is_approved": True, "is_blocked": False}}
+    sessions = {}
+    pools = {1: {"id": 1, "name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4"}}
+    active_numbers = {1: [f"+234{random.randint(7000000000, 7999999999)}" for _ in range(1250)]}
+    archived_numbers = []
+    otp_logs = []
+    saved_numbers = []
+    reviews = []
+    bad_numbers = {}
+    custom_buttons = [{"id": 1, "label": "📢 Join Channel", "url": "https://t.me/earnplusz"}, {"id": 2, "label": "📱 Number Channel", "url": "https://t.me/Finalsearchbot"}]
+    user_connections = {}
+    feed_connections = []
+    _compliance_counters = {}
+    _platform_token = None
+    _active_platform_tasks = {}
+    _platform_stock_snapshot = {}
+    bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
+    _counters = {"user": 2, "pool": 2, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "button": 3}
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  UTILITY FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -138,297 +311,304 @@ def create_token(db, user_id: int) -> str:
     token = secrets.token_urlsafe(48)
     expires = utcnow() + timedelta(days=30)
     
-    if SessionLocal and db:
-        from sqlalchemy import Table, MetaData, Column, Integer, String, DateTime
-        metadata = MetaData()
-        sessions_table = Table(
-            "user_sessions", metadata,
-            Column("id", Integer, primary_key=True),
-            Column("user_id", Integer),
-            Column("token", String(256)),
-            Column("expires_at", DateTime(timezone=True))
-        )
-        metadata.create_all(engine)
-        db.execute(sessions_table.insert().values(user_id=user_id, token=token, expires_at=expires))
-        db.commit()
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.add(UserSession(user_id=user_id, token=token, expires_at=expires))
+            session.commit()
+    else:
+        sessions[token] = user_id
     return token
 
 def get_user_from_token(db, token: str):
-    if not token or not db:
+    if not token:
         return None
     
-    from sqlalchemy import Table, MetaData, select
-    metadata = MetaData()
-    users_table = Table("users", metadata, autoload_with=engine)
-    sessions_table = Table("user_sessions", metadata, autoload_with=engine)
-    
-    now = utcnow()
-    result = db.execute(
-        select(users_table).where(
-            users_table.c.id == sessions_table.c.user_id,
-            sessions_table.c.token == token,
-            sessions_table.c.expires_at > now
-        )
-    ).first()
-    
-    if result:
-        return dict(result._mapping)
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            user_session = session.query(UserSession).filter(
+                UserSession.token == token,
+                UserSession.expires_at > utcnow()
+            ).first()
+            if user_session:
+                user = session.query(User).filter(User.id == user_session.user_id).first()
+                if user and not user.is_blocked:
+                    return {"id": user.id, "username": user.username, "is_admin": user.is_admin, "is_approved": user.is_approved}
+    else:
+        if token in sessions:
+            user_id = sessions[token]
+            user = users.get(user_id)
+            if user and not user.get("is_blocked"):
+                return user
     return None
 
 def revoke_token(db, token: str):
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        sessions_table = Table("user_sessions", metadata, autoload_with=engine)
-        db.execute(delete(sessions_table).where(sessions_table.c.token == token))
-        db.commit()
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.query(UserSession).filter(UserSession.token == token).delete()
+            session.commit()
+    else:
+        sessions.pop(token, None)
 
 def is_admin(db, user_id: int) -> bool:
-    if not db:
-        return user_id == 1
-    from sqlalchemy import Table, MetaData, select
-    metadata = MetaData()
-    users_table = Table("users", metadata, autoload_with=engine)
-    result = db.execute(select(users_table).where(users_table.c.id == user_id)).first()
-    return result and result.is_admin
-
-def is_blocked(db, user_id: int) -> bool:
-    if not db:
-        return False
-    from sqlalchemy import Table, MetaData, select
-    metadata = MetaData()
-    users_table = Table("users", metadata, autoload_with=engine)
-    result = db.execute(select(users_table).where(users_table.c.id == user_id)).first()
-    return result and result.is_blocked
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            return user.is_admin if user else False
+    else:
+        user = users.get(user_id)
+        return user.get("is_admin", False) if user else False
 
 def is_approved(db, user_id: int) -> bool:
-    if not db:
-        return user_id == 1
-    from sqlalchemy import Table, MetaData, select
-    metadata = MetaData()
-    users_table = Table("users", metadata, autoload_with=engine)
-    result = db.execute(select(users_table).where(users_table.c.id == user_id)).first()
-    return result and result.is_approved
-
-def block_user(db, user_id: int):
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_blocked=True, is_approved=False))
-        db.commit()
-
-def unblock_user(db, user_id: int):
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_blocked=False, is_approved=True))
-        db.commit()
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            return user.is_approved if user else False
+    else:
+        user = users.get(user_id)
+        return user.get("is_approved", False) if user else False
 
 def approve_user(db, user_id: int):
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_approved=True, is_blocked=False))
-        db.commit()
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.query(User).filter(User.id == user_id).update({"is_approved": True, "is_blocked": False})
+            session.commit()
+    else:
+        if user_id in users:
+            users[user_id]["is_approved"] = True
+            users[user_id]["is_blocked"] = False
 
-def can_use_bot(db, user_id: int) -> bool:
+def block_user(db, user_id: int):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.query(User).filter(User.id == user_id).update({"is_blocked": True, "is_approved": False})
+            session.commit()
+    else:
+        if user_id in users:
+            users[user_id]["is_blocked"] = True
+            users[user_id]["is_approved"] = False
+
+def unblock_user(db, user_id: int):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.query(User).filter(User.id == user_id).update({"is_blocked": False, "is_approved": True})
+            session.commit()
+    else:
+        if user_id in users:
+            users[user_id]["is_blocked"] = False
+            users[user_id]["is_approved"] = True
+
+def has_pool_access(db, pool_id: int, user_id: int) -> bool:
     if is_admin(db, user_id):
         return True
-    if is_blocked(db, user_id):
-        return False
-    return is_approved(db, user_id)
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            count = session.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).count()
+            if count == 0:
+                return True
+            return session.query(PoolAccess).filter(
+                PoolAccess.pool_id == pool_id,
+                PoolAccess.user_id == user_id
+            ).first() is not None
+    else:
+        restricted = pool_access.get(pool_id, set())
+        if not restricted:
+            return True
+        return user_id in restricted
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE MODELS (for table creation)
-# ══════════════════════════════════════════════════════════════════════════════
+def get_remaining_count(db, pool_id: int) -> int:
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            return session.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).count()
+    else:
+        return len(active_numbers.get(pool_id, []))
 
-if Base:
-    class User(Base):
-        __tablename__ = "users"
-        id = Column(Integer, primary_key=True, index=True)
-        username = Column(String(64), unique=True, nullable=False, index=True)
-        password_hash = Column(String(256), nullable=False)
-        is_admin = Column(Boolean, default=False)
-        is_approved = Column(Boolean, default=False)
-        is_blocked = Column(Boolean, default=False)
-        created_at = Column(DateTime(timezone=True), default=utcnow)
+def add_bad_number(db, number: str, marked_by: int, reason: str = "marked as bad"):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            existing = session.query(BadNumber).filter(BadNumber.number == number).first()
+            if not existing:
+                session.add(BadNumber(number=number, reason=reason, flagged_by=marked_by))
+            session.query(ActiveNumber).filter(ActiveNumber.number == number).delete()
+            session.commit()
+    else:
+        bad_numbers[number] = {"number": number, "reason": reason, "marked_by": marked_by, "marked_at": utcnow().isoformat()}
+        for pid, numbers in active_numbers.items():
+            if number in numbers:
+                numbers.remove(number)
 
-    class Pool(Base):
-        __tablename__ = "pools"
-        id = Column(Integer, primary_key=True, index=True)
-        name = Column(String(128), unique=True, nullable=False)
-        country_code = Column(String(10), nullable=False)
-        otp_group_id = Column(BigInteger, nullable=True)
-        otp_link = Column(String(256), default="")
-        match_format = Column(String(32), default="5+4")
-        telegram_match_format = Column(String(32), default="")
-        uses_platform = Column(Integer, default=0)
-        is_paused = Column(Boolean, default=False)
-        pause_reason = Column(Text, default="")
-        trick_text = Column(Text, default="")
-        is_admin_only = Column(Boolean, default=False)
-        last_restocked = Column(DateTime(timezone=True), nullable=True)
-        created_at = Column(DateTime(timezone=True), default=utcnow)
+def save_feedback(db, number: str, user_id: int, feedback: str):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            session.execute(
+                "INSERT INTO feedbacks (number, user_id, feedback, created_at) VALUES (?, ?, ?, ?)",
+                (number, user_id, feedback, utcnow().isoformat())
+            )
+            session.commit()
 
-    class ActiveNumber(Base):
-        __tablename__ = "active_numbers"
-        id = Column(Integer, primary_key=True, index=True)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
-        number = Column(String(32), unique=True, nullable=False, index=True)
-        created_at = Column(DateTime(timezone=True), default=utcnow)
+def assign_one_number(db, user_id: int, pool_id: int, prefix: Optional[str] = None):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            query = session.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id)
+            if prefix:
+                query = query.filter(ActiveNumber.number.like(f"+{prefix}%"))
+            number_row = query.order_by(ActiveNumber.id.desc()).first()
+            if not number_row:
+                return None
+            
+            number = number_row.number
+            session.delete(number_row)
+            
+            pool = session.query(Pool).filter(Pool.id == pool_id).first()
+            
+            assignment = Assignment(
+                user_id=user_id,
+                pool_id=pool_id,
+                number=number
+            )
+            session.add(assignment)
+            session.commit()
+            session.refresh(assignment)
+            
+            return {
+                "assignment_id": assignment.id,
+                "number": number,
+                "pool_name": pool.name if pool else "Unknown",
+                "pool_code": pool.country_code if pool else "",
+                "otp_link": pool.otp_link if pool else "",
+                "uses_platform": pool.uses_platform if pool else 0,
+                "match_format": pool.match_format if pool else "5+4",
+                "telegram_match_format": pool.telegram_match_format if pool else "",
+                "trick_text": pool.trick_text if pool else "",
+                "pool_id": pool_id
+            }
+    else:
+        numbers = active_numbers.get(pool_id, [])
+        if not numbers:
+            return None
+        
+        selected = None
+        if prefix:
+            for num in numbers:
+                if num.startswith(f"+{prefix}"):
+                    selected = num
+                    break
+        if not selected and numbers:
+            selected = numbers[-1]
+        
+        if not selected:
+            return None
+        
+        numbers.remove(selected)
+        active_numbers[pool_id] = numbers
+        
+        pool = pools.get(pool_id, {})
+        assignment = {
+            "id": _counters["assignment"],
+            "user_id": user_id,
+            "pool_id": pool_id,
+            "number": selected,
+            "assigned_at": utcnow().isoformat(),
+            "released_at": None,
+            "feedback": ""
+        }
+        archived_numbers.append(assignment)
+        _counters["assignment"] += 1
+        
+        return {
+            "assignment_id": assignment["id"],
+            "number": selected,
+            "pool_name": pool.get("name", "Unknown"),
+            "pool_code": pool.get("country_code", ""),
+            "otp_link": pool.get("otp_link", ""),
+            "uses_platform": pool.get("uses_platform", 0),
+            "match_format": pool.get("match_format", "5+4"),
+            "telegram_match_format": pool.get("telegram_match_format", ""),
+            "trick_text": pool.get("trick_text", ""),
+            "pool_id": pool_id
+        }
 
-    class Assignment(Base):
-        __tablename__ = "assignments"
-        id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
-        number = Column(String(32), nullable=False, index=True)
-        assigned_at = Column(DateTime(timezone=True), default=utcnow)
-        released_at = Column(DateTime(timezone=True), nullable=True)
-        feedback = Column(String(64), default="")
+def release_assignment(db, user_id: int, assignment_id: int = None):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            query = session.query(Assignment).filter(
+                Assignment.user_id == user_id,
+                Assignment.released_at == None
+            )
+            if assignment_id:
+                query = query.filter(Assignment.id == assignment_id)
+            query.update({"released_at": utcnow()})
+            session.commit()
+    else:
+        for a in archived_numbers:
+            if a["user_id"] == user_id and a.get("released_at") is None:
+                if assignment_id is None or a["id"] == assignment_id:
+                    a["released_at"] = utcnow().isoformat()
+                    return a
 
-    class OTPLog(Base):
-        __tablename__ = "otp_logs"
-        id = Column(Integer, primary_key=True, index=True)
-        assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        number = Column(String(32), nullable=False)
-        otp_code = Column(String(32), nullable=False)
-        raw_message = Column(Text, default="")
-        delivered_at = Column(DateTime(timezone=True), default=utcnow)
-
-    class SavedNumber(Base):
-        __tablename__ = "saved_numbers"
-        id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        number = Column(String(32), nullable=False)
-        country = Column(String(64), default="")
-        pool_name = Column(String(128), nullable=False)
-        expires_at = Column(DateTime(timezone=True), nullable=False)
-        moved = Column(Boolean, default=False)
-        created_at = Column(DateTime(timezone=True), default=utcnow)
-
-    class NumberReview(Base):
-        __tablename__ = "number_reviews"
-        id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        number = Column(String(32), nullable=False)
-        rating = Column(Integer, default=5)
-        comment = Column(Text, default="")
-        created_at = Column(DateTime(timezone=True), default=utcnow)
-
-    class BadNumber(Base):
-        __tablename__ = "bad_numbers"
-        id = Column(Integer, primary_key=True, index=True)
-        number = Column(String(32), unique=True, nullable=False, index=True)
-        reason = Column(String(256), default="not available")
-        flagged_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-        created_at = Column(DateTime(timezone=True), default=utcnow)
-
-    class CustomButton(Base):
-        __tablename__ = "custom_buttons"
-        id = Column(Integer, primary_key=True, index=True)
-        label = Column(String(128), nullable=False)
-        url = Column(String(512), nullable=False)
-        position = Column(Integer, default=0)
-
-    class PoolAccess(Base):
-        __tablename__ = "pool_access"
-        __table_args__ = (UniqueConstraint("pool_id", "user_id"),)
-        id = Column(Integer, primary_key=True, index=True)
-        pool_id = Column(Integer, ForeignKey("pools.id"), nullable=False)
-        user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-        granted_at = Column(DateTime(timezone=True), default=utcnow)
-
-    def init_db():
-        Base.metadata.create_all(bind=engine)
-        log.info("Database tables created")
-
-        # Create default admin if no users exist
-        with SessionLocal() as db:
-            if db.query(User).count() == 0:
-                admin = User(
-                    username="admin",
-                    password_hash=hash_password("admin123"),
-                    is_admin=True,
-                    is_approved=True
-                )
-                db.add(admin)
-                db.commit()
-                log.info("Default admin created: admin / admin123")
-
-            # Create default pools if none exist
-            if db.query(Pool).count() == 0:
-                default_pools = [
-                    {"name": "Nigeria", "country_code": "234", "number_count": 1250, "otp_group_id": -1003388744078},
-                    {"name": "USA", "country_code": "1", "number_count": 842, "otp_group_id": -1003388744078},
-                    {"name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_group_id": -1003388744078},
-                    {"name": "Canada", "country_code": "1", "number_count": 321, "otp_group_id": -1003388744078},
-                    {"name": "Australia", "country_code": "61", "number_count": 234, "otp_group_id": -1003388744078},
-                ]
-                for p in default_pools:
-                    pool = Pool(
-                        name=p["name"],
-                        country_code=p["country_code"],
-                        otp_group_id=p["otp_group_id"],
-                        otp_link="https://t.me/earnplusz",
-                        match_format="5+4"
-                    )
-                    db.add(pool)
-                    db.flush()
-                    # Add demo numbers
-                    for j in range(p["number_count"]):
-                        num = f"+{p['country_code']}{random.randint(7000000000, 7999999999)}"
-                        db.add(ActiveNumber(pool_id=pool.id, number=num))
-                db.commit()
-                log.info(f"Created {len(default_pools)} default pools")
-
-            # Create default custom buttons
-            if db.query(CustomButton).count() == 0:
-                db.add_all([
-                    CustomButton(label="📢 Join Channel", url="https://t.me/earnplusz", position=0),
-                    CustomButton(label="📱 Number Channel", url="https://t.me/Finalsearchbot", position=1),
-                ])
-                db.commit()
-else:
-    def init_db():
-        log.warning("Using in-memory fallback (no persistence)")
-    
-    # In-memory storage for fallback
-    users = {1: {"id": 1, "username": "admin", "password_hash": hash_password("admin123"), "is_admin": True, "is_approved": True, "is_blocked": False}}
-    sessions = {}
-    pools = {1: {"id": 1, "name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "Best for WhatsApp", "is_admin_only": False, "last_restocked": utcnow().isoformat()}}
-    active_numbers = {1: [f"+234{random.randint(7000000000, 7999999999)}" for _ in range(1250)]}
-    archived_numbers = []
-    otp_logs = []
-    saved_numbers = []
-    reviews = []
-    bad_numbers = {}
-    custom_buttons = [{"id": 1, "label": "📢 Join Channel", "url": "https://t.me/earnplusz"}, {"id": 2, "label": "📱 Number Channel", "url": "https://t.me/Finalsearchbot"}]
-    blocked_users = set()
-    approved_users = {1}
-    pool_access = {}
-    uploaded_numbers = set()
-    _counters = {"user": 2, "pool": 2, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "button": 3}
+def get_current_assignment(db, user_id: int):
+    if db and SessionLocal:
+        with SessionLocal() as session:
+            assignment = session.query(Assignment).filter(
+                Assignment.user_id == user_id,
+                Assignment.released_at == None
+            ).order_by(Assignment.assigned_at.desc()).first()
+            if assignment:
+                pool = session.query(Pool).filter(Pool.id == assignment.pool_id).first()
+                return {
+                    "assignment_id": assignment.id,
+                    "number": assignment.number,
+                    "pool_name": pool.name if pool else "Unknown",
+                    "pool_id": assignment.pool_id,
+                    "country_code": pool.country_code if pool else "",
+                    "otp_link": pool.otp_link if pool else "",
+                    "trick_text": pool.trick_text if pool else "",
+                    "otp_group_id": pool.otp_group_id if pool else None,
+                    "match_format": pool.match_format if pool else "5+4",
+                    "telegram_match_format": pool.telegram_match_format if pool else ""
+                }
+    else:
+        for a in reversed(archived_numbers):
+            if a["user_id"] == user_id and a.get("released_at") is None:
+                pool = pools.get(a["pool_id"], {})
+                return {
+                    "assignment_id": a["id"],
+                    "number": a["number"],
+                    "pool_name": pool.get("name", "Unknown"),
+                    "pool_id": a["pool_id"],
+                    "country_code": pool.get("country_code", ""),
+                    "otp_link": pool.get("otp_link", ""),
+                    "trick_text": pool.get("trick_text", ""),
+                    "otp_group_id": pool.get("otp_group_id"),
+                    "match_format": pool.get("match_format", "5+4"),
+                    "telegram_match_format": pool.get("telegram_match_format", "")
+                }
+    return None
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  WEBSOCKET MANAGER
 # ══════════════════════════════════════════════════════════════════════════════
 
-user_connections: Dict[int, List[WebSocket]] = {}
-feed_connections: List[WebSocket] = []
-_compliance_counters: Dict[int, int] = {}
-_platform_token: Optional[str] = None
-_active_platform_tasks: Dict[int, asyncio.Task] = {}
-_platform_stock_snapshot: Dict[str, int] = {}
-bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
+user_connections = {}
+feed_connections = []
 
 async def connect_user(ws: WebSocket, user_id: int):
     await ws.accept()
-    user_connections.setdefault(user_id, []).append(ws)
+    if user_id not in user_connections:
+        user_connections[user_id] = []
+    user_connections[user_id].append(ws)
+
+async def connect_feed(ws: WebSocket):
+    await ws.accept()
+    feed_connections.append(ws)
+
+def disconnect_user(ws: WebSocket, user_id: int):
+    if user_id in user_connections:
+        user_connections[user_id] = [w for w in user_connections[user_id] if w != ws]
+        if not user_connections[user_id]:
+            del user_connections[user_id]
+
+def disconnect_feed(ws: WebSocket):
+    feed_connections[:] = [w for w in feed_connections if w != ws]
 
 async def send_to_user(user_id: int, data: dict):
     for ws in user_connections.get(user_id, []):
@@ -444,6 +624,11 @@ async def broadcast_all(data: dict):
                 await ws.send_text(json.dumps(data))
             except:
                 pass
+    for ws in feed_connections:
+        try:
+            await ws.send_text(json.dumps(data))
+        except:
+            pass
 
 async def broadcast_feed(data: dict):
     for ws in feed_connections:
@@ -477,9 +662,6 @@ async def request_monitor_bot(number: str, group_id: int, match_format: str, use
                     if resp.status == 200:
                         log.info(f"[Monitor] ✅ MONITOR_REQUEST sent for {number} user={user_id}")
                         return True
-                    else:
-                        body = await resp.text()
-                        log.error(f"[Monitor] HTTP {resp.status}: {body[:100]}")
         except Exception as e:
             log.error(f"[Monitor] Post failed: {e}")
             if attempt < 2:
@@ -604,7 +786,7 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND - EMBEDDED HTML (Dark mode with full features)
+#  FRONTEND (Same as before - included in the final paste)
 # ══════════════════════════════════════════════════════════════════════════════
 
 FRONTEND_HTML = '''<!DOCTYPE html>
@@ -626,7 +808,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .balance-amount { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
         .balance-sub { font-size: 12px; opacity: 0.8; }
         .withdraw-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 30px; color: white; font-weight: 600; font-size: 14px; margin-top: 12px; display: inline-block; cursor: pointer; }
-        .section-title { font-size: 16px; font-weight: 600; color: #94a3b8; padding: 16px 16px 8px; letter-spacing: 1px; }
+        .section-title { font-size: 16px; font-weight: 600; color: #94a3b8; padding: 16px 16px 8px; }
         .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 8px 16px; }
         .menu-card { background: #0f121f; border-radius: 20px; padding: 16px; text-align: center; cursor: pointer; border: 1px solid #1e293b; transition: all 0.2s; }
         .menu-card:active { transform: scale(0.97); background: #1a1f2e; }
@@ -641,9 +823,8 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .otp-code { font-size: 48px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
         .otp-timer { text-align: center; font-size: 14px; opacity: 0.9; }
-        .otp-message { font-size: 12px; opacity: 0.8; margin-top: 12px; word-break: break-word; max-height: 100px; overflow-y: auto; }
         .region-list { padding: 8px 16px; }
-        .region-item { background: #0f121f; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1e293b; cursor: pointer; transition: all 0.2s; }
+        .region-item { background: #0f121f; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1e293b; cursor: pointer; }
         .region-item:active { background: #1a1f2e; }
         .region-name { font-weight: 500; color: #e2e8f0; }
         .region-code { font-size: 12px; color: #64748b; }
@@ -1342,7 +1523,7 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/auth/register")
-async def register(req: RegisterRequest, db: Session = Depends(get_db)):
+async def register(req: RegisterRequest):
     username = req.username.strip()
     password = req.password
     
@@ -1351,35 +1532,30 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if len(password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        existing = db.execute(select(users_table).where(users_table.c.username == username)).first()
-        if existing:
-            raise HTTPException(400, "Username already taken")
-        
-        count = db.execute(select(func.count()).select_from(users_table)).scalar()
-        is_first = count == 0
-        
-        db.execute(users_table.insert().values(
-            username=username,
-            password_hash=hash_password(password),
-            is_admin=is_first,
-            is_approved=is_first
-        ))
-        db.commit()
-        
-        result = db.execute(select(users_table).where(users_table.c.username == username)).first()
-        user_id = result.id
-        
-        if is_first:
-            token = create_token(db, user_id)
-            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
-            return resp
-        return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
+    if SessionLocal:
+        with SessionLocal() as db:
+            existing = db.query(User).filter(User.username == username).first()
+            if existing:
+                raise HTTPException(400, "Username already taken")
+            
+            is_first = db.query(User).count() == 0
+            
+            user = User(
+                username=username,
+                password_hash=hash_password(password),
+                is_admin=is_first,
+                is_approved=is_first
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+            if is_first:
+                token = create_token(db, user.id)
+                resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
+                resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+                return resp
+            return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
     else:
         # In-memory fallback
         for u in users.values():
@@ -1389,8 +1565,12 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
         user_id = _counters["user"]
         _counters["user"] += 1
         users[user_id] = {
-            "id": user_id, "username": username, "password_hash": hash_password(password),
-            "is_admin": is_first, "is_approved": is_first, "is_blocked": False
+            "id": user_id,
+            "username": username,
+            "password_hash": hash_password(password),
+            "is_admin": is_first,
+            "is_approved": is_first,
+            "is_blocked": False
         }
         if is_first:
             token = create_token(None, user_id)
@@ -1400,33 +1580,29 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
         return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest, db: Session = Depends(get_db)):
+async def login(req: LoginRequest):
     username = req.username.strip()
     password = req.password
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        user = db.execute(select(users_table).where(users_table.c.username == username)).first()
-        if not user:
-            raise HTTPException(401, "Invalid username or password")
-        
-        if not verify_password(password, user.password_hash):
-            raise HTTPException(401, "Invalid username or password")
-        
-        if user.is_blocked:
-            raise HTTPException(403, "Account blocked")
-        if not user.is_approved:
-            raise HTTPException(403, "Account pending approval")
-        
-        token = create_token(db, user.id)
-        resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
-        resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
-        return resp
+    if SessionLocal:
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                raise HTTPException(401, "Invalid username or password")
+            
+            if not verify_password(password, user.password_hash):
+                raise HTTPException(401, "Invalid username or password")
+            
+            if user.is_blocked:
+                raise HTTPException(403, "Account blocked")
+            if not user.is_approved:
+                raise HTTPException(403, "Account pending approval")
+            
+            token = create_token(db, user.id)
+            resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
+            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+            return resp
     else:
-        # In-memory fallback
         user = None
         for u in users.values():
             if u["username"] == username:
@@ -1434,9 +1610,9 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
                 break
         if not user or not verify_password(password, user["password_hash"]):
             raise HTTPException(401, "Invalid username or password")
-        if user["is_blocked"]:
+        if user.get("is_blocked"):
             raise HTTPException(403, "Account blocked")
-        if not user["is_approved"]:
+        if not user.get("is_approved"):
             raise HTTPException(403, "Account pending approval")
         token = create_token(None, user["id"])
         resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
@@ -1444,16 +1620,15 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
         return resp
 
 @app.post("/api/auth/logout")
-def logout(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    if token:
-        revoke_token(db, token)
+def logout(token: str = Cookie(default=None)):
+    revoke_token(None if not SessionLocal else None, token)
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("token", path="/")
     return resp
 
 @app.get("/api/auth/me")
-def me(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def me(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
@@ -1463,35 +1638,38 @@ def me(token: str = Cookie(default=None), db: Session = Depends(get_db)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/pools")
-def list_pools(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def list_pools(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, func
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        pools_result = db.execute(select(pools_table)).all()
-        result = []
-        for p in pools_result:
-            count = db.execute(select(func.count()).select_from(active_numbers_table).where(active_numbers_table.c.pool_id == p.id)).scalar()
-            result.append({
-                "id": p.id, "name": p.name, "country_code": p.country_code,
-                "otp_link": p.otp_link, "otp_group_id": p.otp_group_id,
-                "match_format": p.match_format, "telegram_match_format": p.telegram_match_format,
-                "uses_platform": p.uses_platform, "is_paused": p.is_paused,
-                "pause_reason": p.pause_reason, "trick_text": p.trick_text,
-                "is_admin_only": p.is_admin_only, "number_count": count,
-                "last_restocked": p.last_restocked.isoformat() if p.last_restocked else None
-            })
-        return result
+    if SessionLocal:
+        with SessionLocal() as db:
+            pools_list = db.query(Pool).all()
+            result = []
+            for p in pools_list:
+                if p.is_admin_only and not user["is_admin"]:
+                    continue
+                if not has_pool_access(db, p.id, user["id"]):
+                    continue
+                count = db.query(ActiveNumber).filter(ActiveNumber.pool_id == p.id).count()
+                result.append({
+                    "id": p.id, "name": p.name, "country_code": p.country_code,
+                    "otp_link": p.otp_link, "otp_group_id": p.otp_group_id,
+                    "match_format": p.match_format, "telegram_match_format": p.telegram_match_format,
+                    "uses_platform": p.uses_platform, "is_paused": p.is_paused,
+                    "pause_reason": p.pause_reason, "trick_text": p.trick_text,
+                    "is_admin_only": p.is_admin_only, "number_count": count,
+                    "last_restocked": p.last_restocked.isoformat() if p.last_restocked else None
+                })
+            return result
     else:
-        # In-memory fallback
         result = []
         for pid, pool in pools.items():
+            if pool.get("is_admin_only") and not user["is_admin"]:
+                continue
+            if not has_pool_access(None, pid, user["id"]):
+                continue
             result.append({
                 "id": pid, "name": pool["name"], "country_code": pool["country_code"],
                 "otp_link": pool.get("otp_link", ""), "otp_group_id": pool.get("otp_group_id"),
@@ -1508,75 +1686,49 @@ class AssignRequest(BaseModel):
     prefix: Optional[str] = None
 
 @app.post("/api/pools/assign")
-async def assign_number(req: AssignRequest, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, delete, and_
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        
-        pool = db.execute(select(pools_table).where(pools_table.c.id == req.pool_id)).first()
-        if not pool:
-            raise HTTPException(404, "Pool not found")
-        if pool.is_paused:
-            raise HTTPException(400, f"Pool paused: {pool.pause_reason or 'No reason'}")
-        
-        # Release current assignment
-        db.execute(delete(assignments_table).where(and_(
-            assignments_table.c.user_id == user["id"],
-            assignments_table.c.released_at == None
-        )))
-        
-        # Get number from pool
-        number_row = db.execute(select(active_numbers_table).where(active_numbers_table.c.pool_id == req.pool_id).limit(1)).first()
-        if not number_row:
-            raise HTTPException(400, "No numbers available in this pool")
-        
-        db.execute(delete(active_numbers_table).where(active_numbers_table.c.id == number_row.id))
-        
-        # Create assignment
-        assignment_id = db.execute(assignments_table.insert().values(
-            user_id=user["id"], pool_id=req.pool_id, number=number_row.number
-        )).inserted_primary_key[0]
-        db.commit()
-        
-        result = {
-            "assignment_id": assignment_id,
-            "number": number_row.number,
-            "pool_name": pool.name,
-            "pool_code": pool.country_code,
-            "otp_link": pool.otp_link,
-            "otp_group_id": pool.otp_group_id,
-            "match_format": pool.match_format,
-            "telegram_match_format": pool.telegram_match_format,
-            "trick_text": pool.trick_text,
-            "pool_id": req.pool_id
-        }
-        
-        if pool.otp_group_id:
-            await request_monitor_bot(
-                number=result["number"],
-                group_id=pool.otp_group_id,
-                match_format=pool.telegram_match_format or pool.match_format,
-                user_id=user["id"]
-            )
-        
-        return result
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == req.pool_id).first()
+            if not pool:
+                raise HTTPException(404, "Pool not found")
+            if pool.is_paused:
+                raise HTTPException(400, f"Pool paused: {pool.pause_reason or 'No reason'}")
+            if pool.is_admin_only and not user["is_admin"]:
+                raise HTTPException(403, "Admin only pool")
+            if not has_pool_access(db, req.pool_id, user["id"]):
+                raise HTTPException(403, "No access to this pool")
+            
+            release_assignment(db, user["id"])
+            assignment = assign_one_number(db, user["id"], req.pool_id, req.prefix)
+            if not assignment:
+                raise HTTPException(400, "No numbers available in this pool")
+            
+            if pool.otp_group_id:
+                await request_monitor_bot(
+                    number=assignment["number"],
+                    group_id=pool.otp_group_id,
+                    match_format=pool.telegram_match_format or pool.match_format,
+                    user_id=user["id"]
+                )
+            return assignment
     else:
-        # In-memory fallback
         pool = pools.get(req.pool_id)
         if not pool:
             raise HTTPException(404, "Pool not found")
         if pool.get("is_paused"):
             raise HTTPException(400, f"Pool paused: {pool.get('pause_reason', 'No reason')}")
+        if pool.get("is_admin_only") and not user["is_admin"]:
+            raise HTTPException(403, "Admin only pool")
+        if not has_pool_access(None, req.pool_id, user["id"]):
+            raise HTTPException(403, "No access to this pool")
         
-        release_assignment(user["id"])
-        assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
+        release_assignment(None, user["id"])
+        assignment = assign_one_number(None, user["id"], req.pool_id, req.prefix)
         if not assignment:
             raise HTTPException(400, "No numbers available in this pool")
         
@@ -1587,69 +1739,22 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None), d
                 match_format=assignment.get("telegram_match_format") or assignment.get("match_format", "5+4"),
                 user_id=user["id"]
             )
-        
         return assignment
 
 @app.get("/api/pools/my-assignment")
-def my_assignment(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def my_assignment(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    if db:
-        from sqlalchemy import Table, MetaData, select, and_
-        metadata = MetaData()
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        assignment = db.execute(
-            select(assignments_table, pools_table).join(pools_table, assignments_table.c.pool_id == pools_table.c.id)
-            .where(and_(
-                assignments_table.c.user_id == user["id"],
-                assignments_table.c.released_at == None
-            ))
-            .order_by(assignments_table.c.assigned_at.desc())
-        ).first()
-        
-        if assignment:
-            return {
-                "assignment": {
-                    "assignment_id": assignment.assignments.id,
-                    "number": assignment.assignments.number,
-                    "pool_name": assignment.pools.name,
-                    "pool_id": assignment.pools.id,
-                    "country_code": assignment.pools.country_code,
-                    "otp_link": assignment.pools.otp_link,
-                    "otp_group_id": assignment.pools.otp_group_id,
-                    "trick_text": assignment.pools.trick_text,
-                    "match_format": assignment.pools.match_format,
-                    "telegram_match_format": assignment.pools.telegram_match_format
-                }
-            }
-        return {"assignment": None}
-    else:
-        assignment = get_current_assignment(user["id"])
-        return {"assignment": assignment}
+    assignment = get_current_assignment(None if not SessionLocal else None, user["id"])
+    return {"assignment": assignment}
 
 @app.post("/api/pools/release/{assignment_id}")
-def release_number(assignment_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def release_number(assignment_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    if db:
-        from sqlalchemy import Table, MetaData, update, and_
-        metadata = MetaData()
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        
-        db.execute(update(assignments_table).where(and_(
-            assignments_table.c.id == assignment_id,
-            assignments_table.c.user_id == user["id"]
-        )).values(released_at=utcnow()))
-        db.commit()
-    else:
-        release_assignment(user["id"], assignment_id)
-    
+    release_assignment(None if not SessionLocal else None, user["id"], assignment_id)
     return {"ok": True}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1670,30 +1775,21 @@ class PoolCreate(BaseModel):
     pause_reason: Optional[str] = ""
 
 @app.post("/api/admin/pools")
-def create_pool(req: PoolCreate, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        existing = db.execute(select(pools_table).where(pools_table.c.name == req.name)).first()
-        if existing:
-            raise HTTPException(400, "Pool name already exists")
-        
-        result = db.execute(pools_table.insert().values(
-            name=req.name, country_code=req.country_code,
-            otp_group_id=req.otp_group_id, otp_link=req.otp_link or "",
-            match_format=req.match_format, telegram_match_format=req.telegram_match_format or "",
-            uses_platform=req.uses_platform, is_paused=req.is_paused,
-            pause_reason=req.pause_reason or "", trick_text=req.trick_text or "",
-            is_admin_only=req.is_admin_only, last_restocked=utcnow() if not req.is_paused else None
-        ))
-        db.commit()
-        return {"ok": True, "id": result.inserted_primary_key[0]}
+    if SessionLocal:
+        with SessionLocal() as db:
+            existing = db.query(Pool).filter(Pool.name == req.name).first()
+            if existing:
+                raise HTTPException(400, "Pool name already exists")
+            pool = Pool(**req.dict())
+            db.add(pool)
+            db.commit()
+            db.refresh(pool)
+            return {"ok": True, "id": pool.id}
     else:
         global pool_counter
         for p in pools.values():
@@ -1702,69 +1798,65 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None), db: Session 
         pool_id = pool_counter
         pool_counter += 1
         pools[pool_id] = {
-            "id": pool_id, "name": req.name, "country_code": req.country_code,
-            "otp_group_id": req.otp_group_id, "otp_link": req.otp_link or "",
-            "match_format": req.match_format, "telegram_match_format": req.telegram_match_format or "",
-            "uses_platform": req.uses_platform, "is_paused": req.is_paused,
-            "pause_reason": req.pause_reason or "", "trick_text": req.trick_text or "",
-            "is_admin_only": req.is_admin_only, "last_restocked": utcnow().isoformat() if not req.is_paused else None
+            "id": pool_id,
+            "name": req.name,
+            "country_code": req.country_code,
+            "otp_group_id": req.otp_group_id,
+            "otp_link": req.otp_link or "",
+            "match_format": req.match_format,
+            "telegram_match_format": req.telegram_match_format or "",
+            "uses_platform": req.uses_platform,
+            "is_paused": req.is_paused,
+            "pause_reason": req.pause_reason or "",
+            "trick_text": req.trick_text or "",
+            "is_admin_only": req.is_admin_only,
+            "last_restocked": utcnow().isoformat() if not req.is_paused else None
         }
         active_numbers[pool_id] = []
         return {"ok": True, "id": pool_id}
 
 @app.put("/api/admin/pools/{pool_id}")
-def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(
-            name=req.name, country_code=req.country_code,
-            otp_group_id=req.otp_group_id, otp_link=req.otp_link or "",
-            match_format=req.match_format, telegram_match_format=req.telegram_match_format or "",
-            uses_platform=req.uses_platform, is_paused=req.is_paused,
-            pause_reason=req.pause_reason or "", trick_text=req.trick_text or "",
-            is_admin_only=req.is_admin_only
-        ))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if not pool:
+                raise HTTPException(404, "Pool not found")
+            for key, value in req.dict().items():
+                setattr(pool, key, value)
+            db.commit()
+            return {"ok": True}
     else:
         if pool_id not in pools:
             raise HTTPException(404, "Pool not found")
-        pools[pool_id].update(req.dict(exclude_unset=True))
-    
-    return {"ok": True}
+        pools[pool_id].update(req.dict())
+        return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}")
-def delete_pool(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def delete_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        db.execute(delete(active_numbers_table).where(active_numbers_table.c.pool_id == pool_id))
-        db.execute(delete(pools_table).where(pools_table.c.id == pool_id))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
+            db.query(Pool).filter(Pool.id == pool_id).delete()
+            db.commit()
     else:
         if pool_id not in pools:
             raise HTTPException(404, "Pool not found")
         del pools[pool_id]
         active_numbers.pop(pool_id, None)
-    
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
-async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -1781,36 +1873,29 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
     if not numbers:
         raise HTTPException(400, "No valid numbers found")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, delete, insert
-        metadata = MetaData()
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        bad_numbers_table = Table("bad_numbers", metadata, autoload_with=engine)
-        
-        bad_set = {b[0] for b in db.execute(select(bad_numbers_table.c.number)).all()}
-        
-        filtered = [n for n in numbers if n not in bad_set]
-        skipped_bad = len(numbers) - len(filtered)
-        
-        cooldown_dups = await get_cooldown_duplicates(filtered)
-        filtered = [n for n in filtered if n not in cooldown_dups]
-        skipped_cooldown = len(cooldown_dups)
-        
-        existing = {n[0] for n in db.execute(select(active_numbers_table.c.number).where(active_numbers_table.c.pool_id == pool_id)).all()}
-        new_numbers = [n for n in filtered if n not in existing]
-        duplicates = len(filtered) - len(new_numbers)
-        
-        for num in new_numbers:
-            db.execute(insert(active_numbers_table).values(pool_id=pool_id, number=num))
-        
-        from sqlalchemy import Table, MetaData, update
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(last_restocked=utcnow()))
-        db.commit()
-        
-        added = len(new_numbers)
+    if SessionLocal:
+        with SessionLocal() as db:
+            bad_set = {b.number for b in db.query(BadNumber).all()}
+            filtered = [n for n in numbers if n not in bad_set]
+            skipped_bad = len(numbers) - len(filtered)
+            
+            cooldown_dups = await get_cooldown_duplicates(filtered)
+            filtered = [n for n in filtered if n not in cooldown_dups]
+            skipped_cooldown = len(cooldown_dups)
+            
+            existing = {n.number for n in db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).all()}
+            new_numbers = [n for n in filtered if n not in existing]
+            duplicates = len(filtered) - len(new_numbers)
+            
+            for num in new_numbers:
+                db.add(ActiveNumber(pool_id=pool_id, number=num))
+            
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if pool:
+                pool.last_restocked = utcnow()
+            db.commit()
+            added = len(new_numbers)
     else:
-        # In-memory fallback
         bad_set = set(bad_numbers.keys())
         filtered = [n for n in numbers if n not in bad_set]
         skipped_bad = len(numbers) - len(filtered)
@@ -1825,53 +1910,40 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
         
         for num in new_numbers:
             active_numbers.setdefault(pool_id, []).append(num)
-            uploaded_numbers.add(num)
         
-        pools[pool_id]["last_restocked"] = utcnow().isoformat()
+        if pool_id in pools:
+            pools[pool_id]["last_restocked"] = utcnow().isoformat()
         added = len(new_numbers)
-    
-    if added > 0:
-        asyncio.create_task(broadcast_all({"type": "notification", "message": f"📦 Numbers Restocked! {added} new numbers added."}))
     
     return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
 
 @app.get("/api/admin/pools/{pool_id}/export")
-def export_pool(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def export_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        numbers = [n[0] for n in db.execute(select(active_numbers_table.c.number).where(active_numbers_table.c.pool_id == pool_id)).all()]
+    if SessionLocal:
+        with SessionLocal() as db:
+            numbers = [n.number for n in db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).all()]
     else:
         numbers = active_numbers.get(pool_id, [])
     
     return Response(content="\n".join(numbers), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename=pool_{pool_id}.txt"})
 
 @app.post("/api/admin/pools/{pool_id}/cut")
-def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, delete, func
-        metadata = MetaData()
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        numbers_to_delete = db.execute(
-            select(active_numbers_table.c.id).where(active_numbers_table.c.pool_id == pool_id).limit(count)
-        ).all()
-        
-        for n in numbers_to_delete:
-            db.execute(delete(active_numbers_table).where(active_numbers_table.c.id == n[0]))
-        db.commit()
-        
-        removed = len(numbers_to_delete)
+    if SessionLocal:
+        with SessionLocal() as db:
+            numbers = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).limit(count).all()
+            removed = len(numbers)
+            for n in numbers:
+                db.delete(n)
+            db.commit()
     else:
         numbers = active_numbers.get(pool_id, [])
         removed = numbers[:count]
@@ -1880,19 +1952,15 @@ def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None), db:
     return {"ok": True, "removed": removed}
 
 @app.post("/api/admin/pools/{pool_id}/clear")
-def clear_pool(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def clear_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        result = db.execute(delete(active_numbers_table).where(active_numbers_table.c.pool_id == pool_id))
-        db.commit()
-        deleted = result.rowcount
+    if SessionLocal:
+        with SessionLocal() as db:
+            deleted = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
+            db.commit()
     else:
         numbers = active_numbers.get(pool_id, [])
         deleted = len(numbers)
@@ -1901,82 +1969,82 @@ def clear_pool(pool_id: int, token: str = Cookie(default=None), db: Session = De
     return {"ok": True, "deleted": deleted}
 
 @app.post("/api/admin/pools/{pool_id}/pause")
-def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(is_paused=True, pause_reason=reason))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if pool:
+                pool.is_paused = True
+                pool.pause_reason = reason
+                db.commit()
     else:
-        pools[pool_id]["is_paused"] = True
-        pools[pool_id]["pause_reason"] = reason
+        if pool_id in pools:
+            pools[pool_id]["is_paused"] = True
+            pools[pool_id]["pause_reason"] = reason
     
     asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ Region paused."}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/resume")
-def resume_pool(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def resume_pool(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(is_paused=False, pause_reason=""))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if pool:
+                pool.is_paused = False
+                pool.pause_reason = ""
+                db.commit()
     else:
-        pools[pool_id]["is_paused"] = False
-        pools[pool_id]["pause_reason"] = ""
+        if pool_id in pools:
+            pools[pool_id]["is_paused"] = False
+            pools[pool_id]["pause_reason"] = ""
     
     asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ Region is now available!"}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
-def toggle_admin_only(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        current = db.execute(select(pools_table.c.is_admin_only).where(pools_table.c.id == pool_id)).first()
-        new_val = not current[0] if current else False
-        
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(is_admin_only=new_val))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if pool:
+                pool.is_admin_only = not pool.is_admin_only
+                db.commit()
+                new_val = pool.is_admin_only
     else:
-        pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
-        new_val = pools[pool_id]["is_admin_only"]
+        if pool_id in pools:
+            pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
+            new_val = pools[pool_id]["is_admin_only"]
     
     return {"ok": True, "is_admin_only": new_val}
 
 @app.post("/api/admin/pools/{pool_id}/trick")
-def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        db.execute(update(pools_table).where(pools_table.c.id == pool_id).values(trick_text=trick_text))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if pool:
+                pool.trick_text = trick_text
+                db.commit()
     else:
-        pools[pool_id]["trick_text"] = trick_text
+        if pool_id in pools:
+            pools[pool_id]["trick_text"] = trick_text
     
     return {"ok": True}
 
@@ -1985,61 +2053,56 @@ def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=No
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/pools/{pool_id}/access")
-def get_pool_access(pool_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        pool_access_table = Table("pool_access", metadata, autoload_with=engine)
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        result = db.execute(
-            select(pool_access_table.c.user_id, users_table.c.username)
-            .join(users_table, pool_access_table.c.user_id == users_table.c.id)
-            .where(pool_access_table.c.pool_id == pool_id)
-        ).all()
-        
-        return [{"user_id": r[0], "username": r[1]} for r in result]
+    if SessionLocal:
+        with SessionLocal() as db:
+            accesses = db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).all()
+            result = []
+            for a in accesses:
+                u = db.query(User).filter(User.id == a.user_id).first()
+                if u:
+                    result.append({"user_id": a.user_id, "username": u.username})
+            return result
     else:
         return get_pool_access_users(pool_id)
 
 @app.post("/api/admin/pools/{pool_id}/access/{user_id}")
-def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, insert
-        metadata = MetaData()
-        pool_access_table = Table("pool_access", metadata, autoload_with=engine)
-        
-        db.execute(insert(pool_access_table).values(pool_id=pool_id, user_id=user_id, granted_at=utcnow()))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            existing = db.query(PoolAccess).filter(
+                PoolAccess.pool_id == pool_id,
+                PoolAccess.user_id == user_id
+            ).first()
+            if not existing:
+                db.add(PoolAccess(pool_id=pool_id, user_id=user_id))
+                db.commit()
     else:
         grant_pool_access(pool_id, user_id)
     
     return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
-def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        pool_access_table = Table("pool_access", metadata, autoload_with=engine)
-        
-        db.execute(delete(pool_access_table).where(
-            pool_access_table.c.pool_id == pool_id,
-            pool_access_table.c.user_id == user_id
-        ))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(PoolAccess).filter(
+                PoolAccess.pool_id == pool_id,
+                PoolAccess.user_id == user_id
+            ).delete()
+            db.commit()
     else:
         revoke_pool_access(pool_id, user_id)
     
@@ -2057,37 +2120,31 @@ class MonitorResultPayload(BaseModel):
     secret: str = ""
 
 @app.post("/api/otp/monitor-result")
-async def monitor_result(payload: MonitorResultPayload, db: Session = Depends(get_db)):
+async def monitor_result(payload: MonitorResultPayload):
     if SHARED_SECRET and payload.secret != SHARED_SECRET:
         raise HTTPException(403, "Invalid secret")
     
     log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
     
-    if db:
-        from sqlalchemy import Table, MetaData, insert, select
-        metadata = MetaData()
-        otp_logs_table = Table("otp_logs", metadata, autoload_with=engine)
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        
-        assignment = db.execute(
-            select(assignments_table.c.id).where(
-                assignments_table.c.user_id == payload.user_id,
-                assignments_table.c.number == payload.number,
-                assignments_table.c.released_at == None
+    if SessionLocal:
+        with SessionLocal() as db:
+            assignment = db.query(Assignment).filter(
+                Assignment.user_id == payload.user_id,
+                Assignment.number == payload.number,
+                Assignment.released_at == None
+            ).first()
+            
+            otp_entry = OTPLog(
+                assignment_id=assignment.id if assignment else None,
+                user_id=payload.user_id,
+                number=payload.number,
+                otp_code=payload.otp,
+                raw_message=payload.raw_message
             )
-        ).first()
-        
-        assignment_id = assignment[0] if assignment else None
-        
-        result = db.execute(insert(otp_logs_table).values(
-            assignment_id=assignment_id,
-            user_id=payload.user_id,
-            number=payload.number,
-            otp_code=payload.otp,
-            raw_message=payload.raw_message
-        ))
-        db.commit()
-        otp_id = result.inserted_primary_key[0]
+            db.add(otp_entry)
+            db.commit()
+            db.refresh(otp_entry)
+            otp_id = otp_entry.id
     else:
         global otp_counter
         otp_id = otp_counter
@@ -2118,54 +2175,42 @@ async def monitor_result(payload: MonitorResultPayload, db: Session = Depends(ge
     return {"ok": True}
 
 @app.get("/api/otp/my")
-def my_otps(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def my_otps(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        otp_logs_table = Table("otp_logs", metadata, autoload_with=engine)
-        
-        logs = db.execute(
-            select(otp_logs_table).where(otp_logs_table.c.user_id == user["id"])
-            .order_by(otp_logs_table.c.delivered_at.desc())
-            .limit(50)
-        ).all()
-        
-        return [{"id": l.id, "number": l.number, "otp_code": l.otp_code, "raw_message": l.raw_message, "delivered_at": l.delivered_at.isoformat()} for l in logs]
+    if SessionLocal:
+        with SessionLocal() as db:
+            logs = db.query(OTPLog).filter(OTPLog.user_id == user["id"]).order_by(OTPLog.delivered_at.desc()).limit(50).all()
+            return [{"id": l.id, "number": l.number, "otp_code": l.otp_code, "raw_message": l.raw_message, "delivered_at": l.delivered_at.isoformat()} for l in logs]
     else:
         user_otps = [o for o in otp_logs if o["user_id"] == user["id"]]
         user_otps.sort(key=lambda x: x["delivered_at"], reverse=True)
         return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
 
 @app.post("/api/otp/search")
-async def search_otp(number: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+async def search_otp(number: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        
-        assignment = db.execute(
-            select(assignments_table, pools_table).join(pools_table, assignments_table.c.pool_id == pools_table.c.id)
-            .where(assignments_table.c.user_id == user["id"], assignments_table.c.number == number)
-            .order_by(assignments_table.c.assigned_at.desc())
-        ).first()
-        
-        if assignment and assignment.pools.otp_group_id:
-            await request_search_otp(
-                number=number,
-                group_id=assignment.pools.otp_group_id,
-                match_format=assignment.pools.telegram_match_format or assignment.pools.match_format,
-                user_id=user["id"]
-            )
-            return {"ok": True, "message": f"Searching OTP for {number}"}
+    if SessionLocal:
+        with SessionLocal() as db:
+            assignment = db.query(Assignment).filter(
+                Assignment.user_id == user["id"],
+                Assignment.number == number
+            ).order_by(Assignment.assigned_at.desc()).first()
+            if assignment:
+                pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
+                if pool and pool.otp_group_id:
+                    await request_search_otp(
+                        number=number,
+                        group_id=pool.otp_group_id,
+                        match_format=pool.telegram_match_format or pool.match_format,
+                        user_id=user["id"]
+                    )
+                    return {"ok": True, "message": f"Searching OTP for {number}"}
     else:
         for a in archived_numbers:
             if a["user_id"] == user["id"] and a["number"] == number:
@@ -2191,40 +2236,34 @@ class SaveRequest(BaseModel):
     pool_name: str
 
 @app.post("/api/saved")
-def save_numbers(req: SaveRequest, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
     expires_at = utcnow() + timedelta(minutes=req.timer_minutes)
     saved = 0
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, insert
-        metadata = MetaData()
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        
-        for number in req.numbers:
-            number = number.strip()
-            if not number:
-                continue
-            
-            existing = db.execute(
-                select(saved_numbers_table).where(
-                    saved_numbers_table.c.user_id == user["id"],
-                    saved_numbers_table.c.number == number,
-                    saved_numbers_table.c.moved == False
-                )
-            ).first()
-            
-            if not existing:
-                db.execute(insert(saved_numbers_table).values(
-                    user_id=user["id"], number=number, pool_name=req.pool_name,
-                    expires_at=expires_at
-                ))
-                saved += 1
-        
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            for number in req.numbers:
+                number = number.strip()
+                if not number:
+                    continue
+                existing = db.query(SavedNumber).filter(
+                    SavedNumber.user_id == user["id"],
+                    SavedNumber.number == number,
+                    SavedNumber.moved == False
+                ).first()
+                if not existing:
+                    db.add(SavedNumber(
+                        user_id=user["id"],
+                        number=number,
+                        pool_name=req.pool_name,
+                        expires_at=expires_at
+                    ))
+                    saved += 1
+            db.commit()
     else:
         global saved_counter
         for number in req.numbers:
@@ -2235,9 +2274,14 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None), db: Sessio
             if existing:
                 continue
             saved_numbers.append({
-                "id": saved_counter, "user_id": user["id"], "number": number,
-                "country": "", "pool_name": req.pool_name, "expires_at": expires_at.isoformat(),
-                "moved": False, "created_at": utcnow().isoformat()
+                "id": saved_counter,
+                "user_id": user["id"],
+                "number": number,
+                "country": "",
+                "pool_name": req.pool_name,
+                "expires_at": expires_at.isoformat(),
+                "moved": False,
+                "created_at": utcnow().isoformat()
             })
             saved_counter += 1
             saved += 1
@@ -2245,32 +2289,39 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None), db: Sessio
     return {"ok": True, "saved": saved, "expires_at": expires_at.isoformat()}
 
 @app.get("/api/saved")
-def list_saved(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def list_saved(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        
-        saved = db.execute(
-            select(saved_numbers_table).where(saved_numbers_table.c.user_id == user["id"])
-            .order_by(saved_numbers_table.c.expires_at)
-        ).all()
-        
-        now = utcnow()
-        result = []
-        for s in saved:
-            seconds_left = max(0, int((s.expires_at - now).total_seconds()))
-            status = "ready" if s.moved else ("expired" if seconds_left == 0 else ("red" if seconds_left < 600 else ("yellow" if seconds_left < 3600 else "green")))
-            result.append({
-                "id": s.id, "number": s.number, "country": s.country, "pool_name": s.pool_name,
-                "expires_at": s.expires_at.isoformat(), "seconds_left": seconds_left,
-                "status": status, "moved": s.moved
-            })
-        return result
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(SavedNumber.user_id == user["id"]).order_by(SavedNumber.expires_at).all()
+            now = utcnow()
+            result = []
+            for s in saved:
+                seconds_left = max(0, int((s.expires_at - now).total_seconds()))
+                if s.moved:
+                    status = "ready"
+                elif seconds_left == 0:
+                    status = "expired"
+                elif seconds_left < 600:
+                    status = "red"
+                elif seconds_left < 3600:
+                    status = "yellow"
+                else:
+                    status = "green"
+                result.append({
+                    "id": s.id,
+                    "number": s.number,
+                    "country": s.country,
+                    "pool_name": s.pool_name,
+                    "expires_at": s.expires_at.isoformat(),
+                    "seconds_left": seconds_left,
+                    "status": status,
+                    "moved": s.moved
+                })
+            return result
     else:
         user_saved = [s for s in saved_numbers if s["user_id"] == user["id"]]
         user_saved.sort(key=lambda x: x["expires_at"])
@@ -2279,49 +2330,58 @@ def list_saved(token: str = Cookie(default=None), db: Session = Depends(get_db))
         for s in user_saved:
             expires = datetime.fromisoformat(s["expires_at"])
             seconds_left = max(0, int((expires - now).total_seconds()))
-            status = "ready" if s.get("moved") else ("expired" if seconds_left == 0 else ("red" if seconds_left < 600 else ("yellow" if seconds_left < 3600 else "green")))
+            if s.get("moved", False):
+                status = "ready"
+            elif seconds_left == 0:
+                status = "expired"
+            elif seconds_left < 600:
+                status = "red"
+            elif seconds_left < 3600:
+                status = "yellow"
+            else:
+                status = "green"
             result.append({
-                "id": s["id"], "number": s["number"], "country": s.get("country", ""),
-                "pool_name": s["pool_name"], "expires_at": s["expires_at"],
-                "seconds_left": seconds_left, "status": status, "moved": s.get("moved", False)
+                "id": s["id"],
+                "number": s["number"],
+                "country": s.get("country", ""),
+                "pool_name": s["pool_name"],
+                "expires_at": s["expires_at"],
+                "seconds_left": seconds_left,
+                "status": status,
+                "moved": s.get("moved", False)
             })
         return result
 
 @app.get("/api/saved/ready")
-def ready_numbers(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def ready_numbers(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        
-        ready = db.execute(
-            select(saved_numbers_table).where(
-                saved_numbers_table.c.user_id == user["id"],
-                saved_numbers_table.c.moved == True
-            ).order_by(saved_numbers_table.c.created_at.desc())
-        ).all()
-        
-        result = []
-        for s in ready:
-            pool = db.execute(select(pools_table).where(pools_table.c.name == s.pool_name)).first()
-            in_pool = False
-            if pool:
-                in_pool = db.execute(select(active_numbers_table).where(
-                    active_numbers_table.c.pool_id == pool.id,
-                    active_numbers_table.c.number == s.number
-                )).first() is not None
-            
-            result.append({
-                "id": s.id, "number": s.number, "country": s.country, "pool_name": s.pool_name,
-                "pool_id": pool.id if pool else None, "in_pool": in_pool
-            })
-        return result
+    if SessionLocal:
+        with SessionLocal() as db:
+            ready = db.query(SavedNumber).filter(
+                SavedNumber.user_id == user["id"],
+                SavedNumber.moved == True
+            ).order_by(SavedNumber.created_at.desc()).all()
+            result = []
+            for s in ready:
+                pool = db.query(Pool).filter(Pool.name == s.pool_name).first()
+                in_pool = False
+                if pool:
+                    in_pool = db.query(ActiveNumber).filter(
+                        ActiveNumber.pool_id == pool.id,
+                        ActiveNumber.number == s.number
+                    ).first() is not None
+                result.append({
+                    "id": s.id,
+                    "number": s.number,
+                    "country": s.country,
+                    "pool_name": s.pool_name,
+                    "pool_id": pool.id if pool else None,
+                    "in_pool": in_pool
+                })
+            return result
     else:
         ready = [s for s in saved_numbers if s["user_id"] == user["id"] and s.get("moved", False)]
         ready.sort(key=lambda x: x["created_at"], reverse=True)
@@ -2330,31 +2390,32 @@ def ready_numbers(token: str = Cookie(default=None), db: Session = Depends(get_d
             pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
             in_pool = pool and s["number"] in active_numbers.get(pool["id"], [])
             result.append({
-                "id": s["id"], "number": s["number"], "country": s.get("country", ""),
-                "pool_name": s["pool_name"], "pool_id": pool["id"] if pool else None, "in_pool": in_pool
+                "id": s["id"],
+                "number": s["number"],
+                "country": s.get("country", ""),
+                "pool_name": s["pool_name"],
+                "pool_id": pool["id"] if pool else None,
+                "in_pool": in_pool
             })
         return result
 
 @app.put("/api/saved/{saved_id}")
-def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        
-        result = db.execute(
-            update(saved_numbers_table)
-            .where(saved_numbers_table.c.id == saved_id, saved_numbers_table.c.user_id == user["id"])
-            .values(expires_at=utcnow() + timedelta(minutes=timer_minutes), moved=False)
-        )
-        db.commit()
-        
-        if result.rowcount == 0:
-            raise HTTPException(404, "Not found")
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(
+                SavedNumber.id == saved_id,
+                SavedNumber.user_id == user["id"]
+            ).first()
+            if not saved:
+                raise HTTPException(404, "Not found")
+            saved.expires_at = utcnow() + timedelta(minutes=timer_minutes)
+            saved.moved = False
+            db.commit()
     else:
         for s in saved_numbers:
             if s["id"] == saved_id and s["user_id"] == user["id"]:
@@ -2366,24 +2427,21 @@ def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=
     return {"ok": True}
 
 @app.delete("/api/saved/{saved_id}")
-def delete_saved(saved_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def delete_saved(saved_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        
-        result = db.execute(
-            delete(saved_numbers_table)
-            .where(saved_numbers_table.c.id == saved_id, saved_numbers_table.c.user_id == user["id"])
-        )
-        db.commit()
-        
-        if result.rowcount == 0:
-            raise HTTPException(404, "Not found")
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(
+                SavedNumber.id == saved_id,
+                SavedNumber.user_id == user["id"]
+            ).first()
+            if not saved:
+                raise HTTPException(404, "Not found")
+            db.delete(saved)
+            db.commit()
     else:
         for i, s in enumerate(saved_numbers):
             if s["id"] == saved_id and s["user_id"] == user["id"]:
@@ -2404,60 +2462,61 @@ class ReviewRequest(BaseModel):
     mark_as_bad: bool = False
 
 @app.post("/api/reviews")
-def submit_review(req: ReviewRequest, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
     if not (1 <= req.rating <= 5):
         raise HTTPException(400, "Rating must be 1-5")
     
-    if db:
-        from sqlalchemy import Table, MetaData, insert, delete, update, and_
-        metadata = MetaData()
-        reviews_table = Table("number_reviews", metadata, autoload_with=engine)
-        bad_numbers_table = Table("bad_numbers", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        
-        db.execute(insert(reviews_table).values(
-            user_id=user["id"], number=req.number, rating=req.rating, comment=req.comment
-        ))
-        
-        if req.mark_as_bad or req.rating == 1:
-            existing = db.execute(select(bad_numbers_table).where(bad_numbers_table.c.number == req.number)).first()
-            if not existing:
-                db.execute(insert(bad_numbers_table).values(
-                    number=req.number, reason=req.comment or "Flagged by user", flagged_by=user["id"]
-                ))
-            
-            db.execute(delete(active_numbers_table).where(active_numbers_table.c.number == req.number))
-        
-        db.execute(
-            update(assignments_table)
-            .where(and_(
-                assignments_table.c.user_id == user["id"],
-                assignments_table.c.number == req.number,
-                assignments_table.c.released_at == None
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.add(NumberReview(
+                user_id=user["id"],
+                number=req.number,
+                rating=req.rating,
+                comment=req.comment
             ))
-            .values(released_at=utcnow(), feedback=req.comment or ("bad" if req.mark_as_bad else "ok"))
-        )
-        
-        db.commit()
+            
+            if req.mark_as_bad or req.rating == 1:
+                existing = db.query(BadNumber).filter(BadNumber.number == req.number).first()
+                if not existing:
+                    db.add(BadNumber(
+                        number=req.number,
+                        reason=req.comment or "Flagged by user",
+                        flagged_by=user["id"]
+                    ))
+                db.query(ActiveNumber).filter(ActiveNumber.number == req.number).delete()
+            
+            assignment = db.query(Assignment).filter(
+                Assignment.user_id == user["id"],
+                Assignment.number == req.number,
+                Assignment.released_at == None
+            ).first()
+            if assignment:
+                assignment.released_at = utcnow()
+                assignment.feedback = req.comment or ("bad" if req.mark_as_bad else "ok")
+            
+            db.commit()
     else:
         global review_counter
         reviews.append({
-            "id": review_counter, "user_id": user["id"], "number": req.number,
-            "rating": req.rating, "comment": req.comment, "created_at": utcnow().isoformat()
+            "id": review_counter,
+            "user_id": user["id"],
+            "number": req.number,
+            "rating": req.rating,
+            "comment": req.comment,
+            "created_at": utcnow().isoformat()
         })
         review_counter += 1
         
         if req.mark_as_bad or req.rating == 1:
-            add_bad_number(req.number, user["id"], req.comment or "Flagged by user")
+            add_bad_number(None, req.number, user["id"], req.comment or "Flagged by user")
         
-        current = get_current_assignment(user["id"])
+        current = get_current_assignment(None, user["id"])
         if current and current["number"] == req.number:
-            release_assignment(user["id"])
+            release_assignment(None, user["id"])
     
     return {"ok": True, "marked_bad": req.mark_as_bad or req.rating == 1}
 
@@ -2466,188 +2525,124 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None), db: Ses
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/stats")
-def stats(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def stats(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, func
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        pools_table = Table("pools", metadata, autoload_with=engine)
-        active_numbers_table = Table("active_numbers", metadata, autoload_with=engine)
-        otp_logs_table = Table("otp_logs", metadata, autoload_with=engine)
-        assignments_table = Table("assignments", metadata, autoload_with=engine)
-        bad_numbers_table = Table("bad_numbers", metadata, autoload_with=engine)
-        saved_numbers_table = Table("saved_numbers", metadata, autoload_with=engine)
-        
-        total_users = db.execute(select(func.count()).select_from(users_table)).scalar()
-        pending_approval = db.execute(
-            select(func.count()).select_from(users_table).where(
-                users_table.c.is_approved == False,
-                users_table.c.is_blocked == False
-            )
-        ).scalar()
-        total_pools = db.execute(select(func.count()).select_from(pools_table)).scalar()
-        total_numbers = db.execute(select(func.count()).select_from(active_numbers_table)).scalar()
-        total_otps = db.execute(select(func.count()).select_from(otp_logs_table)).scalar()
-        total_assignments = db.execute(select(func.count()).select_from(assignments_table)).scalar()
-        bad_numbers_count = db.execute(select(func.count()).select_from(bad_numbers_table)).scalar()
-        saved_numbers_count = db.execute(
-            select(func.count()).select_from(saved_numbers_table).where(saved_numbers_table.c.moved == False)
-        ).scalar()
-        
-        return {
-            "total_users": total_users, "pending_approval": pending_approval,
-            "total_pools": total_pools, "total_numbers": total_numbers,
-            "total_otps": total_otps, "total_assignments": total_assignments,
-            "bad_numbers": bad_numbers_count, "saved_numbers": saved_numbers_count,
-            "online_users": len(user_connections)
-        }
+    if SessionLocal:
+        with SessionLocal() as db:
+            return {
+                "total_users": db.query(User).count(),
+                "pending_approval": db.query(User).filter(User.is_approved == False, User.is_blocked == False).count(),
+                "total_pools": db.query(Pool).count(),
+                "total_numbers": db.query(ActiveNumber).count(),
+                "total_otps": db.query(OTPLog).count(),
+                "total_assignments": db.query(Assignment).count(),
+                "bad_numbers": db.query(BadNumber).count(),
+                "saved_numbers": db.query(SavedNumber).filter(SavedNumber.moved == False).count(),
+                "online_users": sum(len(conns) for conns in user_connections.values())
+            }
     else:
         return {
-            "total_users": len(users), "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u["is_blocked"]),
-            "total_pools": len(pools), "total_numbers": sum(len(n) for n in active_numbers.values()),
-            "total_otps": len(otp_logs), "total_assignments": len(archived_numbers),
-            "bad_numbers": len(bad_numbers), "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
-            "online_users": len(user_connections)
+            "total_users": len(users),
+            "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u.get("is_blocked", False)),
+            "total_pools": len(pools),
+            "total_numbers": sum(len(n) for n in active_numbers.values()),
+            "total_otps": len(otp_logs),
+            "total_assignments": len(archived_numbers),
+            "bad_numbers": len(bad_numbers),
+            "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
+            "online_users": sum(len(conns) for conns in user_connections.values())
         }
 
 @app.get("/api/admin/users")
-def list_users(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def list_users(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        users_list = db.execute(select(users_table).order_by(users_table.c.created_at.desc())).all()
-        
-        return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "is_approved": u.is_approved, "is_blocked": u.is_blocked, "created_at": u.created_at.isoformat()} for u in users_list]
+    if SessionLocal:
+        with SessionLocal() as db:
+            users_list = db.query(User).order_by(User.created_at.desc()).all()
+            return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "is_approved": u.is_approved, "is_blocked": u.is_blocked, "created_at": u.created_at.isoformat()} for u in users_list]
     else:
-        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u["is_blocked"], "created_at": u["created_at"]} for u in users.values()]
+        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
-def approve_user_endpoint(user_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    admin = get_user_from_token(db, token)
+def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+    admin = get_user_from_token(None if not SessionLocal else None, token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_approved=True, is_blocked=False))
-        db.commit()
-        
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
-    else:
-        approve_user(user_id, admin["id"])
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
-    
+    approve_user(None if not SessionLocal else None, user_id)
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
-def block_user_endpoint(user_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    admin = get_user_from_token(db, token)
+def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+    admin = get_user_from_token(None if not SessionLocal else None, token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_blocked=True, is_approved=False))
-        db.commit()
-        
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
-    else:
-        block_user(user_id)
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
-    
+    block_user(None if not SessionLocal else None, user_id)
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
-def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    admin = get_user_from_token(db, token)
+def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+    admin = get_user_from_token(None if not SessionLocal else None, token)
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, update
-        metadata = MetaData()
-        users_table = Table("users", metadata, autoload_with=engine)
-        
-        db.execute(update(users_table).where(users_table.c.id == user_id).values(is_blocked=False, is_approved=True))
-        db.commit()
-        
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
-    else:
-        unblock_user(user_id)
-        approve_user(user_id, admin["id"])
-        asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
-    
+    unblock_user(None if not SessionLocal else None, user_id)
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
-def list_bad_numbers(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def list_bad_numbers(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        bad_numbers_table = Table("bad_numbers", metadata, autoload_with=engine)
-        
-        bad_list = db.execute(select(bad_numbers_table).order_by(bad_numbers_table.c.created_at.desc())).all()
-        return [{"number": b.number, "reason": b.reason, "created_at": b.created_at.isoformat()} for b in bad_list]
+    if SessionLocal:
+        with SessionLocal() as db:
+            bad = db.query(BadNumber).order_by(BadNumber.created_at.desc()).all()
+            return [{"number": b.number, "reason": b.reason, "created_at": b.created_at.isoformat()} for b in bad]
     else:
         return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
-def remove_bad_number(number: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def remove_bad_number(number: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        bad_numbers_table = Table("bad_numbers", metadata, autoload_with=engine)
-        
-        db.execute(delete(bad_numbers_table).where(bad_numbers_table.c.number == number))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(BadNumber).filter(BadNumber.number == number).delete()
+            db.commit()
     else:
         bad_numbers.pop(number, None)
     
     return {"ok": True}
 
 @app.get("/api/admin/reviews")
-def list_reviews(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def list_reviews(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        reviews_table = Table("number_reviews", metadata, autoload_with=engine)
-        
-        reviews_list = db.execute(select(reviews_table).order_by(reviews_table.c.created_at.desc()).limit(100)).all()
-        return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment, "created_at": r.created_at.isoformat()} for r in reviews_list]
+    if SessionLocal:
+        with SessionLocal() as db:
+            reviews_list = db.query(NumberReview).order_by(NumberReview.created_at.desc()).limit(100).all()
+            return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment, "created_at": r.created_at.isoformat()} for r in reviews_list]
     else:
         return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
 
 @app.post("/api/admin/broadcast")
-async def broadcast_message(message: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+async def broadcast_message(message: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2655,8 +2650,8 @@ async def broadcast_message(message: str, token: str = Cookie(default=None), db:
     return {"ok": True}
 
 @app.post("/api/admin/settings/approval")
-def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2664,8 +2659,8 @@ def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None),
     return {"ok": True, "mode": "on" if enabled else "off"}
 
 @app.post("/api/admin/settings/otp-redirect")
-def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2680,35 +2675,29 @@ def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None),
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/buttons")
-def get_buttons(token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def get_buttons(token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select
-        metadata = MetaData()
-        buttons_table = Table("custom_buttons", metadata, autoload_with=engine)
-        
-        buttons = db.execute(select(buttons_table).order_by(buttons_table.c.position)).all()
-        return [{"label": b.label, "url": b.url} for b in buttons]
+    if SessionLocal:
+        with SessionLocal() as db:
+            buttons = db.query(CustomButton).order_by(CustomButton.position).all()
+            return [{"label": b.label, "url": b.url} for b in buttons]
     else:
         return [{"label": b["label"], "url": b["url"]} for b in custom_buttons]
 
 @app.post("/api/admin/buttons")
-def add_button(label: str, url: str, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def add_button(label: str, url: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, select, insert, func
-        metadata = MetaData()
-        buttons_table = Table("custom_buttons", metadata, autoload_with=engine)
-        
-        max_pos = db.execute(select(func.max(buttons_table.c.position))).scalar() or 0
-        db.execute(insert(buttons_table).values(label=label, url=url, position=max_pos + 1))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            max_pos = db.query(func.max(CustomButton.position)).scalar() or 0
+            db.add(CustomButton(label=label, url=url, position=max_pos + 1))
+            db.commit()
     else:
         global button_counter
         custom_buttons.append({"id": button_counter, "label": label, "url": url, "position": len(custom_buttons)})
@@ -2717,18 +2706,15 @@ def add_button(label: str, url: str, token: str = Cookie(default=None), db: Sess
     return {"ok": True}
 
 @app.delete("/api/admin/buttons/{button_id}")
-def delete_button(button_id: int, token: str = Cookie(default=None), db: Session = Depends(get_db)):
-    user = get_user_from_token(db, token)
+def delete_button(button_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(None if not SessionLocal else None, token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if db:
-        from sqlalchemy import Table, MetaData, delete
-        metadata = MetaData()
-        buttons_table = Table("custom_buttons", metadata, autoload_with=engine)
-        
-        db.execute(delete(buttons_table).where(buttons_table.c.id == button_id))
-        db.commit()
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.query(CustomButton).filter(CustomButton.id == button_id).delete()
+            db.commit()
     else:
         for i, b in enumerate(custom_buttons):
             if b["id"] == button_id:
@@ -2749,7 +2735,7 @@ async def websocket_user(websocket: WebSocket, user_id: int):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
+        disconnect_user(websocket, user_id)
 
 @app.websocket("/ws/feed")
 async def websocket_feed(websocket: WebSocket):
@@ -2758,7 +2744,7 @@ async def websocket_feed(websocket: WebSocket):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
+        disconnect_feed(websocket)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
