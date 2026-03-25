@@ -1486,14 +1486,14 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 
     <div id="savedPage" class="page">
-        <div class="section-title">💾 SAVE NUMBERS</div>
+        <div class="section-title">💾 SAVED NUMBERS</div>
         <div style="padding: 0 16px 16px;">
             <div class="filter-row" style="margin: 0 0 12px 0;">
-                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 90px; resize: vertical;"></textarea>
+                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
             </div>
             <div class="filter-row" style="margin: 0 0 12px 0;">
                 <div class="timer-input-group">
-                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (30m, 2h, 1d)" value="30m">
+                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m">
                     <button class="filter-btn" onclick="setTimerPreset('30m')">30m</button>
                     <button class="filter-btn" onclick="setTimerPreset('2h')">2h</button>
                     <button class="filter-btn" onclick="setTimerPreset('1d')">1d</button>
@@ -1501,8 +1501,8 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 </div>
             </div>
             <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name (e.g. UK, Nigeria)">
-                <button class="filter-btn" onclick="saveNumbers()">💾 Save</button>
+                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name">
+                <button class="filter-btn" onclick="saveNumbers()">Save</button>
             </div>
         </div>
         <div class="section-title" style="padding-top:8px;">⏳ ACTIVE TIMERS</div>
@@ -1571,25 +1571,7 @@ let allRegions = [];
 function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
 function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
 setInterval(formatTime, 1000); formatTime();
-function copyText(t) {
-    try {
-        const val = String(t).startsWith('+') ? t : '+' + t;
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(val).then(() => showToast('Copied! ✅')).catch(() => fallbackCopy(val));
-        } else { fallbackCopy(val); }
-    } catch(e) { showToast('Copy failed'); }
-}
-function fallbackCopy(val) {
-    try {
-        const el = document.createElement('textarea');
-        el.value = val;
-        el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
-        document.body.appendChild(el); el.focus(); el.select(); el.setSelectionRange(0, 99999);
-        const ok = document.execCommand('copy');
-        document.body.removeChild(el);
-        showToast(ok ? 'Copied! ✅' : 'Long-press to copy');
-    } catch(e) { showToast('Copy failed'); }
-}
+function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
 function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
 
 async function checkAuth() {
@@ -1807,12 +1789,9 @@ async function loadSavedNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
         const data = await res.json();
-
-        // Split into active timers vs ready
         const active = data.filter(i => !i.moved);
         const ready = data.filter(i => i.moved);
 
-        // Active timers list
         const activeContainer = document.getElementById('savedList');
         if (!active.length) {
             activeContainer.innerHTML = '<div class="loading">No active timers</div>';
@@ -1837,7 +1816,6 @@ async function loadSavedNumbers() {
             }).join('');
         }
 
-        // Ready numbers grouped by pool
         const readyContainer = document.getElementById('readyList');
         if (!ready.length) {
             readyContainer.innerHTML = '<div class="loading">No ready numbers yet</div>';
@@ -1883,12 +1861,11 @@ async function changeReadyNumber(id, currentNumber, poolName) {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ number: newNum.trim() })
     });
-    if (res.ok) { showToast('Number updated ✅'); loadSavedNumbers(); }
+    if (res.ok) { showToast('Number updated'); loadSavedNumbers(); }
     else { const e = await res.json(); showToast(e.detail || 'Failed to update'); }
 }
 
 async function changeReadyPool(id, currentPool) {
-    // Build pool list from regions
     const poolsRes = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
     const poolsList = await poolsRes.json();
     const options = poolsList.map(p => p.name).filter(n => n !== currentPool);
@@ -1899,9 +1876,11 @@ async function changeReadyPool(id, currentPool) {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ pool_name: newPool.trim() })
     });
-    if (res.ok) { showToast(`Moved to ${newPool} pool 🌐`); loadSavedNumbers(); }
+    if (res.ok) { showToast(`Moved to ${newPool} pool`); loadSavedNumbers(); }
     else { const e = await res.json(); showToast(e.detail || 'Pool not found'); }
 }
+
+
 
 async function loadHistory() {
     try {
@@ -3206,7 +3185,6 @@ def change_saved_number(saved_id: int, req: ChangeNumberRequest, token: str = Co
             ).first()
             if not saved:
                 raise HTTPException(404, "Not found")
-            # If already moved to pool, swap the number there too
             if saved.moved:
                 pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
                 if pool:
@@ -3215,7 +3193,6 @@ def change_saved_number(saved_id: int, req: ChangeNumberRequest, token: str = Co
                         ActiveNumber.number == saved.number
                     ).first()
                     if old_row:
-                        # Check new number not already in pool
                         clash = db.query(ActiveNumber).filter(ActiveNumber.number == new_number).first()
                         if not clash:
                             old_row.number = new_number
@@ -3255,7 +3232,6 @@ def change_saved_pool(saved_id: int, req: ChangePoolRequest, token: str = Cookie
 
     if SessionLocal:
         with SessionLocal() as db:
-            # Target pool must exist
             new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
             if not new_pool:
                 raise HTTPException(404, f"Pool '{new_pool_name}' not found")
@@ -3265,7 +3241,6 @@ def change_saved_pool(saved_id: int, req: ChangePoolRequest, token: str = Cookie
             ).first()
             if not saved:
                 raise HTTPException(404, "Saved entry not found")
-            # If already in old pool, move the active_number record too
             if saved.moved:
                 old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
                 if old_pool:
