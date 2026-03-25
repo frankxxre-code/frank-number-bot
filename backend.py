@@ -1202,6 +1202,9 @@ async def broadcast_all(data: dict):
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def process_expired_saved():
+    # Numbers are marked moved=True when timer expires.
+    # They stay PRIVATE to the owner — NOT added to the public pool.
+    # The owner accesses them via the Ready Numbers dashboard only.
     if SessionLocal:
         with SessionLocal() as db:
             now = utcnow()
@@ -1209,71 +1212,23 @@ async def process_expired_saved():
                 SavedNumber.expires_at <= now,
                 SavedNumber.moved == False
             ).all()
-            
+
             for sn in expired:
-                pool = db.query(Pool).filter(Pool.name == sn.pool_name).first()
-                if not pool:
-                    pool = Pool(
-                        name=sn.pool_name,
-                        country_code=sn.country or "unknown",
-                        match_format="5+4"
-                    )
-                    db.add(pool)
-                    db.flush()
-                
-                bad = db.query(BadNumber).filter(BadNumber.number == sn.number).first()
-                if not bad:
-                    exists = db.query(ActiveNumber).filter(ActiveNumber.number == sn.number).first()
-                    if not exists:
-                        db.add(ActiveNumber(pool_id=pool.id, number=sn.number))
-                
-                sn.moved = True
-            
+                sn.moved = True  # Mark ready — stays private to this user
+
             if expired:
                 db.commit()
-                log.info(f"[Scheduler] Moved {len(expired)} expired saved numbers")
+                log.info(f"[Scheduler] Marked {len(expired)} saved numbers as ready (private)")
     else:
         now = utcnow()
-        expired = [s for s in saved_numbers if not s.get("moved", False) and 
+        expired = [s for s in saved_numbers if not s.get("moved", False) and
                    datetime.fromisoformat(s["expires_at"]) <= now]
-        
+
         for sn in expired:
-            pool = None
-            for p in pools.values():
-                if p["name"] == sn["pool_name"]:
-                    pool = p
-                    break
-            
-            if not pool:
-                pool_id = _counters["pool"]
-                _counters["pool"] += 1
-                pool = {
-                    "id": pool_id,
-                    "name": sn["pool_name"],
-                    "country_code": sn.get("country", "unknown"),
-                    "otp_group_id": None,
-                    "otp_link": "",
-                    "match_format": "5+4",
-                    "telegram_match_format": "",
-                    "uses_platform": 0,
-                    "is_paused": False,
-                    "pause_reason": "",
-                    "trick_text": "",
-                    "is_admin_only": False,
-                    "last_restocked": utcnow().isoformat(),
-                    "created_at": utcnow().isoformat()
-                }
-                pools[pool_id] = pool
-                active_numbers[pool_id] = []
-            
-            if sn["number"] not in bad_numbers:
-                if sn["number"] not in active_numbers.get(pool["id"], []):
-                    active_numbers.setdefault(pool["id"], []).append(sn["number"])
-            
-            sn["moved"] = True
-        
+            sn["moved"] = True  # Mark ready — stays private to this user
+
         if expired:
-            log.info(f"[Scheduler] Moved {len(expired)} expired saved numbers")
+            log.info(f"[Scheduler] Marked {len(expired)} saved numbers as ready (private)")
 
 async def scheduler():
     while True:
@@ -1556,9 +1511,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
 
 <div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
 
-<div id="changeNumberModal" class="modal"><div class="modal-content"><div class="modal-header">🔄 Change Number</div><div style="padding: 20px;"><div style="font-size:12px;color:#7e8a9a;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Current Number</div><div id="changeNumCurrent" style="font-family:monospace;font-size:18px;color:#0a84ff;margin-bottom:20px;"></div><div class="fg"><label>New Number</label><input type="text" id="changeNumInput" placeholder="e.g. +447781509999" style="width:100%;padding:14px;border:1px solid rgba(10,132,255,0.3);border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;outline:none;font-size:14px;"></div><div class="brow"><button class="btn btn-secondary" onclick="document.getElementById('changeNumberModal').classList.remove('show')">Cancel</button><button class="btn btn-primary" onclick="submitChangeNumber()">Update</button></div></div></div></div>
-
-<div id="changePoolModal" class="modal"><div class="modal-content"><div class="modal-header">🌐 Change Pool</div><div style="padding: 20px;"><div style="font-size:12px;color:#7e8a9a;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Number</div><div id="changePoolNumber" style="font-family:monospace;font-size:18px;color:#0a84ff;margin-bottom:20px;"></div><div class="fg"><label>Move To Pool</label><select id="changePoolSelect" style="width:100%;padding:14px;border:1px solid rgba(10,132,255,0.3);border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;outline:none;font-size:14px;"></select></div><div class="brow"><button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button><button class="btn btn-primary" onclick="submitChangePool()">Move</button></div></div></div></div>
+<div id="changePoolModal" class="modal"><div class="modal-content"><div class="modal-header">🌐 Switch Pool</div><div style="padding: 20px;"><div style="font-size:12px;color:#7e8a9a;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Current Number</div><div id="changePoolCurrentNum" style="font-family:monospace;font-size:18px;color:#0a84ff;margin-bottom:20px;"></div><div class="fg"><label>Switch To Pool</label><select id="changePoolSelect" style="width:100%;padding:14px;border:1px solid rgba(10,132,255,0.3);border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;outline:none;font-size:14px;"></select></div><div style="font-size:12px;color:#7e8a9a;margin-top:8px;">You'll get the next available number from that pool</div><div class="brow"><button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button><button class="btn btn-primary" onclick="submitSwitchPool()">Switch</button></div></div></div></div>
 
 <script>
 const API_BASE = window.location.origin;
@@ -1574,6 +1527,7 @@ function showToast(msg) { const t = document.createElement('div'); t.className =
 function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
 setInterval(formatTime, 1000); formatTime();
 function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
+function fmt(n) { if (!n || n === '—') return n; return n.startsWith('+') ? n : '+' + n; }
 function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
 
 async function checkAuth() {
@@ -1686,9 +1640,9 @@ async function selectRegion(poolId) {
         if (res.ok) {
             currentAssignment = data;
             currentPoolId = data.pool_id;
-            document.getElementById('currentNumber').textContent = data.number;
+            document.getElementById('currentNumber').textContent = fmt(data.number);
             document.getElementById('currentRegion').textContent = data.pool_name;
-            showToast(`Number assigned: ${data.number}`);
+            showToast(`Number assigned: ${fmt(data.number)}`);
             document.getElementById('otpDisplay').style.display = 'none';
             if (otpTimer) clearTimeout(otpTimer);
         } else { showToast(data.detail || 'Failed to assign number'); }
@@ -1702,7 +1656,7 @@ async function loadCurrentAssignment() {
         if (data.assignment) {
             currentAssignment = data.assignment;
             currentPoolId = data.assignment.pool_id;
-            document.getElementById('currentNumber').textContent = currentAssignment.number;
+            document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
             document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
         }
     } catch(e) {}
@@ -1710,7 +1664,7 @@ async function loadCurrentAssignment() {
 
 async function changeNumber() {
     if (!currentAssignment) { showToast('No active number to change'); return; }
-    document.getElementById('feedbackNumber').textContent = currentAssignment.number;
+    document.getElementById('feedbackNumber').textContent = fmt(currentAssignment.number);
     document.getElementById('feedbackModal').classList.add('show');
 }
 
@@ -1734,11 +1688,11 @@ async function submitFeedback(type) {
             const data = await res.json();
             if (res.ok) {
                 currentAssignment = data;
-                document.getElementById('currentNumber').textContent = data.number;
+                document.getElementById('currentNumber').textContent = fmt(data.number);
                 document.getElementById('currentRegion').textContent = data.pool_name;
                 document.getElementById('otpDisplay').style.display = 'none';
                 if (otpTimer) clearTimeout(otpTimer);
-                showToast(`New number assigned: ${data.number}`);
+                showToast(`New number assigned: ${fmt(data.number)}`);
             } else {
                 showToast('No more numbers in this pool, please select another region');
                 currentAssignment = null;
@@ -1755,7 +1709,7 @@ async function submitFeedback(type) {
 }
 
 function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
-function copyNumber() { if (currentAssignment) copyText(currentAssignment.number); else showToast('No number to copy'); }
+function copyNumber() { if (currentAssignment) copyText(fmt(currentAssignment.number)); else showToast('No number to copy'); }
 
 function parseTimer(timer) {
     const match = timer.match(/^(\d+)([smhd])$/i);
@@ -1815,7 +1769,6 @@ async function loadReadyNumbers() {
         const section = document.getElementById('readySection');
         if (!data.length) { section.style.display = 'none'; container.innerHTML = ''; return; }
         section.style.display = 'block';
-        // Group by pool_name
         const grouped = {};
         data.forEach(item => {
             if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
@@ -1823,17 +1776,17 @@ async function loadReadyNumbers() {
         });
         container.innerHTML = Object.entries(grouped).map(([poolName, items]) => `
             <div style="padding: 0 16px 8px;">
-                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${items.length} ready)</span></div>
+                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${items.length} slot${items.length>1?'s':''})</span></div>
                 ${items.map(item => `
                 <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:8px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <div class="saved-number">${escapeHtml(item.number)}</div>
                         <span class="timer-badge timer-ready">READY</span>
                     </div>
-                    <div style="font-size:11px;color:#7e8a9a;">→ Available in Numbers page</div>
+                    <div style="font-size:11px;color:#7e8a9a;margin-bottom:2px;">Pool: ${escapeHtml(item.pool_name)}</div>
                     <div style="display:flex;gap:8px;">
-                        <button class="btn btn-sm btn-secondary" onclick="openChangeNumber(${item.id}, '${escapeHtml(item.number).replace(/'/g,"\\'")}')">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openChangePool(${item.id}, '${escapeHtml(item.number).replace(/'/g,"\\'")}', '${escapeHtml(item.pool_name).replace(/'/g,"\\'")}')">🌐 Change Pool</button>
+                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${item.id})">🔄 Change Number</button>
+                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${item.id}, '${escapeHtml(item.number).replace(/'/g,"\\'")}', '${escapeHtml(item.pool_name).replace(/'/g,"\\'")}')">🌐 Change Pool</button>
                     </div>
                 </div>`).join('')}
             </div>`).join('');
@@ -1842,42 +1795,37 @@ async function loadReadyNumbers() {
 
 let changeTargetId = null;
 
-function openChangeNumber(id, currentNum) {
-    changeTargetId = id;
-    document.getElementById('changeNumCurrent').textContent = currentNum;
-    document.getElementById('changeNumInput').value = '';
-    document.getElementById('changeNumberModal').classList.add('show');
-}
-
-async function submitChangeNumber() {
-    const newNum = document.getElementById('changeNumInput').value.trim();
-    if (!newNum) { showToast('Enter a number'); return; }
+async function doNextNumber(id) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/number?new_number=${encodeURIComponent(newNum)}`, { method: 'PUT', credentials: 'include' });
-        if (res.ok) { showToast('Number updated ✅'); document.getElementById('changeNumberModal').classList.remove('show'); loadReadyNumbers(); }
-        else { const e = await res.json(); showToast(e.detail || 'Update failed'); }
+        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST', credentials: 'include' });
+        const data = await res.json();
+        if (res.ok) { showToast(`New number: ${data.number}`); loadReadyNumbers(); }
+        else { showToast(data.detail || 'No more numbers in this pool'); }
     } catch(e) { showToast('Network error'); }
 }
 
-async function openChangePool(id, number, currentPool) {
+async function openSwitchPool(id, number, currentPool) {
     changeTargetId = id;
-    document.getElementById('changePoolNumber').textContent = number;
+    document.getElementById('changePoolCurrentNum').textContent = number;
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
+        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, { credentials: 'include' });
+        const readyPools = await res.json();
         const select = document.getElementById('changePoolSelect');
-        select.innerHTML = pools.filter(p => p.name !== currentPool).map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
+        const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
+        if (!options.length) { showToast('No other pools with available numbers'); return; }
+        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
         document.getElementById('changePoolModal').classList.add('show');
     } catch(e) { showToast('Failed to load pools'); }
 }
 
-async function submitChangePool() {
+async function submitSwitchPool() {
     const newPool = document.getElementById('changePoolSelect').value;
     if (!newPool) { showToast('Select a pool'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'PUT', credentials: 'include' });
-        if (res.ok) { showToast(`Moved to ${newPool} ✅`); document.getElementById('changePoolModal').classList.remove('show'); loadReadyNumbers(); }
-        else { const e = await res.json(); showToast(e.detail || 'Move failed'); }
+        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST', credentials: 'include' });
+        const data = await res.json();
+        if (res.ok) { showToast(`Switched to ${newPool}: ${data.number}`); document.getElementById('changePoolModal').classList.remove('show'); loadReadyNumbers(); }
+        else { showToast(data.detail || 'Switch failed'); }
     } catch(e) { showToast('Network error'); }
 }
 
@@ -2524,20 +2472,26 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
+
+    # No file size limit — read entire file
     content = await file.read()
     lines = content.decode("utf-8", errors="ignore").splitlines()
-    
+
     numbers = []
     phone_re = re.compile(r'(\+?\d{6,15})')
     for line in lines:
         m = phone_re.search(line.strip())
         if m:
             numbers.append(m.group(1))
-    
+
     if not numbers:
         raise HTTPException(400, "No valid numbers found")
-    
+
+    added = 0
+    skipped_bad = 0
+    skipped_cooldown = 0
+    duplicates = 0
+
     if SessionLocal:
         with SessionLocal() as db:
             bad_set = {b.number for b in db.query(BadNumber).all()}
@@ -2548,55 +2502,60 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
             filtered = [n for n in filtered if n not in cooldown_dups]
             skipped_cooldown = len(cooldown_dups)
 
-            # Check globally across ALL pools (unique constraint is table-wide, not per-pool)
-            if filtered:
-                existing = {row.number for row in db.query(ActiveNumber.number).filter(
-                    ActiveNumber.number.in_(filtered)
-                ).all()}
-            else:
-                existing = set()
-            new_numbers = [n for n in filtered if n not in existing]
-            duplicates = len(filtered) - len(new_numbers)
+            if not filtered:
+                return {"ok": True, "added": 0, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": 0}
 
-            # Insert with per-row conflict handling to survive any edge-case duplicates
-            added = 0
-            for num in new_numbers:
+            now = utcnow()
+            # Use INSERT ... ON CONFLICT DO NOTHING in chunks of 500 — never crashes on duplicates
+            CHUNK = 500
+            for i in range(0, len(filtered), CHUNK):
+                chunk = filtered[i:i + CHUNK]
                 try:
-                    db.add(ActiveNumber(pool_id=pool_id, number=num))
-                    db.flush()
-                    added += 1
-                except Exception:
+                    db.execute(
+                        text(
+                            "INSERT INTO active_numbers (pool_id, number, created_at) "
+                            "VALUES (:pool_id, :number, :created_at) "
+                            "ON CONFLICT (number) DO NOTHING"
+                        ),
+                        [{"pool_id": pool_id, "number": num, "created_at": now} for num in chunk]
+                    )
+                    db.commit()
+                except Exception as e:
                     db.rollback()
-                    duplicates += 1
+                    log.error(f"[Upload] Chunk insert error: {e}")
+
+            # Count how many of our numbers landed in this pool
+            in_this_pool = {row.number for row in db.query(ActiveNumber.number).filter(
+                ActiveNumber.pool_id == pool_id,
+                ActiveNumber.number.in_(filtered)
+            ).all()}
+            added = len(in_this_pool)
+            duplicates = len(filtered) - added
 
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
             if pool:
                 pool.last_restocked = utcnow()
-            try:
                 db.commit()
-            except Exception:
-                db.rollback()
-                raise HTTPException(500, "Database commit failed after upload")
     else:
         bad_set = set(bad_numbers.keys())
         filtered = [n for n in numbers if n not in bad_set]
         skipped_bad = len(numbers) - len(filtered)
-        
+
         cooldown_dups = await get_cooldown_duplicates(filtered)
         filtered = [n for n in filtered if n not in cooldown_dups]
         skipped_cooldown = len(cooldown_dups)
-        
+
         existing = set(active_numbers.get(pool_id, []))
         new_numbers = [n for n in filtered if n not in existing]
         duplicates = len(filtered) - len(new_numbers)
-        
+
         for num in new_numbers:
             active_numbers.setdefault(pool_id, []).append(num)
-        
+
         if pool_id in pools:
             pools[pool_id]["last_restocked"] = utcnow().isoformat()
         added = len(new_numbers)
-    
+
     return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
 
 @app.get("/api/admin/pools/{pool_id}/export")
@@ -3138,16 +3097,13 @@ def delete_saved(saved_id: int, token: str = Cookie(default=None)):
     
     return {"ok": True}
 
-@app.put("/api/saved/{saved_id}/number")
-def change_saved_number(saved_id: int, new_number: str, token: str = Cookie(default=None)):
+@app.post("/api/saved/{saved_id}/next-number")
+def ready_next_number(saved_id: int, token: str = Cookie(default=None)):
+    """Replace this ready number with the next available number from the same pool."""
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    new_number = new_number.strip()
-    if not new_number:
-        raise HTTPException(400, "Number cannot be empty")
-    
+
     if SessionLocal:
         with SessionLocal() as db:
             saved = db.query(SavedNumber).filter(
@@ -3157,48 +3113,65 @@ def change_saved_number(saved_id: int, new_number: str, token: str = Cookie(defa
             ).first()
             if not saved:
                 raise HTTPException(404, "Ready number not found")
-            # Update in active_numbers pool too
-            old_number = saved.number
+
             pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-            if pool:
-                db.query(ActiveNumber).filter(
-                    ActiveNumber.pool_id == pool.id,
-                    ActiveNumber.number == old_number
-                ).delete()
-                existing = db.query(ActiveNumber).filter(ActiveNumber.number == new_number).first()
-                if not existing:
-                    db.add(ActiveNumber(pool_id=pool.id, number=new_number))
+            if not pool:
+                raise HTTPException(404, "Pool not found")
+
+            # Pick next number from the pool (excluding current one)
+            next_num_row = db.query(ActiveNumber).filter(
+                ActiveNumber.pool_id == pool.id,
+                ActiveNumber.number != saved.number
+            ).order_by(ActiveNumber.id.desc()).first()
+
+            if not next_num_row:
+                raise HTTPException(404, "No more numbers available in this pool")
+
+            old_number = saved.number
+            new_number = next_num_row.number
+
+            # Remove next number from pool (it's now assigned to this saved slot)
+            db.delete(next_num_row)
+            # Put the old number back into the pool so others can use it
+            existing_old = db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first()
+            if not existing_old:
+                db.add(ActiveNumber(pool_id=pool.id, number=old_number))
+
             saved.number = new_number
             db.commit()
+            return {"ok": True, "number": new_number, "pool_name": saved.pool_name}
     else:
         for s in saved_numbers:
             if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
-                old_number = s["number"]
                 pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                if pool:
-                    pid = pool["id"]
-                    nums = active_numbers.get(pid, [])
-                    if old_number in nums:
-                        nums.remove(old_number)
-                    if new_number not in nums:
-                        nums.append(new_number)
-                    active_numbers[pid] = nums
+                if not pool:
+                    raise HTTPException(404, "Pool not found")
+                pid = pool["id"]
+                nums = [n for n in active_numbers.get(pid, []) if n != s["number"]]
+                if not nums:
+                    raise HTTPException(404, "No more numbers available in this pool")
+                old_number = s["number"]
+                new_number = nums[-1]
+                nums.pop()
+                # Put old number back
+                if old_number not in nums:
+                    nums.append(old_number)
+                active_numbers[pid] = nums
                 s["number"] = new_number
-                return {"ok": True}
+                return {"ok": True, "number": new_number, "pool_name": s["pool_name"]}
         raise HTTPException(404, "Ready number not found")
-    
-    return {"ok": True}
 
-@app.put("/api/saved/{saved_id}/pool")
-def change_saved_pool(saved_id: int, new_pool_name: str, token: str = Cookie(default=None)):
+@app.post("/api/saved/{saved_id}/switch-pool")
+def ready_switch_pool(saved_id: int, new_pool_name: str, token: str = Cookie(default=None)):
+    """Move this ready number slot to a different pool, picking the next number from that pool."""
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
+
     new_pool_name = new_pool_name.strip()
     if not new_pool_name:
-        raise HTTPException(400, "Pool name cannot be empty")
-    
+        raise HTTPException(400, "Pool name required")
+
     if SessionLocal:
         with SessionLocal() as db:
             saved = db.query(SavedNumber).filter(
@@ -3208,49 +3181,92 @@ def change_saved_pool(saved_id: int, new_pool_name: str, token: str = Cookie(def
             ).first()
             if not saved:
                 raise HTTPException(404, "Ready number not found")
-            
-            old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-            # Remove from old pool's active numbers
-            if old_pool:
-                db.query(ActiveNumber).filter(
-                    ActiveNumber.pool_id == old_pool.id,
-                    ActiveNumber.number == saved.number
-                ).delete()
-            
-            # Find or create new pool
+
             new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
             if not new_pool:
                 raise HTTPException(404, "Pool not found")
-            
-            # Add to new pool's active numbers
-            existing = db.query(ActiveNumber).filter(ActiveNumber.number == saved.number).first()
-            if not existing:
-                db.add(ActiveNumber(pool_id=new_pool.id, number=saved.number))
-            
+
+            # Pick next number from the new pool
+            next_num_row = db.query(ActiveNumber).filter(
+                ActiveNumber.pool_id == new_pool.id
+            ).order_by(ActiveNumber.id.desc()).first()
+            if not next_num_row:
+                raise HTTPException(404, "No numbers available in that pool")
+
+            old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
+            old_number = saved.number
+            new_number = next_num_row.number
+
+            # Remove new number from new pool
+            db.delete(next_num_row)
+            # Return old number to old pool
+            if old_pool:
+                existing_old = db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first()
+                if not existing_old:
+                    db.add(ActiveNumber(pool_id=old_pool.id, number=old_number))
+
+            saved.number = new_number
             saved.pool_name = new_pool_name
             db.commit()
+            return {"ok": True, "number": new_number, "pool_name": new_pool_name}
     else:
         new_pool = next((p for p in pools.values() if p["name"] == new_pool_name), None)
         if not new_pool:
             raise HTTPException(404, "Pool not found")
-        
+        pid_new = new_pool["id"]
+        new_nums = active_numbers.get(pid_new, [])
+        if not new_nums:
+            raise HTTPException(404, "No numbers available in that pool")
+
         for s in saved_numbers:
             if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
                 old_pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
+                old_number = s["number"]
+                new_number = new_nums[-1]
+                new_nums.pop()
+                active_numbers[pid_new] = new_nums
                 if old_pool:
-                    nums = active_numbers.get(old_pool["id"], [])
-                    if s["number"] in nums:
-                        nums.remove(s["number"])
-                # Add to new pool
-                new_nums = active_numbers.get(new_pool["id"], [])
-                if s["number"] not in new_nums:
-                    new_nums.append(s["number"])
-                active_numbers[new_pool["id"]] = new_nums
+                    old_nums = active_numbers.get(old_pool["id"], [])
+                    if old_number not in old_nums:
+                        old_nums.append(old_number)
+                s["number"] = new_number
                 s["pool_name"] = new_pool_name
-                return {"ok": True}
+                return {"ok": True, "number": new_number, "pool_name": new_pool_name}
         raise HTTPException(404, "Ready number not found")
-    
-    return {"ok": True}
+
+@app.get("/api/saved/ready-pools")
+def list_ready_pools(token: str = Cookie(default=None)):
+    """Return pools that have ready numbers (moved=True saved numbers), with their stock count."""
+    user = get_user_from_token(token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    if SessionLocal:
+        with SessionLocal() as db:
+            # Get all pool_names that have moved saved numbers for this user
+            from sqlalchemy import distinct
+            user_pool_names = [r.pool_name for r in db.query(SavedNumber.pool_name).filter(
+                SavedNumber.user_id == user["id"],
+                SavedNumber.moved == True
+            ).distinct().all()]
+
+            result = []
+            for pname in user_pool_names:
+                pool = db.query(Pool).filter(Pool.name == pname).first()
+                if pool:
+                    count = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool.id).count()
+                    result.append({"pool_name": pname, "pool_id": pool.id, "count": count})
+            return result
+    else:
+        user_pool_names = list({s["pool_name"] for s in saved_numbers
+                                if s["user_id"] == user["id"] and s.get("moved", False)})
+        result = []
+        for pname in user_pool_names:
+            pool = next((p for p in pools.values() if p["name"] == pname), None)
+            if pool:
+                count = len(active_numbers.get(pool["id"], []))
+                result.append({"pool_name": pname, "pool_id": pool["id"], "count": count})
+        return result
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  REVIEWS ENDPOINTS
