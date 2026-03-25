@@ -1571,7 +1571,24 @@ let allRegions = [];
 function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
 function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
 setInterval(formatTime, 1000); formatTime();
-function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
+function copyText(t) {
+    const val = String(t).startsWith('+') ? t : '+' + t;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).then(() => showToast('Copied!')).catch(() => {
+            const el = document.createElement('textarea');
+            el.value = val; el.style.position = 'fixed'; el.style.opacity = '0';
+            document.body.appendChild(el); el.focus(); el.select();
+            try { document.execCommand('copy'); showToast('Copied!'); } catch(e) { showToast('Copy failed'); }
+            document.body.removeChild(el);
+        });
+    } else {
+        const el = document.createElement('textarea');
+        el.value = val; el.style.position = 'fixed'; el.style.opacity = '0';
+        document.body.appendChild(el); el.focus(); el.select();
+        try { document.execCommand('copy'); showToast('Copied!'); } catch(e) { showToast('Copy failed'); }
+        document.body.removeChild(el);
+    }
+}
 function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
 
 async function checkAuth() {
@@ -1756,7 +1773,7 @@ function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style
 function copyNumber() { if (currentAssignment) copyText(currentAssignment.number); else showToast('No number to copy'); }
 
 function parseTimer(timer) {
-    const match = timer.match(/^(\d+)([smhd])$/i);
+    const match = timer.match(/^(\\d+)([smhd])$/i);
     if (match) {
         const num = parseInt(match[1]);
         const unit = match[2].toLowerCase();
