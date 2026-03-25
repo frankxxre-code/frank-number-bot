@@ -1425,7 +1425,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     <div id="numbersPage" class="page">
         <div class="number-card" id="currentNumberCard">
             <div class="number-label">YOUR ACTIVE NUMBER</div>
-            <div class="number-value" id="currentNumber">—</div>
+            <div class="number-value" id="currentNumber" onclick="copyNumber()" style="cursor:pointer;" title="Tap to copy">—</div>
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span class="region-badge" id="currentRegion">No region selected</span>
                 <div style="display: flex; gap: 12px;">
@@ -1641,6 +1641,7 @@ async function selectRegion(poolId) {
             currentAssignment = data;
             currentPoolId = data.pool_id;
             document.getElementById('currentNumber').textContent = fmt(data.number);
+            document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
             document.getElementById('currentRegion').textContent = data.pool_name;
             showToast(`Number assigned: ${fmt(data.number)}`);
             document.getElementById('otpDisplay').style.display = 'none';
@@ -1657,6 +1658,7 @@ async function loadCurrentAssignment() {
             currentAssignment = data.assignment;
             currentPoolId = data.assignment.pool_id;
             document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
+            document.getElementById('currentNumber').onclick = () => { copyText(fmt(currentAssignment.number)); showToast('📋 Number copied!'); };
             document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
         }
     } catch(e) {}
@@ -1689,6 +1691,7 @@ async function submitFeedback(type) {
             if (res.ok) {
                 currentAssignment = data;
                 document.getElementById('currentNumber').textContent = fmt(data.number);
+                document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
                 document.getElementById('currentRegion').textContent = data.pool_name;
                 document.getElementById('otpDisplay').style.display = 'none';
                 if (otpTimer) clearTimeout(otpTimer);
@@ -1769,27 +1772,44 @@ async function loadReadyNumbers() {
         const section = document.getElementById('readySection');
         if (!data.length) { section.style.display = 'none'; container.innerHTML = ''; return; }
         section.style.display = 'block';
+
+        // Group all slots by pool_name — each pool is one independent queue
         const grouped = {};
         data.forEach(item => {
             if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
             grouped[item.pool_name].push(item);
         });
-        container.innerHTML = Object.entries(grouped).map(([poolName, items]) => `
+
+        // Each group shows ONE active card (the first slot).
+        // Change Number cycles within that pool queue.
+        // Change Pool switches the whole slot to a different pool.
+        let html = '';
+        Object.entries(grouped).forEach(([poolName, items]) => {
+            const active = items[0]; // front of queue for this pool
+            const queueCount = items.length;
+            html += `
             <div style="padding: 0 16px 8px;">
-                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${items.length} slot${items.length>1?'s':''})</span></div>
-                ${items.map(item => `
+                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">
+                    📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${queueCount} in queue)</span>
+                </div>
                 <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:8px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div class="saved-number">${escapeHtml(item.number)}</div>
+                        <div class="saved-number" onclick="copyText('${active.number.replace(/'/g,"\'")}');showToast('📋 Copied!')" style="cursor:pointer;" title="Tap to copy">
+                            ${escapeHtml(active.number)} 📋
+                        </div>
                         <span class="timer-badge timer-ready">READY</span>
                     </div>
-                    <div style="font-size:11px;color:#7e8a9a;margin-bottom:2px;">Pool: ${escapeHtml(item.pool_name)}</div>
-                    <div style="display:flex;gap:8px;">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${item.id})">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${item.id}, '${escapeHtml(item.number).replace(/'/g,"\\'")}', '${escapeHtml(item.pool_name).replace(/'/g,"\\'")}')">🌐 Change Pool</button>
+                    <div style="font-size:11px;color:#7e8a9a;margin-bottom:2px;">
+                        Slot 1 of ${queueCount} — tap number to copy
                     </div>
-                </div>`).join('')}
-            </div>`).join('');
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id})">🔄 Change Number</button>
+                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${active.number.replace(/'/g,"\'")}', '${poolName.replace(/'/g,"\'")}')">🌐 Change Pool</button>
+                    </div>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html;
     } catch(e) {}
 }
 
