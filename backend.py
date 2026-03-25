@@ -1673,19 +1673,32 @@ async function changeNumber() {
 async function submitFeedback(type) {
     const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
     const markAsBad = type === 'bad';
-    
+
+    // Close modal immediately — don't make user wait
+    document.getElementById('feedbackModal').classList.remove('show');
+    document.getElementById('otherFeedbackDiv').style.display = 'none';
+    document.getElementById('otherFeedbackText').value = '';
+
     if (currentAssignment) {
-        await fetch(`${API_BASE}/api/reviews`, {
+        const savedAssignment = currentAssignment;
+        const savedPoolId = currentPoolId;
+
+        // Show loading state instantly
+        document.getElementById('currentNumber').textContent = '...';
+
+        // Fire review + release in parallel, don't await review
+        const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
+        fetch(`${API_BASE}/api/reviews`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number: currentAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
-        });
-        
-        await fetch(`${API_BASE}/api/pools/release/${currentAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
-        
-        if (currentPoolId) {
+            body: JSON.stringify({ number: savedAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
+        }); // fire and forget — don't block on this
+
+        await releasePromise;
+
+        if (savedPoolId) {
             const res = await fetch(`${API_BASE}/api/pools/assign`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                body: JSON.stringify({ pool_id: currentPoolId })
+                body: JSON.stringify({ pool_id: savedPoolId })
             });
             const data = await res.json();
             if (res.ok) {
@@ -1695,7 +1708,7 @@ async function submitFeedback(type) {
                 document.getElementById('currentRegion').textContent = data.pool_name;
                 document.getElementById('otpDisplay').style.display = 'none';
                 if (otpTimer) clearTimeout(otpTimer);
-                showToast(`New number assigned: ${fmt(data.number)}`);
+                showToast(`✅ New number: ${fmt(data.number)}`);
             } else {
                 showToast('No more numbers in this pool, please select another region');
                 currentAssignment = null;
@@ -1704,11 +1717,8 @@ async function submitFeedback(type) {
                 document.getElementById('currentRegion').textContent = 'No region selected';
             }
         }
+        loadRegions();
     }
-    document.getElementById('feedbackModal').classList.remove('show');
-    document.getElementById('otherFeedbackDiv').style.display = 'none';
-    document.getElementById('otherFeedbackText').value = '';
-    loadRegions();
 }
 
 function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
