@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+8# -*- coding: utf-8 -*-
 """
 NEON GRID NETWORK — COMPLETE PLATFORM BACKEND
 =================================================
@@ -93,10 +93,6 @@ PLATFORM_MONITOR_TTL = 600
 PLATFORM_POLL_INTERVAL = 5
 PLATFORM_STOCK_INTERVAL = 300
 OTP_AUTO_DELETE_DELAY = 30
-
-# Global state (always initialized, used by both DB and memory modes)
-bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
-_compliance_counters: Dict[int, int] = {}
 
 # Default values
 DEFAULT_LOCAL_PREFIX = "+234"
@@ -351,9 +347,13 @@ else:
     ]
     user_connections = {}
     feed_connections = []
+    _compliance_counters = {}
+    _platform_token = None
+    _active_platform_tasks = {}
+    _platform_stock_snapshot = {}
+    bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
     pool_access = {}
     uploaded_numbers = set()
-    feedbacks = []
     _counters = {"user": 6, "pool": 6, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "feedback": 1, "button": 3}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1346,7 +1346,6 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .otp-code { font-size: 52px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
         .otp-timer { text-align: center; font-size: 13px; opacity: 0.9; }
-        .otp-message { font-size: 11px; opacity: 0.8; text-align: center; margin-top: 8px; word-break: break-all; }
         .region-list { padding: 8px 16px; }
         .region-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); cursor: pointer; transition: all 0.2s; }
         .region-item:active { background: rgba(30,45,65,0.8); transform: scale(0.98); }
@@ -1370,7 +1369,6 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .history-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; border: 1px solid rgba(10,132,255,0.2); }
         .history-number { font-family: monospace; font-size: 12px; color: #7e8a9a; }
         .history-otp { font-size: 24px; font-weight: 700; font-family: monospace; color: #10b981; margin: 8px 0; cursor: pointer; }
-        .history-time { font-size: 11px; color: #5a6a7a; margin-top: 4px; }
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(10,15,25,0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 8px 16px 20px; border-top: 1px solid rgba(10,132,255,0.2); z-index: 100; }
         .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 16px; border-radius: 40px; transition: all 0.2s; }
         .nav-item:active { background: rgba(10,132,255,0.1); }
@@ -1505,11 +1503,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 <button class="filter-btn" onclick="saveNumbers()">Save</button>
             </div>
         </div>
-        <div class="section-title" style="padding-top:8px;">⏳ ACTIVE TIMERS</div>
-        <div id="savedList" class="saved-list"><div class="loading">No active timers</div></div>
-        <div class="section-title" style="padding-top:8px;">✅ READY NUMBERS</div>
-        <div style="padding: 0 16px 8px; font-size: 12px; color: #7e8a9a;">These numbers are now in their pools — get them from the Numbers page</div>
-        <div id="readyList" class="saved-list"><div class="loading">No ready numbers</div></div>
+        <div id="savedList" class="saved-list"></div>
     </div>
 
     <div id="historyPage" class="page">
@@ -1789,77 +1783,19 @@ async function loadSavedNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
         const data = await res.json();
-        const active = data.filter(function(i){ return !i.moved; });
-        const ready = data.filter(function(i){ return i.moved; });
-
-        const activeContainer = document.getElementById('savedList');
-        if (!active.length) {
-            activeContainer.innerHTML = '<div class="loading">No active timers</div>';
-        } else {
-            activeContainer.innerHTML = active.map(function(item) {
-                let cls = 'timer-green';
-                let mins = Math.floor(item.seconds_left / 60);
-                let secs = item.seconds_left % 60;
-                let time = mins > 0 ? (mins + 'm ' + secs + 's') : (secs + 's');
-                if (item.status === 'yellow') cls = 'timer-yellow';
-                if (item.status === 'red') cls = 'timer-red';
-                return '<div class="saved-item"><div><div class="saved-number">' + escapeHtml(item.number) + '</div><div class="saved-timer">Pool: ' + escapeHtml(item.pool_name) + ' — enters pool when expired</div></div><div style="display:flex;align-items:center;gap:8px;"><span class="timer-badge ' + cls + '">' + time + '</span><button onclick="deleteSaved(' + item.id + ')" style="background:none;border:none;font-size:20px;cursor:pointer;">🗑️</button></div></div>';
-            }).join('');
-        }
-
-        const readyContainer = document.getElementById('readyList');
-        if (!ready.length) {
-            readyContainer.innerHTML = '<div class="loading">No ready numbers yet</div>';
-        } else {
-            const byPool = {};
-            ready.forEach(function(item) {
-                if (!byPool[item.pool_name]) byPool[item.pool_name] = [];
-                byPool[item.pool_name].push(item);
-            });
-            let html = '';
-            Object.keys(byPool).forEach(function(poolName) {
-                const items = byPool[poolName];
-                html += '<div style="margin-bottom:16px;"><div style="font-size:13px;font-weight:700;color:#0a84ff;padding:8px 4px 6px;">Pool: ' + escapeHtml(poolName.toUpperCase()) + ' <span style="background:rgba(10,132,255,0.15);padding:2px 10px;border-radius:20px;font-size:11px;margin-left:6px;">' + items.length + ' ready</span></div>';
-                items.forEach(function(item) {
-                    html += '<div class="saved-item" style="margin-bottom:8px;"><div style="flex:1;"><div class="saved-number">' + escapeHtml(item.number) + '</div><div class="saved-timer" style="color:#10b981;">In pool — get it from Numbers page</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;"><button class="btn btn-sm btn-secondary" onclick="changeReadyNumber(' + item.id + ', \'' + escapeHtml(item.number) + '\', \'' + escapeHtml(item.pool_name) + '\')">🔄 Change</button><button class="btn btn-sm btn-secondary" onclick="changeReadyPool(' + item.id + ', \'' + escapeHtml(item.pool_name) + '\')">🌐 Pool</button><button onclick="deleteSaved(' + item.id + ')" style="background:none;border:none;font-size:18px;cursor:pointer;">🗑️</button></div></div>';
-                });
-                html += '</div>';
-            });
-            readyContainer.innerHTML = html;
-        }
-    } catch(e) { console.error(e); }
+        const container = document.getElementById('savedList');
+        if (!data.length) { container.innerHTML = '<div class="loading">No saved numbers</div>'; return; }
+        container.innerHTML = data.map(item => {
+            let cls = 'timer-green', time = `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`;
+            if (item.status === 'yellow') cls = 'timer-yellow';
+            if (item.status === 'red') cls = 'timer-red';
+            if (item.status === 'ready') { cls = 'timer-ready'; time = 'READY'; }
+            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(item.number)}</div><div class="saved-timer">${escapeHtml(item.pool_name)}</div></div><div><span class="timer-badge ${cls}">${time}</span><button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;margin-left:8px;cursor:pointer;">🗑️</button></div></div>`;
+        }).join('');
+    } catch(e) {}
 }
 
-async function deleteSaved(id) {
-    await fetch(API_BASE + '/api/saved/' + id, { method: 'DELETE', credentials: 'include' });
-    loadSavedNumbers();
-}
-
-async function changeReadyNumber(id, currentNumber, poolName) {
-    const newNum = prompt('Change number in "' + poolName + '" pool:\nCurrent: ' + currentNumber + '\n\nEnter new number:');
-    if (!newNum || !newNum.trim()) return;
-    const res = await fetch(API_BASE + '/api/saved/' + id + '/number', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ number: newNum.trim() })
-    });
-    if (res.ok) { showToast('Number updated'); loadSavedNumbers(); }
-    else { const e = await res.json(); showToast(e.detail || 'Failed to update'); }
-}
-
-async function changeReadyPool(id, currentPool) {
-    const poolsRes = await fetch(API_BASE + '/api/pools', { credentials: 'include' });
-    const poolsList = await poolsRes.json();
-    const options = poolsList.map(function(p){ return p.name; }).filter(function(n){ return n !== currentPool; });
-    if (!options.length) { showToast('No other pools available'); return; }
-    const newPool = prompt('Move to which pool?\nCurrent: ' + currentPool + '\n\nAvailable:\n' + options.map(function(n,i){ return (i+1) + '. ' + n; }).join('\n') + '\n\nType the pool name:');
-    if (!newPool || !newPool.trim()) return;
-    const res = await fetch(API_BASE + '/api/saved/' + id + '/pool', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ pool_name: newPool.trim() })
-    });
-    if (res.ok) { showToast('Moved to ' + newPool + ' pool'); loadSavedNumbers(); }
-    else { const e = await res.json(); showToast(e.detail || 'Pool not found'); }
-}
+async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' }); loadSavedNumbers(); }
 
 async function loadHistory() {
     try {
@@ -1949,70 +1885,9 @@ async function loadAdminPools() {
         const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         const pools = await res.json();
         const container = document.getElementById('poolsList');
-        if (!pools.length) { container.innerHTML = '<div class="loading">No pools — create one above</div>'; return; }
-        container.innerHTML = pools.map(p => `
-            <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div>
-                        <div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • <span style="color:#ef4444;">⏸ Paused</span>' : ''}${p.is_admin_only ? ' • 🔒' : ''}</div>
-                        ${p.trick_text ? `<div style="font-size:11px;color:#f59e0b;margin-top:2px;">💡 ${escapeHtml(p.trick_text)}</div>` : ''}
-                    </div>
-                    <div style="display:flex;gap:4px;">
-                        <button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🗑️</button>
-                    </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn btn-sm btn-secondary" onclick="cutPoolNumbers(${p.id})">✂️ Cut</button>
-                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id})">📤 Export</button>
-                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🧹 Clear</button>
-                    <button class="btn btn-sm btn-secondary" onclick="${p.is_paused ? `resumePool(${p.id})` : `pausePool(${p.id})`}">${p.is_paused ? '▶ Resume' : '⏸ Pause'}</button>
-                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only ? '🔓 Public' : '🔒 Admin Only'}</button>
-                </div>
-            </div>`).join('');
-    } catch(e) { document.getElementById('poolsList').innerHTML = '<div class="loading">Failed to load pools</div>'; }
-}
-
-async function cutPoolNumbers(poolId) {
-    const count = prompt('How many numbers to cut from the top?');
-    if (!count || isNaN(parseInt(count))) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`✂️ Removed ${data.removed} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Cut failed');
-}
-
-function exportPool(poolId) {
-    window.open(`${API_BASE}/api/admin/pools/${poolId}/export`, '_blank');
-}
-
-async function clearPool(poolId, poolName) {
-    if (!confirm(`⚠️ Clear ALL numbers from "${poolName}"? This cannot be undone!`)) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`🧹 Cleared ${data.deleted} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Clear failed');
-}
-
-async function pausePool(poolId) {
-    const reason = prompt('Pause reason (optional):') || '';
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('⏸ Pool paused'); loadAdminPools(); }
-    else showToast('Failed to pause pool');
-}
-
-async function resumePool(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('▶ Pool resumed'); loadAdminPools(); }
-    else showToast('Failed to resume pool');
-}
-
-async function toggleAdminOnly(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(data.is_admin_only ? '🔒 Now Admin Only' : '🔓 Now Public'); loadAdminPools(); }
-    else showToast('Toggle failed');
+        if (!pools.length) { container.innerHTML = '<div class="loading">No pools</div>'; return; }
+        container.innerHTML = pools.map(p => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div><div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • ⏸ Paused' : ''}${p.is_admin_only ? ' • 🔒 Admin Only' : ''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button><button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${p.name}')">🗑️</button></div></div>`).join('');
+    } catch(e) {}
 }
 
 async function deletePool(poolId, poolName) {
@@ -2053,67 +1928,35 @@ async function uploadNumbers() {
     } catch(e) { showToast('Network error'); }
 }
 
-const ADMIN_DIVS = ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminBroadcastDiv','adminSettingsDiv'];
-function hideOtherAdminDivs(showId) {
-    ADMIN_DIVS.forEach(id => {
-        document.getElementById(id).style.display = (id === showId) ? 'block' : 'none';
-    });
-}
-
 function loadAdminStats() {
     fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' }).then(r => r.json()).then(stats => {
-        document.getElementById('adminStatsDiv').innerHTML = `
-            <div class="number-label" style="margin-bottom:16px;">System Stats</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:14px;">
-                <span>📊 Users</span><span style="font-weight:700;color:#0a84ff;">${stats.total_users}</span>
-                <span>⏳ Pending</span><span style="font-weight:700;color:#f59e0b;">${stats.pending_approval}</span>
-                <span>🌍 Pools</span><span style="font-weight:700;color:#0a84ff;">${stats.total_pools}</span>
-                <span>📞 Numbers</span><span style="font-weight:700;color:#10b981;">${stats.total_numbers}</span>
-                <span>🔑 OTPs</span><span style="font-weight:700;color:#10b981;">${stats.total_otps}</span>
-                <span>🚫 Bad</span><span style="font-weight:700;color:#ef4444;">${stats.bad_numbers}</span>
-                <span>💾 Saved</span><span style="font-weight:700;color:#0a84ff;">${stats.saved_numbers}</span>
-                <span>🟢 Online</span><span style="font-weight:700;color:#10b981;">${stats.online_users}</span>
-            </div>`;
-        hideOtherAdminDivs('adminStatsDiv');
-    }).catch(() => showToast('Failed to load stats'));
+        document.getElementById('adminStatsDiv').innerHTML = `<div class="number-card"><div class="number-label">System Stats</div><div>📊 Users: ${stats.total_users}</div><div>⏳ Pending: ${stats.pending_approval}</div><div>🌍 Pools: ${stats.total_pools}</div><div>📞 Numbers: ${stats.total_numbers}</div><div>🔑 OTPs: ${stats.total_otps}</div><div>🚫 Bad: ${stats.bad_numbers}</div><div>💾 Saved: ${stats.saved_numbers}</div><div>🟢 Online: ${stats.online_users}</div></div>`;
+        document.getElementById('adminStatsDiv').style.display = 'block';
+        hideOtherAdminDivs();
+    });
 }
 
 function loadUsersList() {
     fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' }).then(r => r.json()).then(users => {
-        if (!users.length) { document.getElementById('adminUsersDiv').innerHTML = '<div class="loading">No users</div>'; hideOtherAdminDivs('adminUsersDiv'); return; }
-        document.getElementById('adminUsersDiv').innerHTML = users.map(u => {
-            const status = u.is_admin ? '👑 Admin' : (u.is_blocked ? '🚫 Blocked' : (u.is_approved ? '✅ Approved' : '⏳ Pending'));
-            const approveBtn = (!u.is_approved && !u.is_blocked && !u.is_admin)
-                ? `<button class="btn btn-sm btn-primary" onclick="approveUser(${u.id})" style="margin-right:4px;">✅ Approve</button>` : '';
-            const blockBtn = u.is_admin ? '' : (u.is_blocked
-                ? `<button class="btn btn-sm btn-primary" onclick="toggleUser(${u.id}, false)">Unblock</button>`
-                : `<button class="btn btn-sm btn-danger" onclick="toggleUser(${u.id}, true)">Block</button>`);
-            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${status}</div></div><div style="display:flex;gap:4px;flex-wrap:wrap;">${approveBtn}${blockBtn}</div></div>`;
-        }).join('');
-        hideOtherAdminDivs('adminUsersDiv');
-    }).catch(() => showToast('Failed to load users'));
-}
-
-async function approveUser(userId) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('User approved ✅'); loadUsersList(); }
-    else showToast('Failed to approve user');
+        document.getElementById('adminUsersDiv').innerHTML = users.map(u => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${u.is_admin ? 'Admin' : (u.is_blocked ? 'Blocked' : (u.is_approved ? 'Approved' : 'Pending'))}</div></div><div><button class="btn btn-sm ${u.is_blocked ? 'btn-primary' : 'btn-danger'}" onclick="toggleUser(${u.id}, ${!u.is_blocked})">${u.is_blocked ? 'Unblock' : 'Block'}</button></div></div>`).join('');
+        document.getElementById('adminUsersDiv').style.display = 'block';
+        hideOtherAdminDivs();
+    });
 }
 
 async function toggleUser(userId, block) {
     const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
-    const res = await fetch(url, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast(block ? 'User blocked 🚫' : 'User unblocked ✅'); loadUsersList(); }
-    else showToast('Action failed');
+    await fetch(url, { method: 'POST', credentials: 'include' });
+    showToast(block ? 'User blocked' : 'User unblocked');
+    loadUsersList();
 }
 
 function loadBadNumbers() {
     fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' }).then(r => r.json()).then(bad => {
-        document.getElementById('adminBadDiv').innerHTML = bad.length
-            ? bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${escapeHtml(b.reason || '')}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">Remove</button></div></div>`).join('')
-            : '<div class="loading">No bad numbers 🎉</div>';
-        hideOtherAdminDivs('adminBadDiv');
-    }).catch(() => showToast('Failed to load bad numbers'));
+        document.getElementById('adminBadDiv').innerHTML = bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${b.reason}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number}')">Remove</button></div></div>`).join('');
+        document.getElementById('adminBadDiv').style.display = 'block';
+        hideOtherAdminDivs();
+    });
 }
 
 async function removeBadNumber(number) {
@@ -2124,24 +1967,37 @@ async function removeBadNumber(number) {
 
 function loadReviews() {
     fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' }).then(r => r.json()).then(reviews => {
-        document.getElementById('adminReviewsDiv').innerHTML = reviews.length
-            ? reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(Math.max(0,r.rating))} • ${escapeHtml(r.comment || 'No comment')}</div></div></div>`).join('')
-            : '<div class="loading">No reviews yet</div>';
-        hideOtherAdminDivs('adminReviewsDiv');
-    }).catch(() => showToast('Failed to load reviews'));
+        document.getElementById('adminReviewsDiv').innerHTML = reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(r.rating)} • ${r.comment || 'No comment'}</div></div></div>`).join('');
+        document.getElementById('adminReviewsDiv').style.display = 'block';
+        hideOtherAdminDivs();
+    });
 }
 
-function showBroadcast() { hideOtherAdminDivs('adminBroadcastDiv'); }
+function showBroadcast() {
+    document.getElementById('adminBroadcastDiv').style.display = 'block';
+    hideOtherAdminDivs();
+}
 
 async function sendBroadcast() {
-    const msg = document.getElementById('broadcastMsg').value.trim();
-    if (!msg) { showToast('Enter a message'); return; }
-    const res = await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('📢 Broadcast sent!'); document.getElementById('broadcastMsg').value = ''; }
-    else showToast('Broadcast failed');
+    const msg = document.getElementById('broadcastMsg').value;
+    if (!msg) return;
+    await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
+    showToast('Broadcast sent!');
+    document.getElementById('broadcastMsg').value = '';
 }
 
-function showSettings() { hideOtherAdminDivs('adminSettingsDiv'); }
+function showSettings() {
+    document.getElementById('adminSettingsDiv').style.display = 'block';
+    hideOtherAdminDivs();
+}
+
+function hideOtherAdminDivs() {
+    ['adminStatsDiv', 'adminUsersDiv', 'adminBadDiv', 'adminReviewsDiv', 'adminBroadcastDiv', 'adminSettingsDiv'].forEach(id => {
+        if (id !== 'adminStatsDiv' || document.getElementById(id).style.display !== 'block') {
+            document.getElementById(id).style.display = 'none';
+        }
+    });
+}
 
 async function saveSettings() {
     const approval = document.getElementById('approvalMode').value;
@@ -2521,40 +2377,23 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
             bad_set = {b.number for b in db.query(BadNumber).all()}
             filtered = [n for n in numbers if n not in bad_set]
             skipped_bad = len(numbers) - len(filtered)
-
+            
             cooldown_dups = await get_cooldown_duplicates(filtered)
             filtered = [n for n in filtered if n not in cooldown_dups]
             skipped_cooldown = len(cooldown_dups)
-
-            # Check globally across ALL pools (unique constraint is table-wide, not per-pool)
-            if filtered:
-                existing = {row.number for row in db.query(ActiveNumber.number).filter(
-                    ActiveNumber.number.in_(filtered)
-                ).all()}
-            else:
-                existing = set()
+            
+            existing = {n.number for n in db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).all()}
             new_numbers = [n for n in filtered if n not in existing]
             duplicates = len(filtered) - len(new_numbers)
-
-            # Insert with per-row conflict handling to survive any edge-case duplicates
-            added = 0
+            
             for num in new_numbers:
-                try:
-                    db.add(ActiveNumber(pool_id=pool_id, number=num))
-                    db.flush()
-                    added += 1
-                except Exception:
-                    db.rollback()
-                    duplicates += 1
-
+                db.add(ActiveNumber(pool_id=pool_id, number=num))
+            
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
             if pool:
                 pool.last_restocked = utcnow()
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-                raise HTTPException(500, "Database commit failed after upload")
+            db.commit()
+            added = len(new_numbers)
     else:
         bad_set = set(bad_numbers.keys())
         filtered = [n for n in numbers if n not in bad_set]
@@ -2610,7 +2449,7 @@ def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
             db.commit()
     else:
         numbers = active_numbers.get(pool_id, [])
-        removed = min(count, len(numbers))
+        removed = numbers[:count]
         active_numbers[pool_id] = numbers[count:]
     
     return {"ok": True, "removed": removed}
@@ -2638,24 +2477,19 @@ def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    pool_name = f"Pool {pool_id}"
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_paused = True
-            pool.pause_reason = reason
-            pool_name = pool.name
-            db.commit()
+            if pool:
+                pool.is_paused = True
+                pool.pause_reason = reason
+                db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pools[pool_id]["is_paused"] = True
-        pools[pool_id]["pause_reason"] = reason
-        pool_name = pools[pool_id]["name"]
+        if pool_id in pools:
+            pools[pool_id]["is_paused"] = True
+            pools[pool_id]["pause_reason"] = reason
     
-    asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ Region {pool_name} is paused. {reason}"}))
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ Region {pools[pool_id]['name']} is paused. {reason}"}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/resume")
@@ -2664,24 +2498,19 @@ def resume_pool(pool_id: int, token: str = Cookie(default=None)):
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    pool_name = f"Pool {pool_id}"
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_paused = False
-            pool.pause_reason = ""
-            pool_name = pool.name
-            db.commit()
+            if pool:
+                pool.is_paused = False
+                pool.pause_reason = ""
+                db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pools[pool_id]["is_paused"] = False
-        pools[pool_id]["pause_reason"] = ""
-        pool_name = pools[pool_id]["name"]
+        if pool_id in pools:
+            pools[pool_id]["is_paused"] = False
+            pools[pool_id]["pause_reason"] = ""
     
-    asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ Region {pool_name} is now available!"}))
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ Region {pools[pool_id]['name']} is now available!"}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
@@ -2690,20 +2519,17 @@ def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    new_val = False
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_admin_only = not pool.is_admin_only
-            new_val = pool.is_admin_only
-            db.commit()
+            if pool:
+                pool.is_admin_only = not pool.is_admin_only
+                db.commit()
+                new_val = pool.is_admin_only
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
-        new_val = pools[pool_id]["is_admin_only"]
+        if pool_id in pools:
+            pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
+            new_val = pools[pool_id]["is_admin_only"]
     
     return {"ok": True, "is_admin_only": new_val}
 
@@ -2743,17 +2569,8 @@ def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(d
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
-    if SessionLocal:
-        with SessionLocal() as db:
-            if not db.query(Pool).filter(Pool.id == pool_id).first():
-                raise HTTPException(404, "Pool not found")
-            if not db.query(User).filter(User.id == user_id).first():
-                raise HTTPException(404, "User not found")
-    else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        if user_id not in users:
-            raise HTTPException(404, "User not found")
+    if pool_id not in pools or user_id not in users:
+        raise HTTPException(404, "Not found")
     
     grant_pool_access(pool_id, user_id)
     return {"ok": True}
@@ -2911,12 +2728,6 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
     
     if SessionLocal:
         with SessionLocal() as db:
-            pool = db.query(Pool).filter(Pool.name == req.pool_name).first()
-            if not pool:
-                pool = Pool(name=req.pool_name, country_code="unknown", match_format="5+4", otp_link="", trick_text="")
-                db.add(pool)
-                db.flush()
-                log.info(f"Auto-created pool '{req.pool_name}'")
             for number in req.numbers:
                 number = number.strip()
                 if not number:
@@ -2936,10 +2747,6 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
                     saved += 1
             db.commit()
     else:
-        if not any(p["name"] == req.pool_name for p in pools.values()):
-            pid = _counters["pool"]; _counters["pool"] += 1
-            pools[pid] = {"id": pid, "name": req.pool_name, "country_code": "unknown", "otp_group_id": None, "otp_link": "", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "", "is_admin_only": False, "last_restocked": None}
-            active_numbers[pid] = []
         global saved_counter
         for number in req.numbers:
             number = number.strip()
@@ -3126,85 +2933,6 @@ def delete_saved(saved_id: int, token: str = Cookie(default=None)):
     
     return {"ok": True}
 
-class ChangeNumberRequest(BaseModel):
-    number: str
-
-@app.put("/api/saved/{saved_id}/number")
-def change_saved_number(saved_id: int, req: ChangeNumberRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user: raise HTTPException(401, "Not authenticated")
-    new_number = req.number.strip()
-    if not new_number: raise HTTPException(400, "Number cannot be empty")
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(SavedNumber.id == saved_id, SavedNumber.user_id == user["id"]).first()
-            if not saved: raise HTTPException(404, "Not found")
-            if saved.moved:
-                pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-                if pool:
-                    old_row = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool.id, ActiveNumber.number == saved.number).first()
-                    if old_row:
-                        clash = db.query(ActiveNumber).filter(ActiveNumber.number == new_number).first()
-                        if not clash: old_row.number = new_number
-                        else: db.delete(old_row)
-            saved.number = new_number
-            db.commit()
-    else:
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                old_num = s["number"]
-                if s.get("moved"):
-                    pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                    if pool:
-                        nums = active_numbers.get(pool["id"], [])
-                        if old_num in nums and new_number not in nums: nums[nums.index(old_num)] = new_number
-                s["number"] = new_number
-                return {"ok": True}
-        raise HTTPException(404, "Not found")
-    return {"ok": True}
-
-class ChangePoolRequest(BaseModel):
-    pool_name: str
-
-@app.put("/api/saved/{saved_id}/pool")
-def change_saved_pool(saved_id: int, req: ChangePoolRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user: raise HTTPException(401, "Not authenticated")
-    new_pool_name = req.pool_name.strip()
-    if not new_pool_name: raise HTTPException(400, "Pool name cannot be empty")
-    if SessionLocal:
-        with SessionLocal() as db:
-            new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
-            if not new_pool: raise HTTPException(404, f"Pool '{new_pool_name}' not found")
-            saved = db.query(SavedNumber).filter(SavedNumber.id == saved_id, SavedNumber.user_id == user["id"]).first()
-            if not saved: raise HTTPException(404, "Saved entry not found")
-            if saved.moved:
-                old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-                if old_pool:
-                    old_row = db.query(ActiveNumber).filter(ActiveNumber.pool_id == old_pool.id, ActiveNumber.number == saved.number).first()
-                    if old_row:
-                        clash = db.query(ActiveNumber).filter(ActiveNumber.pool_id == new_pool.id, ActiveNumber.number == saved.number).first()
-                        if not clash: old_row.pool_id = new_pool.id
-                        else: db.delete(old_row)
-            saved.pool_name = new_pool_name
-            db.commit()
-    else:
-        new_pool = next((p for p in pools.values() if p["name"] == new_pool_name), None)
-        if not new_pool: raise HTTPException(404, f"Pool '{new_pool_name}' not found")
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                if s.get("moved"):
-                    old_pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                    if old_pool:
-                        old_nums = active_numbers.get(old_pool["id"], [])
-                        new_nums = active_numbers.get(new_pool["id"], [])
-                        if s["number"] in old_nums and s["number"] not in new_nums:
-                            old_nums.remove(s["number"]); new_nums.append(s["number"])
-                s["pool_name"] = new_pool_name
-                return {"ok": True}
-        raise HTTPException(404, "Saved entry not found")
-    return {"ok": True}
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  REVIEWS ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3324,30 +3052,33 @@ def list_users(token: str = Cookie(default=None)):
         return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
-async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
+    
     approve_user(user_id)
-    await send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"})
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
-async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
+    
     block_user(user_id)
-    await send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."})
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."}))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
-async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
+    
     unblock_user(user_id)
-    await send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"})
+    asyncio.create_task(send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"}))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
