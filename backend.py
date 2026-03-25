@@ -1486,14 +1486,14 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 
     <div id="savedPage" class="page">
-        <div class="section-title">💾 SAVE NUMBERS</div>
+        <div class="section-title">💾 SAVED NUMBERS</div>
         <div style="padding: 0 16px 16px;">
             <div class="filter-row" style="margin: 0 0 12px 0;">
-                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 90px; resize: vertical;"></textarea>
+                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
             </div>
             <div class="filter-row" style="margin: 0 0 12px 0;">
                 <div class="timer-input-group">
-                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (30m, 2h, 1d)" value="30m">
+                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m">
                     <button class="filter-btn" onclick="setTimerPreset('30m')">30m</button>
                     <button class="filter-btn" onclick="setTimerPreset('2h')">2h</button>
                     <button class="filter-btn" onclick="setTimerPreset('1d')">1d</button>
@@ -1501,15 +1501,11 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 </div>
             </div>
             <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name (e.g. UK, Nigeria)">
-                <button class="filter-btn" onclick="saveNumbers()">💾 Save</button>
+                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name">
+                <button class="filter-btn" onclick="saveNumbers()">Save</button>
             </div>
         </div>
-        <div class="section-title" style="padding-top:8px;">⏳ ACTIVE TIMERS</div>
-        <div id="savedList" class="saved-list"><div class="loading">No active timers</div></div>
-        <div class="section-title" style="padding-top:8px;">✅ READY NUMBERS</div>
-        <div style="padding: 0 16px 8px; font-size: 12px; color: #7e8a9a;">These numbers are now in their pools — get them from the Numbers page</div>
-        <div id="readyList" class="saved-list"><div class="loading">No ready numbers</div></div>
+        <div id="savedList" class="saved-list"></div>
     </div>
 
     <div id="historyPage" class="page">
@@ -1573,21 +1569,16 @@ function formatTime() { document.getElementById('currentTime').textContent = new
 setInterval(formatTime, 1000); formatTime();
 function copyText(t) {
     const val = String(t).startsWith('+') ? t : '+' + t;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(val).then(() => showToast('Copied!')).catch(() => {
-            const el = document.createElement('textarea');
-            el.value = val; el.style.position = 'fixed'; el.style.opacity = '0';
-            document.body.appendChild(el); el.focus(); el.select();
-            try { document.execCommand('copy'); showToast('Copied!'); } catch(e) { showToast('Copy failed'); }
-            document.body.removeChild(el);
-        });
-    } else {
+    const doFallback = () => {
         const el = document.createElement('textarea');
         el.value = val; el.style.position = 'fixed'; el.style.opacity = '0';
         document.body.appendChild(el); el.focus(); el.select();
         try { document.execCommand('copy'); showToast('Copied!'); } catch(e) { showToast('Copy failed'); }
         document.body.removeChild(el);
-    }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).then(() => showToast('Copied!')).catch(doFallback);
+    } else { doFallback(); }
 }
 function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
 
@@ -1773,7 +1764,7 @@ function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style
 function copyNumber() { if (currentAssignment) copyText(currentAssignment.number); else showToast('No number to copy'); }
 
 function parseTimer(timer) {
-    const match = timer.match(/^(\\d+)([smhd])$/i);
+    const match = timer.match(/^(\d+)([smhd])$/i);
     if (match) {
         const num = parseInt(match[1]);
         const unit = match[2].toLowerCase();
@@ -1806,101 +1797,19 @@ async function loadSavedNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
         const data = await res.json();
-
-        // Split into active timers vs ready
-        const active = data.filter(i => !i.moved);
-        const ready = data.filter(i => i.moved);
-
-        // Active timers list
-        const activeContainer = document.getElementById('savedList');
-        if (!active.length) {
-            activeContainer.innerHTML = '<div class="loading">No active timers</div>';
-        } else {
-            activeContainer.innerHTML = active.map(item => {
-                let cls = 'timer-green';
-                let mins = Math.floor(item.seconds_left / 60);
-                let secs = item.seconds_left % 60;
-                let time = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-                if (item.status === 'yellow') cls = 'timer-yellow';
-                if (item.status === 'red') cls = 'timer-red';
-                return `<div class="saved-item">
-                    <div>
-                        <div class="saved-number">${escapeHtml(item.number)}</div>
-                        <div class="saved-timer">📦 ${escapeHtml(item.pool_name)} — will enter pool when expired</div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="timer-badge ${cls}">${time}</span>
-                        <button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;cursor:pointer;">🗑️</button>
-                    </div>
-                </div>`;
-            }).join('');
-        }
-
-        // Ready numbers grouped by pool
-        const readyContainer = document.getElementById('readyList');
-        if (!ready.length) {
-            readyContainer.innerHTML = '<div class="loading">No ready numbers yet</div>';
-        } else {
-            const byPool = {};
-            ready.forEach(item => {
-                if (!byPool[item.pool_name]) byPool[item.pool_name] = [];
-                byPool[item.pool_name].push(item);
-            });
-            readyContainer.innerHTML = Object.entries(byPool).map(([poolName, items]) => `
-                <div style="margin-bottom:16px;">
-                    <div style="font-size:13px;font-weight:700;color:#0a84ff;padding:8px 4px 6px;">
-                        📦 ${escapeHtml(poolName.toUpperCase())} POOL
-                        <span style="background:rgba(10,132,255,0.15);padding:2px 10px;border-radius:20px;font-size:11px;margin-left:6px;">${items.length} ready</span>
-                    </div>
-                    ${items.map(item => `
-                    <div class="saved-item" style="margin-bottom:8px;">
-                        <div style="flex:1;">
-                            <div class="saved-number">${escapeHtml(item.number)}</div>
-                            <div class="saved-timer" style="color:#10b981;">✅ In pool — get it from the Numbers page</div>
-                        </div>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-                            <button class="btn btn-sm btn-secondary" onclick="changeReadyNumber(${item.id}, '${escapeHtml(item.number)}', '${escapeHtml(item.pool_name)}')">🔄 Change</button>
-                            <button class="btn btn-sm btn-secondary" onclick="changeReadyPool(${item.id}, '${escapeHtml(item.pool_name)}')">🌐 Pool</button>
-                            <button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:18px;cursor:pointer;">🗑️</button>
-                        </div>
-                    </div>`).join('')}
-                </div>
-            `).join('');
-        }
-    } catch(e) { console.error(e); }
+        const container = document.getElementById('savedList');
+        if (!data.length) { container.innerHTML = '<div class="loading">No saved numbers</div>'; return; }
+        container.innerHTML = data.map(item => {
+            let cls = 'timer-green', time = `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`;
+            if (item.status === 'yellow') cls = 'timer-yellow';
+            if (item.status === 'red') cls = 'timer-red';
+            if (item.status === 'ready') { cls = 'timer-ready'; time = 'READY'; }
+            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(item.number)}</div><div class="saved-timer">${escapeHtml(item.pool_name)}</div></div><div><span class="timer-badge ${cls}">${time}</span><button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;margin-left:8px;cursor:pointer;">🗑️</button></div></div>`;
+        }).join('');
+    } catch(e) {}
 }
 
-async function deleteSaved(id) {
-    await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
-    loadSavedNumbers();
-}
-
-async function changeReadyNumber(id, currentNumber, poolName) {
-    const newNum = prompt(`Change number in "${poolName}" pool:\nCurrent: ${currentNumber}\n\nEnter new number:`);
-    if (!newNum || !newNum.trim()) return;
-    const res = await fetch(`${API_BASE}/api/saved/${id}/number`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ number: newNum.trim() })
-    });
-    if (res.ok) { showToast('Number updated ✅'); loadSavedNumbers(); }
-    else { const e = await res.json(); showToast(e.detail || 'Failed to update'); }
-}
-
-async function changeReadyPool(id, currentPool) {
-    // Build pool list from regions
-    const poolsRes = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-    const poolsList = await poolsRes.json();
-    const options = poolsList.map(p => p.name).filter(n => n !== currentPool);
-    if (!options.length) { showToast('No other pools available'); return; }
-    const newPool = prompt(`Move to which pool?\nCurrent: ${currentPool}\n\nAvailable:\n${options.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\nType the pool name:`);
-    if (!newPool || !newPool.trim()) return;
-    const res = await fetch(`${API_BASE}/api/saved/${id}/pool`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ pool_name: newPool.trim() })
-    });
-    if (res.ok) { showToast(`Moved to ${newPool} pool 🌐`); loadSavedNumbers(); }
-    else { const e = await res.json(); showToast(e.detail || 'Pool not found'); }
-}
+async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' }); loadSavedNumbers(); }
 
 async function loadHistory() {
     try {
@@ -2952,20 +2861,6 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
     
     if SessionLocal:
         with SessionLocal() as db:
-            # Auto-create pool if it doesn't exist
-            pool = db.query(Pool).filter(Pool.name == req.pool_name).first()
-            if not pool:
-                pool = Pool(
-                    name=req.pool_name,
-                    country_code="unknown",
-                    match_format="5+4",
-                    otp_link="",
-                    trick_text=""
-                )
-                db.add(pool)
-                db.flush()
-                log.info(f"Auto-created pool '{req.pool_name}' from saved numbers")
-
             for number in req.numbers:
                 number = number.strip()
                 if not number:
@@ -2985,19 +2880,7 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
                     saved += 1
             db.commit()
     else:
-        # Auto-create pool in memory if it doesn't exist
-        if not any(p["name"] == req.pool_name for p in pools.values()):
-            pool_id = _counters["pool"]
-            _counters["pool"] += 1
-            pools[pool_id] = {
-                "id": pool_id, "name": req.pool_name, "country_code": "unknown",
-                "otp_group_id": None, "otp_link": "", "match_format": "5+4",
-                "telegram_match_format": "", "uses_platform": 0,
-                "is_paused": False, "pause_reason": "", "trick_text": "",
-                "is_admin_only": False, "last_restocked": None
-            }
-            active_numbers[pool_id] = []
-
+        global saved_counter
         for number in req.numbers:
             number = number.strip()
             if not number:
@@ -3181,126 +3064,6 @@ def delete_saved(saved_id: int, token: str = Cookie(default=None)):
                 return {"ok": True}
         raise HTTPException(404, "Not found")
     
-    return {"ok": True}
-
-# ── Change the phone number on a ready saved entry ──────────────────────────
-
-class ChangeNumberRequest(BaseModel):
-    number: str
-
-@app.put("/api/saved/{saved_id}/number")
-def change_saved_number(saved_id: int, req: ChangeNumberRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    new_number = req.number.strip()
-    if not new_number:
-        raise HTTPException(400, "Number cannot be empty")
-
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"]
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Not found")
-            # If already moved to pool, swap the number there too
-            if saved.moved:
-                pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-                if pool:
-                    old_row = db.query(ActiveNumber).filter(
-                        ActiveNumber.pool_id == pool.id,
-                        ActiveNumber.number == saved.number
-                    ).first()
-                    if old_row:
-                        # Check new number not already in pool
-                        clash = db.query(ActiveNumber).filter(ActiveNumber.number == new_number).first()
-                        if not clash:
-                            old_row.number = new_number
-                        else:
-                            db.delete(old_row)
-            saved.number = new_number
-            db.commit()
-    else:
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                old_num = s["number"]
-                if s.get("moved"):
-                    pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                    if pool:
-                        nums = active_numbers.get(pool["id"], [])
-                        if old_num in nums and new_number not in nums:
-                            nums[nums.index(old_num)] = new_number
-                s["number"] = new_number
-                return {"ok": True}
-        raise HTTPException(404, "Not found")
-
-    return {"ok": True}
-
-# ── Move a ready saved entry to a different pool ─────────────────────────────
-
-class ChangePoolRequest(BaseModel):
-    pool_name: str
-
-@app.put("/api/saved/{saved_id}/pool")
-def change_saved_pool(saved_id: int, req: ChangePoolRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    new_pool_name = req.pool_name.strip()
-    if not new_pool_name:
-        raise HTTPException(400, "Pool name cannot be empty")
-
-    if SessionLocal:
-        with SessionLocal() as db:
-            # Target pool must exist
-            new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
-            if not new_pool:
-                raise HTTPException(404, f"Pool '{new_pool_name}' not found")
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"]
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Saved entry not found")
-            # If already in old pool, move the active_number record too
-            if saved.moved:
-                old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-                if old_pool:
-                    old_row = db.query(ActiveNumber).filter(
-                        ActiveNumber.pool_id == old_pool.id,
-                        ActiveNumber.number == saved.number
-                    ).first()
-                    if old_row:
-                        clash = db.query(ActiveNumber).filter(
-                            ActiveNumber.pool_id == new_pool.id,
-                            ActiveNumber.number == saved.number
-                        ).first()
-                        if not clash:
-                            old_row.pool_id = new_pool.id
-                        else:
-                            db.delete(old_row)
-            saved.pool_name = new_pool_name
-            db.commit()
-    else:
-        new_pool = next((p for p in pools.values() if p["name"] == new_pool_name), None)
-        if not new_pool:
-            raise HTTPException(404, f"Pool '{new_pool_name}' not found")
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                if s.get("moved"):
-                    old_pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                    if old_pool:
-                        old_nums = active_numbers.get(old_pool["id"], [])
-                        new_nums = active_numbers.get(new_pool["id"], [])
-                        if s["number"] in old_nums and s["number"] not in new_nums:
-                            old_nums.remove(s["number"])
-                            new_nums.append(s["number"])
-                s["pool_name"] = new_pool_name
-                return {"ok": True}
-        raise HTTPException(404, "Saved entry not found")
-
     return {"ok": True}
 
 # ══════════════════════════════════════════════════════════════════════════════
