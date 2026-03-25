@@ -1571,7 +1571,26 @@ let allRegions = [];
 function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
 function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
 setInterval(formatTime, 1000); formatTime();
-function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
+function copyText(t) {
+    const val = (t && !String(t).startsWith('+')) ? '+' + t : String(t || '');
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(val).then(function(){ showToast('Copied!'); }).catch(function(){ _fbCopy(val); });
+        } else { _fbCopy(val); }
+    } catch(err) { _fbCopy(val); }
+}
+function _fbCopy(val) {
+    try {
+        var el = document.createElement('textarea');
+        el.value = val; el.setAttribute('readonly', '');
+        el.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+        document.body.appendChild(el); el.focus(); el.select();
+        el.setSelectionRange(0, 99999);
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        showToast('Copied!');
+    } catch(e) { showToast('Copy failed'); }
+}
 function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
 
 async function checkAuth() {
