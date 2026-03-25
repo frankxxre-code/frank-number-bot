@@ -2459,23 +2459,40 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
             bad_set = {b.number for b in db.query(BadNumber).all()}
             filtered = [n for n in numbers if n not in bad_set]
             skipped_bad = len(numbers) - len(filtered)
-            
+
             cooldown_dups = await get_cooldown_duplicates(filtered)
             filtered = [n for n in filtered if n not in cooldown_dups]
             skipped_cooldown = len(cooldown_dups)
-            
-            existing = {n.number for n in db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).all()}
+
+            # Check globally across ALL pools (unique constraint is table-wide, not per-pool)
+            if filtered:
+                existing = {row.number for row in db.query(ActiveNumber.number).filter(
+                    ActiveNumber.number.in_(filtered)
+                ).all()}
+            else:
+                existing = set()
             new_numbers = [n for n in filtered if n not in existing]
             duplicates = len(filtered) - len(new_numbers)
-            
+
+            # Insert with per-row conflict handling to survive any edge-case duplicates
+            added = 0
             for num in new_numbers:
-                db.add(ActiveNumber(pool_id=pool_id, number=num))
-            
+                try:
+                    db.add(ActiveNumber(pool_id=pool_id, number=num))
+                    db.flush()
+                    added += 1
+                except Exception:
+                    db.rollback()
+                    duplicates += 1
+
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
             if pool:
                 pool.last_restocked = utcnow()
-            db.commit()
-            added = len(new_numbers)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise HTTPException(500, "Database commit failed after upload")
     else:
         bad_set = set(bad_numbers.keys())
         filtered = [n for n in numbers if n not in bad_set]
