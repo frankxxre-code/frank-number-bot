@@ -1205,6 +1205,7 @@ async def process_expired_saved():
     # Numbers are marked moved=True when timer expires.
     # They stay PRIVATE to the owner — NOT added to the public pool.
     # The owner accesses them via the Ready Numbers dashboard only.
+    # When they become ready, we automatically trigger monitor bot.
     if SessionLocal:
         with SessionLocal() as db:
             now = utcnow()
@@ -1213,12 +1214,37 @@ async def process_expired_saved():
                 SavedNumber.moved == False
             ).all()
 
+            newly_ready = []
             for sn in expired:
                 sn.moved = True  # Mark ready — stays private to this user
+                # Grab pool info for monitoring
+                pool = db.query(Pool).filter(Pool.name == sn.pool_name).first()
+                if pool and pool.otp_group_id:
+                    newly_ready.append({
+                        "number": sn.number,
+                        "user_id": sn.user_id,
+                        "otp_group_id": pool.otp_group_id,
+                        "match_format": pool.telegram_match_format or pool.match_format,
+                        "uses_platform": pool.uses_platform
+                    })
 
             if expired:
                 db.commit()
                 log.info(f"[Scheduler] Marked {len(expired)} saved numbers as ready (private)")
+
+            # Fire monitor requests outside DB session
+            for info in newly_ready:
+                try:
+                    await request_monitor_bot(
+                        number=info["number"],
+                        group_id=info["otp_group_id"],
+                        match_format=info["match_format"],
+                        user_id=info["user_id"]
+                    )
+                    if info["uses_platform"] in (1, 2):
+                        start_platform_monitor(info["user_id"], info["number"], info["match_format"])
+                except Exception as e:
+                    log.error(f"[Scheduler] Monitor trigger failed for {info['number']}: {e}")
     else:
         now = utcnow()
         expired = [s for s in saved_numbers if not s.get("moved", False) and
@@ -1441,7 +1467,12 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 
     <div id="savedPage" class="page">
-        <div class="section-title">💾 SAVED NUMBERS</div>
+        <!-- READY NUMBERS — always on top -->
+        <div class="section-title" id="readySection" style="display:none;">✅ READY NUMBERS</div>
+        <div id="readyList" class="saved-list"></div>
+
+        <!-- SAVE NUMBERS FORM -->
+        <div class="section-title">💾 SAVE NUMBERS</div>
         <div style="padding: 0 16px 16px;">
             <div class="filter-row" style="margin: 0 0 12px 0;">
                 <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
@@ -1456,13 +1487,14 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 </div>
             </div>
             <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name">
+                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name (group label)">
                 <button class="filter-btn" onclick="saveNumbers()">Save</button>
             </div>
         </div>
+
+        <!-- SAVED POOLS — shows pool groups with counts only, no individual numbers -->
+        <div class="section-title" id="savedPoolsSection" style="display:none;">⏳ SAVED POOLS</div>
         <div id="savedList" class="saved-list"></div>
-        <div class="section-title" id="readySection" style="display:none;">✅ READY NUMBERS</div>
-        <div id="readyList" class="saved-list"></div>
     </div>
 
     <div id="historyPage" class="page">
@@ -1597,6 +1629,7 @@ function connectWebSocket() {
     ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
         if (data.type === 'otp') displayOTP(data);
+        else if (data.type === 'saved_otp') displaySavedOTP(data);
         else if (data.type === 'broadcast') showToast(`📢 ${data.message}`);
     };
     ws.onclose = () => setTimeout(connectWebSocket, 5000);
@@ -1610,6 +1643,19 @@ function displayOTP(data) {
     let seconds = 30;
     const timer = setInterval(() => { seconds--; const cd = document.getElementById('otpCountdown'); if (cd) cd.textContent = `Auto-delete in ${seconds}s`; if (seconds <= 0) { clearInterval(timer); otpDiv.style.display = 'none'; } }, 1000);
     otpTimer = setTimeout(() => { clearInterval(timer); otpDiv.style.display = 'none'; }, 30000);
+    loadHistory();
+}
+
+function displaySavedOTP(data) {
+    // Store OTP for the saved number card and refresh ready list
+    savedOtps[data.number] = { otp: data.otp, raw_message: data.raw_message || '' };
+    showToast(`🔑 OTP for ${data.number}: ${data.otp}`);
+    loadReadyNumbers();
+    // Auto-clear after 30s
+    setTimeout(() => {
+        delete savedOtps[data.number];
+        loadReadyNumbers();
+    }, 30000);
     loadHistory();
 }
 
@@ -1760,19 +1806,57 @@ async function loadSavedNumbers() {
         const data = await res.json();
         const container = document.getElementById('savedList');
         const activeItems = data.filter(item => !item.moved);
-        if (!activeItems.length) { container.innerHTML = '<div class="loading">No active timers</div>'; }
-        else {
-            container.innerHTML = activeItems.map(item => {
-                let cls = 'timer-green', time = `${Math.floor(item.seconds_left / 60)}m ${item.seconds_left % 60}s`;
-                if (item.status === 'yellow') cls = 'timer-yellow';
-                if (item.status === 'red') cls = 'timer-red';
-                if (item.status === 'expired') { cls = 'timer-red'; time = 'Expired'; }
-                return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(item.number)}</div><div class="saved-timer">${escapeHtml(item.pool_name)}</div></div><div><span class="timer-badge ${cls}">${time}</span><button onclick="deleteSaved(${item.id})" style="background:none;border:none;font-size:20px;margin-left:8px;cursor:pointer;">🗑️</button></div></div>`;
+
+        if (!activeItems.length) {
+            container.innerHTML = '<div class="loading">No active saved pools</div>';
+            document.getElementById('savedPoolsSection').style.display = 'none';
+        } else {
+            // Group by pool_name — show counts only, not individual numbers
+            const grouped = {};
+            activeItems.forEach(item => {
+                if (!grouped[item.pool_name]) grouped[item.pool_name] = { items: [], minSeconds: Infinity, status: 'green' };
+                grouped[item.pool_name].items.push(item);
+                if (item.seconds_left < grouped[item.pool_name].minSeconds) {
+                    grouped[item.pool_name].minSeconds = item.seconds_left;
+                    grouped[item.pool_name].status = item.status;
+                }
+            });
+
+            document.getElementById('savedPoolsSection').style.display = 'block';
+            container.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
+                const count = g.items.length;
+                const minSec = g.minSeconds;
+                let cls = 'timer-green', time = `${Math.floor(minSec / 60)}m ${minSec % 60}s`;
+                if (g.status === 'yellow') cls = 'timer-yellow';
+                if (g.status === 'red') cls = 'timer-red';
+                if (g.status === 'expired') { cls = 'timer-red'; time = 'Expiring'; }
+                const ids = g.items.map(i => i.id);
+                return `<div class="saved-item">
+                    <div>
+                        <div class="saved-number">📦 ${escapeHtml(poolName)}</div>
+                        <div class="saved-timer">${count} number${count !== 1 ? 's' : ''} saved — timer running</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="timer-badge ${cls}">${time}</span>
+                        <button onclick="deleteSavedPool(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="background:none;border:none;font-size:20px;cursor:pointer;" title="Delete pool">🗑️</button>
+                    </div>
+                </div>`;
             }).join('');
         }
     } catch(e) {}
     loadReadyNumbers();
 }
+
+async function deleteSavedPool(ids) {
+    if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
+    for (const id of ids) {
+        await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
+    }
+    loadSavedNumbers();
+}
+
+// Track OTPs per saved number (number -> {otp, raw_message, timer})
+const savedOtps = {};
 
 async function loadReadyNumbers() {
     try {
@@ -1790,13 +1874,17 @@ async function loadReadyNumbers() {
             grouped[item.pool_name].push(item);
         });
 
-        // Each group shows ONE active card (the first slot).
-        // Change Number cycles within that pool queue.
-        // Change Pool switches the whole slot to a different pool.
         let html = '';
         Object.entries(grouped).forEach(([poolName, items]) => {
             const active = items[0]; // front of queue for this pool
             const queueCount = items.length;
+            const otpInfo = savedOtps[active.number];
+            const otpHtml = otpInfo
+                ? `<div class="otp-card" style="margin-top:8px;padding:8px 12px;">
+                    <div style="font-size:11px;color:#7e8a9a;">🔑 OTP CODE</div>
+                    <div class="otp-code" onclick="copyText('${otpInfo.otp}')" style="font-size:22px;cursor:pointer;">${otpInfo.otp} 📋</div>
+                    ${otpInfo.raw_message ? `<div class="otp-message" style="font-size:11px;color:#9ca3af;margin-top:4px;">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
+                  </div>` : '';
             html += `
             <div style="padding: 0 16px 8px;">
                 <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">
@@ -1813,9 +1901,10 @@ async function loadReadyNumbers() {
                         Slot 1 of ${queueCount} — tap number to copy
                     </div>
                     <div style="display:flex;gap:8px;">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id})">🔄 Change Number</button>
+                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${poolName.replace(/'/g,"\\'")}')">🔄 Change Number</button>
                         <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${active.number.replace(/'/g,"\'")}', '${poolName.replace(/'/g,"\'")}')">🌐 Change Pool</button>
                     </div>
+                    ${otpHtml}
                 </div>
             </div>`;
         });
@@ -1825,13 +1914,27 @@ async function loadReadyNumbers() {
 
 let changeTargetId = null;
 
-async function doNextNumber(id) {
+async function doNextNumber(id, poolName) {
     try {
         const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST', credentials: 'include' });
         const data = await res.json();
-        if (res.ok) { showToast(`New number: ${data.number}`); loadReadyNumbers(); }
-        else { showToast(data.detail || 'No more numbers in this pool'); }
+        if (res.ok) {
+            showToast(`New number: ${data.number}`);
+            // Trigger monitor bot for the new number from the same pool
+            await triggerSavedMonitor(data.number);
+            loadReadyNumbers();
+        } else { showToast(data.detail || 'No more numbers in this pool'); }
     } catch(e) { showToast('Network error'); }
+}
+
+async function triggerSavedMonitor(number) {
+    try {
+        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ number })
+        });
+        if (res.ok) { showToast('👁️ Monitoring started...'); }
+    } catch(e) { /* silent */ }
 }
 
 async function openSwitchPool(id, number, currentPool) {
@@ -1854,8 +1957,12 @@ async function submitSwitchPool() {
     try {
         const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST', credentials: 'include' });
         const data = await res.json();
-        if (res.ok) { showToast(`Switched to ${newPool}: ${data.number}`); document.getElementById('changePoolModal').classList.remove('show'); loadReadyNumbers(); }
-        else { showToast(data.detail || 'Switch failed'); }
+        if (res.ok) {
+            showToast(`Switched to ${newPool}: ${data.number}`);
+            document.getElementById('changePoolModal').classList.remove('show');
+            await triggerSavedMonitor(data.number);
+            loadReadyNumbers();
+        } else { showToast(data.detail || 'Switch failed'); }
     } catch(e) { showToast('Network error'); }
 }
 
@@ -2795,6 +2902,22 @@ async def monitor_result(payload: MonitorResultPayload):
         raise HTTPException(403, "Invalid secret")
     
     log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
+
+    # Determine if this number is a saved/ready number (not a regular assignment)
+    is_saved_number = False
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved_entry = db.query(SavedNumber).filter(
+                SavedNumber.user_id == payload.user_id,
+                SavedNumber.number == payload.number,
+                SavedNumber.moved == True
+            ).first()
+            is_saved_number = saved_entry is not None
+    else:
+        is_saved_number = any(
+            s["user_id"] == payload.user_id and s["number"] == payload.number and s.get("moved", False)
+            for s in saved_numbers
+        )
     
     if SessionLocal:
         with SessionLocal() as db:
@@ -2828,8 +2951,10 @@ async def monitor_result(payload: MonitorResultPayload):
             "delivered_at": utcnow().isoformat()
         })
     
+    # Route to saved OTP slot if it's a saved number, otherwise normal OTP display
+    otp_type = "saved_otp" if is_saved_number else "otp"
     otp_data = {
-        "type": "otp",
+        "type": otp_type,
         "id": otp_id,
         "number": payload.number,
         "otp": payload.otp,
@@ -3297,6 +3422,71 @@ def list_ready_pools(token: str = Cookie(default=None)):
                 count = len(active_numbers.get(pool["id"], []))
                 result.append({"pool_name": pname, "pool_id": pool["id"], "count": count})
         return result
+
+
+class TriggerMonitorRequest(BaseModel):
+    number: str
+
+@app.post("/api/saved/trigger-monitor")
+async def trigger_saved_monitor(req: TriggerMonitorRequest, token: str = Cookie(default=None)):
+    """
+    Trigger monitor bot for a saved/ready number.
+    Looks up the pool from the number's saved_number record,
+    gets group_id and match_format, sends monitor request.
+    """
+    user = get_user_from_token(token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    number = req.number.strip()
+    pool_info = None
+
+    if SessionLocal:
+        with SessionLocal() as db:
+            # Find which pool this number belongs to via saved_numbers record
+            saved = db.query(SavedNumber).filter(
+                SavedNumber.user_id == user["id"],
+                SavedNumber.number == number
+            ).order_by(SavedNumber.created_at.desc()).first()
+            if saved:
+                pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
+                if pool:
+                    pool_info = {
+                        "pool_id": pool.id,
+                        "otp_group_id": pool.otp_group_id,
+                        "match_format": pool.telegram_match_format or pool.match_format,
+                        "uses_platform": pool.uses_platform
+                    }
+    else:
+        saved = next((s for s in saved_numbers if s["user_id"] == user["id"] and s["number"] == number), None)
+        if saved:
+            pool = next((p for p in pools.values() if p["name"] == saved["pool_name"]), None)
+            if pool:
+                pool_info = {
+                    "pool_id": pool["id"],
+                    "otp_group_id": pool.get("otp_group_id"),
+                    "match_format": pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
+                    "uses_platform": pool.get("uses_platform", 0)
+                }
+
+    if not pool_info:
+        raise HTTPException(404, "Could not find pool for this number")
+
+    if not pool_info["otp_group_id"]:
+        raise HTTPException(400, "Pool has no OTP group configured")
+
+    # Send monitor request — tag it as saved_number so result goes to saved OTP slot
+    ok = await request_monitor_bot(
+        number=number,
+        group_id=pool_info["otp_group_id"],
+        match_format=pool_info["match_format"],
+        user_id=user["id"]
+    )
+
+    if pool_info["uses_platform"] in (1, 2):
+        start_platform_monitor(user["id"], number, pool_info["match_format"])
+
+    return {"ok": ok, "message": f"Monitoring started for {number}"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  REVIEWS ENDPOINTS
