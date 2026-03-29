@@ -2365,7 +2365,8 @@ async function loadReviews() {
     } catch(e) { div.innerHTML = 'Failed'; }
 }
 
-
+async function sendBroadcast() {
+    const msg = document.getElementById('broadcastMsg').value.trim();
     if (!msg) { showToast('Enter a message'); return; }
     await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`,{method:'POST',credentials:'include'});
     showToast('Broadcast sent'); document.getElementById('broadcastMsg').value='';
