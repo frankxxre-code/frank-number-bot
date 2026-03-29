@@ -1,27 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-NEON GRID NETWORK — COMPLETE PLATFORM BACKEND
-=================================================
-All features from numberbot.py converted to web platform
-- Pool management with match formats
-- Number assignments with prefix filter
-- OTP monitoring via monitor bot
-- Saved numbers with timer expiry (supports 30m, 2h, 2s, 1d)
-- Bad numbers tracking
-- User reviews and feedback
-- Admin panel with user management
-- Pool access control (restricted pools)
-- Broadcast messaging
-- Platform stock watcher
-- Custom dashboard buttons
-- Pause/Resume pools with reason
-- Admin-only pools
-- Trick text per pool
-- Multiple monitoring modes (0=Telegram,1=Platform,2=Both)
-- Compliance tracking
-- OTP auto-delete after 30 seconds
-- WebSocket real-time OTP delivery
-- PostgreSQL persistence
+NEON GRID NETWORK — COMPLETE PLATFORM BACKEND (REDESIGNED)
+============================================================
+Redesigned frontend: White & Blue theme
+- Correct pending pool → ready pool logic with timers
+- Save numbers page: ONE active pool showing, Change Number / Change Pool
+- All admin features from telegram bot
+- No earning/balance content
+- WebSocket OTP delivery
+- Monitor bot integration
 """
 
 import asyncio
@@ -50,7 +37,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
 
-# SQLAlchemy for PostgreSQL
 try:
     from sqlalchemy import (create_engine, Column, Integer, String, Boolean, DateTime,
                             Text, ForeignKey, BigInteger, UniqueConstraint, select, func, text)
@@ -61,17 +47,12 @@ try:
 except ImportError:
     SQLALCHEMY_AVAILABLE = False
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-log = logging.getLogger("frank")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  CONFIGURATION
-# ══════════════════════════════════════════════════════════════════════════════
+log = logging.getLogger("neongrid")
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 SHARED_SECRET = os.environ.get("SHARED_SECRET", "MonitorSecret2024")
@@ -79,59 +60,33 @@ MONITOR_BOT_URL = os.environ.get("MONITOR_BOT_URL", "").rstrip("/")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 PORT = int(os.environ.get("PORT", "8080"))
 
-# Fix Railway Postgres URL
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Platform config
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://198.135.52.238")
 PLATFORM_USERNAME = os.environ.get("PLATFORM_USERNAME", "Frankhustle")
 PLATFORM_PASSWORD = os.environ.get("PLATFORM_PASSWORD", "f11111")
 
-# Monitoring config
 PLATFORM_MONITOR_TTL = 600
 PLATFORM_POLL_INTERVAL = 5
 PLATFORM_STOCK_INTERVAL = 300
 OTP_AUTO_DELETE_DELAY = 30
 
-# Global state (always initialized, used by both DB and memory modes)
 bot_settings = {"approval_mode": "on", "otp_redirect_mode": "pool"}
 _compliance_counters: Dict[int, int] = {}
 
-# Default values
 DEFAULT_LOCAL_PREFIX = "+234"
-OTP_CHANNEL_LINK = "https://t.me/earnplusz"
-NUMBER_CHANNEL_LINK = "https://t.me/Finalsearchbot"
 HARDCODED_OTP_GROUP = "https://t.me/earnplusz"
-
-# Monitoring modes
 MONITOR_TELEGRAM = 0
 MONITOR_PLATFORM = 1
 MONITOR_BOTH = 2
-
-# Compliance
-COMPLIANCE_BRIDGE_GROUP_ID = -1003817159179
 COMPLIANCE_CODES_PER_CHECK = 5
-
-# Cooldown check URL
 COOLDOWN_CHECK_URL = "http://127.0.0.1:8003/check_numbers_exist"
-
-log.info(f"Starting NEON GRID NETWORK on port {PORT}")
-log.info(f"Database: {'PostgreSQL' if DATABASE_URL else 'Memory (fallback)'}")
-log.info(f"Monitor Bot URL: {MONITOR_BOT_URL or 'NOT SET'}")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE SETUP
-# ══════════════════════════════════════════════════════════════════════════════
 
 if SQLALCHEMY_AVAILABLE and DATABASE_URL:
     engine = create_engine(
-        DATABASE_URL,
-        poolclass=QueuePool,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,
-        echo=False
+        DATABASE_URL, poolclass=QueuePool, pool_size=10,
+        max_overflow=20, pool_pre_ping=True, echo=False
     )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
@@ -140,9 +95,17 @@ else:
     Base = None
     log.warning("No DATABASE_URL, running in memory-only mode")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE MODELS
-# ══════════════════════════════════════════════════════════════════════════════
+def hash_password(p: str) -> str:
+    salt = os.urandom(16).hex()
+    h = hashlib.sha256((salt + p).encode()).hexdigest()
+    return f"{salt}:{h}"
+
+def verify_password(p: str, hashed: str) -> bool:
+    try:
+        salt, h = hashed.split(":", 1)
+        return hashlib.sha256((salt + p).encode()).hexdigest() == h
+    except:
+        return False
 
 if Base:
     class User(Base):
@@ -179,7 +142,6 @@ if Base:
         is_admin_only = Column(Boolean, default=False)
         last_restocked = Column(DateTime(timezone=True), nullable=True)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-        
         numbers = relationship("ActiveNumber", back_populates="pool", cascade="all, delete")
         assignments = relationship("Assignment", back_populates="pool")
         access_list = relationship("PoolAccess", back_populates="pool", cascade="all, delete")
@@ -269,50 +231,27 @@ if Base:
                 try:
                     conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS email"))
                     conn.commit()
-                    log.info("Dropped email column if it existed")
-                except Exception as e:
-                    log.info(f"Email column drop not needed: {e}")
-            
+                except:
+                    pass
             Base.metadata.create_all(bind=engine)
-            log.info("Database tables created")
-
             with SessionLocal() as db:
                 if db.query(User).count() == 0:
-                    admin = User(
-                        username="admin",
-                        password_hash=hash_password("admin123"),
-                        is_admin=True,
-                        is_approved=True
-                    )
+                    admin = User(username="admin", password_hash=hash_password("admin123"),
+                                 is_admin=True, is_approved=True)
                     db.add(admin)
                     db.commit()
-                    log.info("Default admin created: admin / admin123")
-
                 if db.query(Pool).count() == 0:
                     default_pools = [
-                        {"name": "Nigeria", "country_code": "234", "number_count": 1250, "otp_group_id": -1003388744078, "trick_text": "Best for WhatsApp"},
-                        {"name": "USA", "country_code": "1", "number_count": 842, "otp_group_id": -1003388744078, "trick_text": "Best for Telegram"},
-                        {"name": "United Kingdom", "country_code": "44", "number_count": 567, "otp_group_id": -1003388744078},
-                        {"name": "Canada", "country_code": "1", "number_count": 321, "otp_group_id": -1003388744078},
-                        {"name": "Australia", "country_code": "61", "number_count": 234, "otp_group_id": -1003388744078},
+                        {"name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078, "trick_text": "Best for WhatsApp"},
+                        {"name": "USA", "country_code": "1", "otp_group_id": -1003388744078, "trick_text": "Best for Telegram"},
+                        {"name": "United Kingdom", "country_code": "44", "otp_group_id": -1003388744078},
                     ]
                     for p in default_pools:
-                        pool = Pool(
-                            name=p["name"],
-                            country_code=p["country_code"],
-                            otp_group_id=p["otp_group_id"],
-                            otp_link="https://t.me/earnplusz",
-                            match_format="5+4",
-                            trick_text=p.get("trick_text", "")
-                        )
+                        pool = Pool(name=p["name"], country_code=p["country_code"],
+                                    otp_group_id=p["otp_group_id"], otp_link="",
+                                    match_format="5+4", trick_text=p.get("trick_text", ""))
                         db.add(pool)
-                        db.flush()
-                        for _ in range(p["number_count"]):
-                            num = f"+{p['country_code']}{random.randint(7000000000, 7999999999)}"
-                            db.add(ActiveNumber(pool_id=pool.id, number=num))
                     db.commit()
-                    log.info(f"Created {len(default_pools)} default pools")
-
                 if db.query(CustomButton).count() == 0:
                     db.add_all([
                         CustomButton(label="📢 Join Channel", url="https://t.me/earnplusz", position=0),
@@ -322,23 +261,26 @@ if Base:
 else:
     def init_db():
         log.warning("Using in-memory fallback")
-    
-    # In-memory storage
-    users = {1: {"id": 1, "username": "admin", "password_hash": hash_password("admin123"), "is_admin": True, "is_approved": True, "is_blocked": False}}
+
+    users = {1: {"id": 1, "username": "admin", "password_hash": hash_password("admin123"),
+                 "is_admin": True, "is_approved": True, "is_blocked": False,
+                 "created_at": datetime.now(timezone.utc).isoformat()}}
     sessions = {}
     pools = {
-        1: {"id": 1, "name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "Best for WhatsApp", "is_admin_only": False, "last_restocked": None},
-        2: {"id": 2, "name": "USA", "country_code": "1", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "Best for Telegram", "is_admin_only": False, "last_restocked": None},
-        3: {"id": 3, "name": "United Kingdom", "country_code": "44", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "", "is_admin_only": False, "last_restocked": None},
-        4: {"id": 4, "name": "Canada", "country_code": "1", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "", "is_admin_only": False, "last_restocked": None},
-        5: {"id": 5, "name": "Australia", "country_code": "61", "otp_group_id": -1003388744078, "otp_link": "https://t.me/earnplusz", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0, "is_paused": False, "pause_reason": "", "trick_text": "", "is_admin_only": False, "last_restocked": None},
+        1: {"id": 1, "name": "Nigeria", "country_code": "234", "otp_group_id": -1003388744078,
+            "otp_link": "", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0,
+            "is_paused": False, "pause_reason": "", "trick_text": "Best for WhatsApp", "is_admin_only": False, "last_restocked": None},
+        2: {"id": 2, "name": "USA", "country_code": "1", "otp_group_id": -1003388744078,
+            "otp_link": "", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0,
+            "is_paused": False, "pause_reason": "", "trick_text": "Best for Telegram", "is_admin_only": False, "last_restocked": None},
+        3: {"id": 3, "name": "United Kingdom", "country_code": "44", "otp_group_id": -1003388744078,
+            "otp_link": "", "match_format": "5+4", "telegram_match_format": "", "uses_platform": 0,
+            "is_paused": False, "pause_reason": "", "trick_text": "", "is_admin_only": False, "last_restocked": None},
     }
     active_numbers = {
-        1: [f"+234{random.randint(7000000000, 7999999999)}" for _ in range(1250)],
-        2: [f"+1{random.randint(7000000000, 7999999999)}" for _ in range(842)],
-        3: [f"+44{random.randint(7000000000, 7999999999)}" for _ in range(567)],
-        4: [f"+1{random.randint(7000000000, 7999999999)}" for _ in range(321)],
-        5: [f"+61{random.randint(7000000000, 7999999999)}" for _ in range(234)],
+        1: [f"+234{random.randint(7000000000, 7999999999)}" for _ in range(50)],
+        2: [f"+1{random.randint(7000000000, 7999999999)}" for _ in range(30)],
+        3: [f"+44{random.randint(7000000000, 7999999999)}" for _ in range(20)],
     }
     archived_numbers = []
     otp_logs = []
@@ -352,71 +294,46 @@ else:
     user_connections = {}
     feed_connections = []
     pool_access = {}
-    uploaded_numbers = set()
     feedbacks = []
-    _counters = {"user": 6, "pool": 6, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "feedback": 1, "button": 3}
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  UTILITY FUNCTIONS
-# ══════════════════════════════════════════════════════════════════════════════
+    _counters = {"user": 2, "pool": 4, "assignment": 1, "otp": 1, "saved": 1, "review": 1, "feedback": 1, "button": 3}
 
 def utcnow():
     return datetime.now(timezone.utc)
 
-def hash_password(p: str) -> str:
-    salt = os.urandom(16).hex()
-    h = hashlib.sha256((salt + p).encode()).hexdigest()
-    return f"{salt}:{h}"
-
-def verify_password(p: str, hashed: str) -> bool:
-    try:
-        salt, h = hashed.split(":", 1)
-        return hashlib.sha256((salt + p).encode()).hexdigest() == h
-    except:
-        return False
-
 def create_token(user_id: int) -> str:
-    token = secrets.token_urlsafe(48)
-    expires = utcnow() + timedelta(days=30)
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            session = UserSession(user_id=user_id, token=token, expires_at=expires)
-            db.add(session)
-            db.commit()
-    else:
-        sessions[token] = user_id
-    return token
+    raw = f"{user_id}:{secrets.token_hex(32)}:{time.time()}"
+    return hashlib.sha256(raw.encode()).hexdigest() + secrets.token_hex(16)
 
-def revoke_token(token: str):
-    if SessionLocal:
-        with SessionLocal() as db:
-            db.query(UserSession).filter(UserSession.token == token).delete()
-            db.commit()
-    else:
-        sessions.pop(token, None)
-
-def get_user_from_token(token: str):
+def get_user_from_token(token: Optional[str]) -> Optional[Dict]:
     if not token:
         return None
-    
     if SessionLocal:
         with SessionLocal() as db:
-            user_session = db.query(UserSession).filter(
-                UserSession.token == token,
-                UserSession.expires_at > utcnow()
-            ).first()
-            if user_session:
-                user = db.query(User).filter(User.id == user_session.user_id).first()
-                if user and not user.is_blocked:
-                    return {"id": user.id, "username": user.username, "is_admin": user.is_admin, "is_approved": user.is_approved}
+            now = utcnow()
+            sess = db.query(UserSession).filter(UserSession.token == token, UserSession.expires_at > now).first()
+            if not sess:
+                return None
+            user = db.query(User).filter(User.id == sess.user_id).first()
+            if not user or user.is_blocked:
+                return None
+            return {"id": user.id, "username": user.username, "is_admin": user.is_admin, "is_approved": user.is_approved}
     else:
-        if token in sessions:
-            user_id = sessions[token]
-            user = users.get(user_id)
-            if user and not user.get("is_blocked"):
-                return user
-    return None
+        sess = sessions.get(token)
+        if not sess or datetime.fromisoformat(sess["expires_at"]) < utcnow():
+            return None
+        user = users.get(sess["user_id"])
+        if not user or user.get("is_blocked"):
+            return None
+        return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
+
+def store_token(user_id: int, token: str):
+    expires = utcnow() + timedelta(days=30)
+    if SessionLocal:
+        with SessionLocal() as db:
+            db.add(UserSession(user_id=user_id, token=token, expires_at=expires))
+            db.commit()
+    else:
+        sessions[token] = {"user_id": user_id, "expires_at": expires.isoformat()}
 
 def is_admin(user_id: int) -> bool:
     if SessionLocal:
@@ -427,23 +344,24 @@ def is_admin(user_id: int) -> bool:
         user = users.get(user_id)
         return user.get("is_admin", False) if user else False
 
-def is_blocked(user_id: int) -> bool:
+def approve_user(user_id: int):
     if SessionLocal:
         with SessionLocal() as db:
-            user = db.query(User).filter(User.id == user_id).first()
-            return user.is_blocked if user else False
+            db.query(User).filter(User.id == user_id).update({"is_approved": True, "is_blocked": False})
+            db.commit()
     else:
-        user = users.get(user_id)
-        return user.get("is_blocked", False) if user else False
+        if user_id in users:
+            users[user_id]["is_approved"] = True
+            users[user_id]["is_blocked"] = False
 
-def is_approved(user_id: int) -> bool:
+def deny_user(user_id: int):
     if SessionLocal:
         with SessionLocal() as db:
-            user = db.query(User).filter(User.id == user_id).first()
-            return user.is_approved if user else False
+            db.query(User).filter(User.id == user_id).update({"is_approved": False})
+            db.commit()
     else:
-        user = users.get(user_id)
-        return user.get("is_approved", False) if user else False
+        if user_id in users:
+            users[user_id]["is_approved"] = False
 
 def block_user(user_id: int):
     if SessionLocal:
@@ -465,35 +383,6 @@ def unblock_user(user_id: int):
             users[user_id]["is_blocked"] = False
             users[user_id]["is_approved"] = True
 
-def approve_user(user_id: int):
-    if SessionLocal:
-        with SessionLocal() as db:
-            db.query(User).filter(User.id == user_id).update({"is_approved": True, "is_blocked": False})
-            db.commit()
-    else:
-        if user_id in users:
-            users[user_id]["is_approved"] = True
-            users[user_id]["is_blocked"] = False
-
-def deny_user(user_id: int):
-    if SessionLocal:
-        with SessionLocal() as db:
-            db.query(User).filter(User.id == user_id).update({"is_approved": False, "is_blocked": False})
-            db.commit()
-    else:
-        if user_id in users:
-            users[user_id]["is_approved"] = False
-            users[user_id]["is_blocked"] = False
-
-def can_use_bot(user_id: int) -> bool:
-    if is_admin(user_id):
-        return True
-    if is_blocked(user_id):
-        return False
-    if bot_settings.get("approval_mode") == "on" and not is_approved(user_id):
-        return False
-    return True
-
 def get_approval_mode() -> bool:
     return bot_settings.get("approval_mode") == "on"
 
@@ -506,11 +395,6 @@ def get_otp_redirect_mode() -> str:
 def set_otp_redirect_mode(mode: str):
     bot_settings["otp_redirect_mode"] = mode
 
-def resolve_otp_url(pool_otp_link: str) -> str:
-    if get_otp_redirect_mode() == "hardcoded":
-        return HARDCODED_OTP_GROUP
-    return pool_otp_link or "https://t.me/frank_otp_forwardeer"
-
 def has_pool_access(pool_id: int, user_id: int) -> bool:
     if is_admin(user_id):
         return True
@@ -519,10 +403,7 @@ def has_pool_access(pool_id: int, user_id: int) -> bool:
             count = db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).count()
             if count == 0:
                 return True
-            return db.query(PoolAccess).filter(
-                PoolAccess.pool_id == pool_id,
-                PoolAccess.user_id == user_id
-            ).first() is not None
+            return db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id, PoolAccess.user_id == user_id).first() is not None
     else:
         restricted = pool_access.get(pool_id, set())
         if not restricted:
@@ -532,10 +413,7 @@ def has_pool_access(pool_id: int, user_id: int) -> bool:
 def grant_pool_access(pool_id: int, user_id: int):
     if SessionLocal:
         with SessionLocal() as db:
-            existing = db.query(PoolAccess).filter(
-                PoolAccess.pool_id == pool_id,
-                PoolAccess.user_id == user_id
-            ).first()
+            existing = db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id, PoolAccess.user_id == user_id).first()
             if not existing:
                 db.add(PoolAccess(pool_id=pool_id, user_id=user_id))
                 db.commit()
@@ -545,10 +423,7 @@ def grant_pool_access(pool_id: int, user_id: int):
 def revoke_pool_access(pool_id: int, user_id: int):
     if SessionLocal:
         with SessionLocal() as db:
-            db.query(PoolAccess).filter(
-                PoolAccess.pool_id == pool_id,
-                PoolAccess.user_id == user_id
-            ).delete()
+            db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id, PoolAccess.user_id == user_id).delete()
             db.commit()
     else:
         if pool_id in pool_access:
@@ -562,28 +437,13 @@ def get_pool_access_users(pool_id: int) -> List[Dict]:
             for a in accesses:
                 user = db.query(User).filter(User.id == a.user_id).first()
                 if user:
-                    result.append({
-                        "user_id": a.user_id,
-                        "username": user.username,
-                        "first_name": user.username
-                    })
+                    result.append({"user_id": a.user_id, "username": user.username})
     else:
         for uid in pool_access.get(pool_id, set()):
             u = users.get(uid)
             if u:
-                result.append({
-                    "user_id": uid,
-                    "username": u.get("username", ""),
-                    "first_name": u.get("username", "")
-                })
+                result.append({"user_id": uid, "username": u.get("username", "")})
     return result
-
-def pool_is_restricted(pool_id: int) -> bool:
-    if SessionLocal:
-        with SessionLocal() as db:
-            return db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).count() > 0
-    else:
-        return len(pool_access.get(pool_id, set())) > 0
 
 def normalize_number(raw: str) -> str:
     s = re.sub(r'[^\d+]', '', raw)
@@ -609,33 +469,10 @@ def add_bad_number(number: str, marked_by: int, reason: str = "marked as bad"):
             db.query(ActiveNumber).filter(ActiveNumber.number == number).delete()
             db.commit()
     else:
-        bad_numbers[number] = {
-            "number": number,
-            "reason": reason,
-            "marked_by": marked_by,
-            "marked_at": utcnow().isoformat()
-        }
-        for pid, numbers in active_numbers.items():
-            if number in numbers:
-                numbers.remove(number)
-
-def save_feedback(number: str, user_id: int, feedback: str):
-    if SessionLocal:
-        with SessionLocal() as db:
-            db.execute(
-                text("INSERT INTO feedbacks (number, user_id, feedback, created_at) VALUES (:number, :user_id, :feedback, :created_at)"),
-                {"number": number, "user_id": user_id, "feedback": feedback, "created_at": utcnow().isoformat()}
-            )
-            db.commit()
-    else:
-        feedbacks.append({
-            "id": _counters["feedback"],
-            "number": number,
-            "user_id": user_id,
-            "feedback": feedback,
-            "created_at": utcnow().isoformat()
-        })
-        _counters["feedback"] += 1
+        bad_numbers[number] = {"number": number, "reason": reason, "marked_by": marked_by, "marked_at": utcnow().isoformat()}
+        for pid, nums in active_numbers.items():
+            if number in nums:
+                nums.remove(number)
 
 def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) -> Optional[Dict]:
     if SessionLocal:
@@ -646,24 +483,15 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
             number_row = query.order_by(ActiveNumber.id.desc()).first()
             if not number_row:
                 return None
-            
             number = number_row.number
             db.delete(number_row)
-            
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            
-            assignment = Assignment(
-                user_id=user_id,
-                pool_id=pool_id,
-                number=number
-            )
+            assignment = Assignment(user_id=user_id, pool_id=pool_id, number=number)
             db.add(assignment)
             db.commit()
             db.refresh(assignment)
-            
             return {
-                "assignment_id": assignment.id,
-                "number": number,
+                "assignment_id": assignment.id, "number": number,
                 "pool_name": pool.name if pool else "Unknown",
                 "pool_code": pool.country_code if pool else "",
                 "otp_link": pool.otp_link if pool else "",
@@ -678,7 +506,6 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
         numbers = active_numbers.get(pool_id, [])
         if not numbers:
             return None
-        
         selected = None
         if prefix:
             for num in numbers:
@@ -687,47 +514,28 @@ def assign_one_number(user_id: int, pool_id: int, prefix: Optional[str] = None) 
                     break
         if not selected and numbers:
             selected = numbers[-1]
-        
         if not selected:
             return None
-        
         numbers.remove(selected)
         active_numbers[pool_id] = numbers
-        
         pool = pools.get(pool_id, {})
-        assignment = {
-            "id": _counters["assignment"],
-            "user_id": user_id,
-            "pool_id": pool_id,
-            "number": selected,
-            "assigned_at": utcnow().isoformat(),
-            "released_at": None,
-            "feedback": ""
-        }
+        assignment = {"id": _counters["assignment"], "user_id": user_id, "pool_id": pool_id,
+                      "number": selected, "assigned_at": utcnow().isoformat(), "released_at": None, "feedback": ""}
         archived_numbers.append(assignment)
         _counters["assignment"] += 1
-        
         return {
-            "assignment_id": assignment["id"],
-            "number": selected,
-            "pool_name": pool.get("name", "Unknown"),
-            "pool_code": pool.get("country_code", ""),
-            "otp_link": pool.get("otp_link", ""),
-            "otp_group_id": pool.get("otp_group_id"),
-            "uses_platform": pool.get("uses_platform", 0),
-            "match_format": pool.get("match_format", "5+4"),
+            "assignment_id": assignment["id"], "number": selected,
+            "pool_name": pool.get("name", "Unknown"), "pool_code": pool.get("country_code", ""),
+            "otp_link": pool.get("otp_link", ""), "otp_group_id": pool.get("otp_group_id"),
+            "uses_platform": pool.get("uses_platform", 0), "match_format": pool.get("match_format", "5+4"),
             "telegram_match_format": pool.get("telegram_match_format", ""),
-            "trick_text": pool.get("trick_text", ""),
-            "pool_id": pool_id
+            "trick_text": pool.get("trick_text", ""), "pool_id": pool_id
         }
 
 def release_assignment(user_id: int, assignment_id: int = None):
     if SessionLocal:
         with SessionLocal() as db:
-            query = db.query(Assignment).filter(
-                Assignment.user_id == user_id,
-                Assignment.released_at == None
-            )
+            query = db.query(Assignment).filter(Assignment.user_id == user_id, Assignment.released_at == None)
             if assignment_id:
                 query = query.filter(Assignment.id == assignment_id)
             query.update({"released_at": utcnow()})
@@ -737,20 +545,15 @@ def release_assignment(user_id: int, assignment_id: int = None):
             if a["user_id"] == user_id and a.get("released_at") is None:
                 if assignment_id is None or a["id"] == assignment_id:
                     a["released_at"] = utcnow().isoformat()
-                    return a
 
 def get_current_assignment(user_id: int) -> Optional[Dict]:
     if SessionLocal:
         with SessionLocal() as db:
-            assignment = db.query(Assignment).filter(
-                Assignment.user_id == user_id,
-                Assignment.released_at == None
-            ).order_by(Assignment.assigned_at.desc()).first()
+            assignment = db.query(Assignment).filter(Assignment.user_id == user_id, Assignment.released_at == None).order_by(Assignment.assigned_at.desc()).first()
             if assignment:
                 pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
                 return {
-                    "assignment_id": assignment.id,
-                    "number": assignment.number,
+                    "assignment_id": assignment.id, "number": assignment.number,
                     "pool_name": pool.name if pool else "Unknown",
                     "pool_id": assignment.pool_id,
                     "country_code": pool.country_code if pool else "",
@@ -765,10 +568,8 @@ def get_current_assignment(user_id: int) -> Optional[Dict]:
             if a["user_id"] == user_id and a.get("released_at") is None:
                 pool = pools.get(a["pool_id"], {})
                 return {
-                    "assignment_id": a["id"],
-                    "number": a["number"],
-                    "pool_name": pool.get("name", "Unknown"),
-                    "pool_id": a["pool_id"],
+                    "assignment_id": a["id"], "number": a["number"],
+                    "pool_name": pool.get("name", "Unknown"), "pool_id": a["pool_id"],
                     "country_code": pool.get("country_code", ""),
                     "otp_link": pool.get("otp_link", ""),
                     "otp_group_id": pool.get("otp_group_id"),
@@ -782,184 +583,94 @@ def _get_custom_buttons() -> List[Dict]:
     if SessionLocal:
         with SessionLocal() as db:
             buttons = db.query(CustomButton).order_by(CustomButton.position).all()
-            return [{"label": b.label, "url": b.url} for b in buttons]
+            return [{"id": b.id, "label": b.label, "url": b.url} for b in buttons]
     else:
         return custom_buttons
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  PLATFORM MONITORING
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── Platform Monitor ──────────────────────────────────────────────────────────
 _platform_token = None
-_active_platform_tasks = {}
-_platform_stock_snapshot = {}
+_platform_token_expires = 0
+_active_platform_tasks: Dict[int, asyncio.Task] = {}
+_platform_stock_snapshot: Dict[str, int] = {}
 
-async def _platform_login() -> Optional[str]:
-    global _platform_token
+async def _get_platform_token():
+    global _platform_token, _platform_token_expires
+    if _platform_token and time.time() < _platform_token_expires:
+        return _platform_token
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{PLATFORM_URL}/api/auth/login",
-                json={"username": PLATFORM_USERNAME, "password": PLATFORM_PASSWORD},
-                timeout=10
-            ) as resp:
+            async with session.post(f"{PLATFORM_URL}/api/auth/login",
+                                     json={"username": PLATFORM_USERNAME, "password": PLATFORM_PASSWORD}, timeout=10) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    token = data.get("token")
-                    if token:
-                        _platform_token = token
-                        log.info("Platform login successful")
-                        return token
+                    _platform_token = data.get("token") or data.get("access_token")
+                    _platform_token_expires = time.time() + 3600
+                    return _platform_token
     except Exception as e:
-        log.error(f"Platform login failed: {e}")
+        log.error(f"[Platform] Login failed: {e}")
     return None
 
-async def _get_platform_token() -> Optional[str]:
-    global _platform_token
-    if not _platform_token:
-        return await _platform_login()
-    return _platform_token
-
-async def _refresh_token_on_401() -> Optional[str]:
-    global _platform_token
-    _platform_token = None
-    return await _platform_login()
-
-def _build_mask(number: str, match_format: str):
-    try:
-        parts = match_format.strip().split("+")
-        head = int(parts[0])
-        tail = int(parts[1])
-        clean = re.sub(r'\D', '', number)
-        if len(clean) < head + tail:
-            return None
-        return clean[:head], clean[-tail:]
-    except:
-        return None
-
-def _number_matches(sms_phone: str, prefix: str, suffix: str) -> bool:
-    clean = re.sub(r'\D', '', sms_phone)
-    if clean.startswith(prefix) and clean.endswith(suffix):
-        return True
-    masked_pattern = re.escape(prefix) + r'[\d\s★•\*xX\-\.]{0,8}' + re.escape(suffix)
-    if re.search(masked_pattern, re.sub(r'\s', '', sms_phone), re.IGNORECASE):
-        return True
-    idx = clean.find(prefix)
-    if idx != -1 and clean[idx + len(prefix):].endswith(suffix):
-        return True
-    return False
-
-async def _platform_monitor_number(user_id: int, assigned_number: str, match_format: str):
-    global _platform_token
-    mask = _build_mask(assigned_number, match_format)
-    if not mask:
-        log.error(f"Invalid match_format '{match_format}' for number {assigned_number}")
+async def _platform_monitor_number(user_id: int, number: str, match_format: str):
+    token = await _get_platform_token()
+    if not token:
         return
-    
-    prefix, suffix = mask
-    seen_ids = set()
+    clean = re.sub(r'\D', '', number)
     deadline = time.time() + PLATFORM_MONITOR_TTL
-    
     while time.time() < deadline:
         try:
-            token = await _get_platform_token()
-            if not token:
-                await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                continue
-            
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{PLATFORM_URL}/api/sms?limit=50",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=10
-                ) as resp:
-                    if resp.status == 401:
-                        await _refresh_token_on_401()
-                        await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                        continue
-                    if resp.status != 200:
-                        await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-                        continue
-                    
-                    data = await resp.json()
-                    messages = data if isinstance(data, list) else data.get("messages", [])
-                    
-                    for msg in messages:
-                        msg_id = msg.get("id")
-                        if msg_id in seen_ids:
-                            continue
-                        seen_ids.add(msg_id)
-                        
-                        sms_phone = str(msg.get("phone_number", ""))
-                        if not _number_matches(sms_phone, prefix, suffix):
-                            continue
-                        
-                        otp = msg.get("otp") or "N/A"
-                        raw_message = msg.get("message", "")
-                        
-                        # Save OTP
-                        if SessionLocal:
-                            with SessionLocal() as db:
-                                assignment = db.query(Assignment).filter(
-                                    Assignment.user_id == user_id,
-                                    Assignment.number == assigned_number,
-                                    Assignment.released_at == None
-                                ).first()
-                                otp_entry = OTPLog(
-                                    assignment_id=assignment.id if assignment else None,
-                                    user_id=user_id,
-                                    number=assigned_number,
-                                    otp_code=otp,
-                                    raw_message=raw_message
-                                )
-                                db.add(otp_entry)
-                                db.commit()
-                                db.refresh(otp_entry)
-                                otp_id = otp_entry.id
-                        else:
-                            global otp_counter
-                            otp_id = _counters["otp"]
-                            _counters["otp"] += 1
-                            otp_logs.append({
-                                "id": otp_id,
-                                "user_id": user_id,
-                                "number": assigned_number,
-                                "otp_code": otp,
-                                "raw_message": raw_message,
-                                "delivered_at": utcnow().isoformat()
-                            })
-                        
-                        # Send to user via WebSocket
-                        otp_data = {
-                            "type": "otp",
-                            "id": otp_id,
-                            "number": assigned_number,
-                            "otp": otp,
-                            "raw_message": raw_message,
-                            "delivered_at": utcnow().isoformat(),
-                            "auto_delete_seconds": OTP_AUTO_DELETE_DELAY
-                        }
-                        await send_to_user(user_id, otp_data)
-                        await broadcast_feed({
-                            "type": "feed_otp",
-                            "number": assigned_number,
-                            "otp": otp,
-                            "delivered_at": utcnow().isoformat()
-                        })
-                        
-                        # Compliance
-                        await compliance_record_otp_delivered(user_id)
-                        
-                        log.info(f"[PlatformMonitor] OTP sent to user {user_id}: {otp}")
-                        return
+                async with session.get(f"{PLATFORM_URL}/api/otp?number={clean}",
+                                        headers={"Authorization": f"Bearer {token}"}, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        otps = data if isinstance(data, list) else data.get("otps", [])
+                        if otps:
+                            otp_entry = otps[0]
+                            otp = str(otp_entry.get("otp") or otp_entry.get("code") or "")
+                            if otp:
+                                await _deliver_otp(user_id, number, otp, "Platform OTP")
+                                return
         except asyncio.CancelledError:
             return
         except Exception as e:
             log.error(f"[PlatformMonitor] Error: {e}")
-        
         await asyncio.sleep(PLATFORM_POLL_INTERVAL)
-    
-    log.info(f"[PlatformMonitor] TIMEOUT user={user_id}")
+
+async def _deliver_otp(user_id: int, number: str, otp: str, raw_message: str):
+    otp_id = 0
+    is_saved = False
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved_row = db.query(SavedNumber).filter(SavedNumber.user_id == user_id, SavedNumber.number == number, SavedNumber.moved == True).first()
+            if saved_row:
+                is_saved = True
+            else:
+                assignment = db.query(Assignment).filter(Assignment.user_id == user_id, Assignment.number == number, Assignment.released_at == None).first()
+                otp_entry = OTPLog(assignment_id=assignment.id if assignment else None,
+                                   user_id=user_id, number=number, otp_code=otp, raw_message=raw_message)
+                db.add(otp_entry)
+                db.commit()
+                db.refresh(otp_entry)
+                otp_id = otp_entry.id
+    else:
+        saved_row = next((s for s in saved_numbers if s["user_id"] == user_id and s["number"] == number and s.get("moved")), None)
+        if saved_row:
+            is_saved = True
+        else:
+            otp_id = _counters["otp"]
+            _counters["otp"] += 1
+            otp_logs.append({"id": otp_id, "user_id": user_id, "number": number,
+                             "otp_code": otp, "raw_message": raw_message, "delivered_at": utcnow().isoformat()})
+
+    if is_saved:
+        await send_to_user(user_id, {"type": "saved_otp", "number": number, "otp": otp,
+                                      "raw_message": raw_message, "delivered_at": utcnow().isoformat(),
+                                      "auto_delete_seconds": OTP_AUTO_DELETE_DELAY})
+    else:
+        await send_to_user(user_id, {"type": "otp", "id": otp_id, "number": number, "otp": otp,
+                                      "raw_message": raw_message, "delivered_at": utcnow().isoformat(),
+                                      "auto_delete_seconds": OTP_AUTO_DELETE_DELAY})
+    await broadcast_feed({"type": "feed_otp", "number": number, "otp": otp, "delivered_at": utcnow().isoformat()})
 
 def start_platform_monitor(user_id: int, number: str, match_format: str):
     existing = _active_platform_tasks.get(user_id)
@@ -969,137 +680,60 @@ def start_platform_monitor(user_id: int, number: str, match_format: str):
     _active_platform_tasks[user_id] = task
 
 async def _platform_stock_watcher():
-    global _platform_stock_snapshot
-    log.info("[StockWatcher] Started")
     await asyncio.sleep(30)
-    
     while True:
         try:
             token = await _get_platform_token()
-            if not token:
-                await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                continue
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{PLATFORM_URL}/api/numbers?limit=1000",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15
-                ) as resp:
-                    if resp.status == 401:
-                        await _refresh_token_on_401()
-                        await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                        continue
-                    if resp.status != 200:
-                        await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
-                        continue
-                    numbers_data = await resp.json()
-            
-            country_counts = {}
-            for entry in (numbers_data if isinstance(numbers_data, list) else []):
-                country = entry.get("country", "Unknown")
-                country_counts[country] = country_counts.get(country, 0) + 1
-            
-            changed_countries = []
-            for country, count in country_counts.items():
-                prev = _platform_stock_snapshot.get(country)
-                if prev is None:
-                    _platform_stock_snapshot[country] = count
-                elif count != prev:
-                    changed_countries.append(country)
-                    _platform_stock_snapshot[country] = count
-            
-            if changed_countries:
-                token = await _get_platform_token()
-                if token:
-                    async with aiohttp.ClientSession() as session:
-                        for country in changed_countries:
-                            try:
-                                async with session.get(
-                                    f"{PLATFORM_URL}/api/numbers?country={country}&limit=100000",
-                                    headers={"Authorization": f"Bearer {token}"},
-                                    timeout=30
-                                ) as dl_resp:
-                                    if dl_resp.status != 200:
-                                        continue
-                                    dl_data = await dl_resp.json()
-                                
-                                lines = [e.get("phone_number", "").strip()
-                                        for e in (dl_data if isinstance(dl_data, list) else [])
-                                        if e.get("phone_number")]
-                                if lines:
-                                    await send_to_user(1, {
-                                        "type": "stock_update",
-                                        "country": country,
-                                        "count": country_counts[country],
-                                        "numbers": lines[:100]
-                                    })
-                            except Exception as e:
-                                log.error(f"[StockWatcher] Error: {e}")
-        except asyncio.CancelledError:
-            return
+            if token:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{PLATFORM_URL}/api/numbers?limit=1000",
+                                            headers={"Authorization": f"Bearer {token}"}, timeout=15) as resp:
+                        if resp.status == 200:
+                            numbers_data = await resp.json()
+                            country_counts = {}
+                            for entry in (numbers_data if isinstance(numbers_data, list) else []):
+                                country = entry.get("country", "Unknown")
+                                country_counts[country] = country_counts.get(country, 0) + 1
+                            _platform_stock_snapshot.update(country_counts)
         except Exception as e:
-            log.error(f"[StockWatcher] Outer error: {e}")
-        
+            log.error(f"[StockWatcher] {e}")
         await asyncio.sleep(PLATFORM_STOCK_INTERVAL)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MONITOR BOT INTEGRATION
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── Monitor Bot ───────────────────────────────────────────────────────────────
 async def request_monitor_bot(number: str, group_id: int, match_format: str, user_id: int) -> bool:
     if not MONITOR_BOT_URL:
         log.error("[Monitor] MONITOR_BOT_URL not set!")
         return False
-    
     url = f"{MONITOR_BOT_URL}/monitor-request"
-    payload = {
-        "number": number,
-        "group_id": group_id,
-        "match_format": match_format,
-        "user_id": user_id,
-        "secret": SHARED_SECRET
-    }
-    
+    payload = {"number": number, "group_id": group_id, "match_format": match_format,
+                "user_id": user_id, "secret": SHARED_SECRET}
     for attempt in range(3):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=10) as resp:
                     if resp.status == 200:
-                        log.info(f"[Monitor] ✅ MONITOR_REQUEST sent for {number} user={user_id} group_id={group_id} match_format={match_format}")
                         return True
-                    else:
-                        body = await resp.text()
-                        log.error(f"[Monitor] HTTP {resp.status}: {body[:100]}")
+                    log.error(f"[Monitor] HTTP {resp.status}")
         except Exception as e:
-            log.error(f"[Monitor] Post failed: {e}")
+            log.error(f"[Monitor] Failed: {e}")
             if attempt < 2:
                 await asyncio.sleep(2)
     return False
 
 async def request_search_otp(number: str, group_id: int, match_format: str, user_id: int) -> bool:
     if not MONITOR_BOT_URL:
-        log.error("[SearchOTP] MONITOR_BOT_URL not set!")
         return False
-    
     url = f"{MONITOR_BOT_URL}/search-otp-request"
-    payload = {
-        "number": number,
-        "group_id": group_id,
-        "match_format": match_format,
-        "user_id": user_id,
-        "secret": SHARED_SECRET
-    }
-    
+    payload = {"number": number, "group_id": group_id, "match_format": match_format,
+                "user_id": user_id, "secret": SHARED_SECRET}
     for attempt in range(3):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=10) as resp:
                     if resp.status == 200:
-                        log.info(f"[SearchOTP] ✅ SEARCH_OTP_REQUEST sent for {number} user={user_id}")
                         return True
         except Exception as e:
-            log.error(f"[SearchOTP] Post failed: {e}")
+            log.error(f"[SearchOTP] Failed: {e}")
             if attempt < 2:
                 await asyncio.sleep(2)
     return False
@@ -1113,36 +747,21 @@ async def get_cooldown_duplicates(numbers: List[str]) -> List[str]:
                 if resp.status == 200:
                     return (await resp.json()).get("existing", [])
     except Exception as e:
-        log.error(f"Failed to reach cooldown bot: {e}")
+        log.error(f"Cooldown check failed: {e}")
     return []
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  COMPLIANCE
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def _compliance_post_check(user_id: int):
-    # In production, would send to Telegram bridge group
-    pass
 
 async def compliance_record_otp_delivered(user_id: int):
     _compliance_counters[user_id] = _compliance_counters.get(user_id, 0) + 1
-    count = _compliance_counters[user_id]
-    
-    if count >= COMPLIANCE_CODES_PER_CHECK:
+    if _compliance_counters[user_id] >= COMPLIANCE_CODES_PER_CHECK:
         _compliance_counters[user_id] = 0
-        await _compliance_post_check(user_id)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  WEBSOCKET MANAGER
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── WebSocket Manager ─────────────────────────────────────────────────────────
 user_connections = {}
 feed_connections = []
 
 async def connect_user(ws: WebSocket, user_id: int):
     await ws.accept()
     user_connections.setdefault(user_id, []).append(ws)
-    log.info(f"[WS] User {user_id} connected")
 
 async def connect_feed(ws: WebSocket):
     await ws.accept()
@@ -1162,7 +781,7 @@ async def send_to_user(user_id: int, data: dict):
     for ws in user_connections.get(user_id, []):
         try:
             await ws.send_text(json.dumps(data))
-        except Exception:
+        except:
             dead.append(ws)
     for ws in dead:
         disconnect_user(ws, user_id)
@@ -1172,1505 +791,1499 @@ async def broadcast_feed(data: dict):
     for ws in feed_connections:
         try:
             await ws.send_text(json.dumps(data))
-        except Exception:
+        except:
             dead.append(ws)
     for ws in dead:
         disconnect_feed(ws)
 
 async def broadcast_all(data: dict):
-    dead_user = []
-    for user_id, conns in user_connections.items():
+    for user_id, conns in list(user_connections.items()):
         for ws in conns:
             try:
                 await ws.send_text(json.dumps(data))
-            except Exception:
-                dead_user.append((user_id, ws))
-    for user_id, ws in dead_user:
-        disconnect_user(ws, user_id)
-    
-    dead_feed = []
-    for ws in feed_connections:
+            except:
+                pass
+    for ws in list(feed_connections):
         try:
             await ws.send_text(json.dumps(data))
-        except Exception:
-            dead_feed.append(ws)
-    for ws in dead_feed:
-        disconnect_feed(ws)
+        except:
+            pass
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  SAVED NUMBERS EXPIRY PROCESSOR
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── Saved Numbers Expiry ──────────────────────────────────────────────────────
 async def process_expired_saved():
-    # Numbers are marked moved=True when timer expires.
-    # They stay PRIVATE to the owner — NOT added to the public pool.
-    # The owner accesses them via the Ready Numbers dashboard only.
-    # When they become ready, we automatically trigger monitor bot.
+    """Move numbers whose timer expired from pending to ready pool."""
     if SessionLocal:
         with SessionLocal() as db:
             now = utcnow()
-            expired = db.query(SavedNumber).filter(
-                SavedNumber.expires_at <= now,
-                SavedNumber.moved == False
-            ).all()
-
+            expired = db.query(SavedNumber).filter(SavedNumber.expires_at <= now, SavedNumber.moved == False).all()
             newly_ready = []
             for sn in expired:
-                sn.moved = True  # Mark ready — stays private to this user
-                # Grab pool info for monitoring
+                sn.moved = True
                 pool = db.query(Pool).filter(Pool.name == sn.pool_name).first()
                 if pool and pool.otp_group_id:
                     newly_ready.append({
-                        "number": sn.number,
-                        "user_id": sn.user_id,
+                        "number": sn.number, "user_id": sn.user_id,
                         "otp_group_id": pool.otp_group_id,
                         "match_format": pool.telegram_match_format or pool.match_format,
                         "uses_platform": pool.uses_platform
                     })
-
             if expired:
                 db.commit()
-                log.info(f"[Scheduler] Marked {len(expired)} saved numbers as ready (private)")
-
-            # Fire monitor requests outside DB session
+                log.info(f"[Scheduler] {len(expired)} numbers moved to ready")
             for info in newly_ready:
                 try:
-                    await request_monitor_bot(
-                        number=info["number"],
-                        group_id=info["otp_group_id"],
-                        match_format=info["match_format"],
-                        user_id=info["user_id"]
-                    )
+                    await request_monitor_bot(number=info["number"], group_id=info["otp_group_id"],
+                                               match_format=info["match_format"], user_id=info["user_id"])
                     if info["uses_platform"] in (1, 2):
                         start_platform_monitor(info["user_id"], info["number"], info["match_format"])
+                    # Notify user
+                    await send_to_user(info["user_id"], {"type": "number_ready", "number": info["number"],
+                                                          "message": f"✅ Number {info['number']} is now READY!"})
                 except Exception as e:
-                    log.error(f"[Scheduler] Monitor trigger failed for {info['number']}: {e}")
+                    log.error(f"[Scheduler] Monitor trigger failed: {e}")
     else:
         now = utcnow()
         expired = [s for s in saved_numbers if not s.get("moved", False) and
                    datetime.fromisoformat(s["expires_at"]) <= now]
-
         for sn in expired:
-            sn["moved"] = True  # Mark ready — stays private to this user
-            # Trigger monitoring for in-memory mode too
-            pool = next((p for p in pools.values() if p["name"] == sn["pool_name"]), None)
-            if pool and pool.get("otp_group_id"):
-                try:
-                    asyncio.create_task(request_monitor_bot(
-                        number=sn["number"],
-                        group_id=pool["otp_group_id"],
-                        match_format=pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
-                        user_id=sn["user_id"]
-                    ))
-                    if pool.get("uses_platform", 0) in (1, 2):
-                        start_platform_monitor(sn["user_id"], sn["number"], pool.get("telegram_match_format") or pool.get("match_format", "5+4"))
-                except Exception as e:
-                    log.error(f"[Scheduler] Monitor trigger failed for {sn['number']}: {e}")
+            sn["moved"] = True
+        if expired:
+            log.info(f"[Scheduler] {len(expired)} numbers moved to ready (memory)")
 
 async def scheduler():
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
         try:
             await process_expired_saved()
         except Exception as e:
             log.error(f"[Scheduler] {e}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  FASTAPI APP
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
+#  FRONTEND HTML — White & Blue Theme, Complete Features
+# ═════════════════════════════════════════════════════════════════════════════
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    log.info("Starting NEON GRID NETWORK...")
-    init_db()
-    asyncio.create_task(scheduler())
-    asyncio.create_task(_platform_stock_watcher())
-    log.info("✅ Scheduler and stock watcher started")
-    yield
-    log.info("Shutting down...")
-
-app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND - EMBEDDED HTML (Complete)
-# ══════════════════════════════════════════════════════════════════════════════
-
-FRONTEND_HTML = '''<!DOCTYPE html>
+FRONTEND_HTML = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>NumBot Platform</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        :root {
-            --blue: #1a6bff;
-            --blue-dark: #1255cc;
-            --blue-light: #e8f0ff;
-            --blue-mid: #4d8dff;
-            --white: #ffffff;
-            --gray-50: #f8faff;
-            --gray-100: #eef2ff;
-            --gray-200: #dde6ff;
-            --gray-400: #8fa8d4;
-            --gray-500: #5a78a8;
-            --gray-700: #2a3f6e;
-            --gray-900: #0d1f42;
-            --green: #00c48c;
-            --red: #ff4d6a;
-            --yellow: #ffb020;
-            --shadow-sm: 0 2px 8px rgba(26,107,255,0.08);
-            --shadow-md: 0 4px 20px rgba(26,107,255,0.14);
-            --shadow-lg: 0 8px 32px rgba(26,107,255,0.2);
-            --radius: 16px;
-            --radius-sm: 10px;
-            --radius-lg: 24px;
-            --radius-xl: 32px;
-        }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); min-height: 100vh; padding-bottom: 80px; color: var(--gray-900); }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEON GRID NETWORK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --blue:#1a6dff;--blue2:#0051cc;--blue-light:#e8f0ff;--blue-mid:#c7d9ff;
+  --white:#ffffff;--bg:#f0f4ff;--surface:#ffffff;--surface2:#f5f8ff;
+  --text:#0a1628;--text2:#3d5a8a;--text3:#7a92b8;
+  --green:#00c96a;--red:#ff3b5c;--amber:#f59e0b;
+  --border:#d4e0ff;--shadow:0 2px 16px rgba(26,109,255,0.10);
+  --radius:16px;--radius-lg:24px;--radius-xl:32px;
+}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:80px}
+.mono{font-family:'JetBrains Mono',monospace}
 
-        /* ── AUTH ── */
-        .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #1a6bff 0%, #0d3d99 60%, #07205e 100%); padding: 20px; }
-        .auth-card { background: white; border-radius: var(--radius-xl); padding: 40px 32px; width: 100%; max-width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,0.25); }
-        .auth-logo { text-align: center; margin-bottom: 8px; }
-        .auth-logo svg { width: 52px; height: 52px; }
-        .auth-title { text-align: center; font-size: 22px; font-weight: 800; color: var(--blue); margin-bottom: 4px; }
-        .auth-sub { text-align: center; font-size: 13px; color: var(--gray-400); margin-bottom: 28px; }
-        .tab-row { display: flex; background: var(--gray-100); border-radius: 50px; padding: 4px; margin-bottom: 24px; }
-        .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 50px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; background: transparent; color: var(--gray-500); }
-        .tab-btn.active { background: var(--blue); color: white; box-shadow: 0 4px 12px rgba(26,107,255,0.3); }
-        .auth-input { width: 100%; padding: 14px 18px; border: 1.5px solid var(--gray-200); border-radius: 50px; font-size: 15px; outline: none; background: var(--gray-50); color: var(--gray-900); margin-bottom: 14px; transition: border-color .2s; }
-        .auth-input:focus { border-color: var(--blue); background: white; }
-        .auth-btn { width: 100%; background: var(--blue); color: white; border: none; padding: 15px; border-radius: 50px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all .2s; box-shadow: 0 6px 20px rgba(26,107,255,0.35); margin-top: 6px; }
-        .auth-btn:active { transform: scale(0.97); background: var(--blue-dark); }
-        .error-msg { color: var(--red); font-size: 12px; margin-top: 8px; text-align: center; }
+/* ── TOP BAR ── */
+.topbar{background:var(--blue);padding:14px 20px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(26,109,255,0.3)}
+.topbar-logo{color:#fff;font-weight:800;font-size:18px;letter-spacing:-0.5px}
+.topbar-right{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,0.9);font-size:13px}
+.topbar-time{background:rgba(255,255,255,0.15);padding:4px 10px;border-radius:30px;font-size:12px;color:#fff}
+.admin-tag{background:#ffd700;color:#0a1628;padding:3px 10px;border-radius:30px;font-size:10px;font-weight:700;letter-spacing:0.5px}
+.online-dot{width:8px;height:8px;border-radius:50%;background:#00ff88;display:inline-block;margin-right:4px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 
-        /* ── HEADER ── */
-        .top-bar { background: var(--blue); padding: 16px 20px 14px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(26,107,255,0.25); }
-        .top-bar-left { display: flex; align-items: center; gap: 10px; }
-        .top-avatar { width: 38px; height: 38px; background: rgba(255,255,255,0.25); border-radius: 50%; display: flex; align-items: center; justify-content: font-size:18px; justify-content: center; font-size: 18px; }
-        .top-user { font-size: 16px; font-weight: 700; color: white; }
-        .top-id { font-size: 11px; color: rgba(255,255,255,0.7); }
-        .top-right { display: flex; align-items: center; gap: 8px; }
-        .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #00e676; box-shadow: 0 0 6px #00e676; }
-        .conn-dot.off { background: #ff5252; box-shadow: 0 0 6px #ff5252; }
-        .admin-badge { background: rgba(255,255,255,0.25); color: white; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; letter-spacing: .5px; }
-        .time-label { font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 500; }
+/* ── USER HEADER ── */
+.user-header{background:var(--white);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;justify-content:space-between;align-items:center}
+.user-name{font-weight:700;font-size:17px;color:var(--blue)}
+.user-id-tag{background:var(--blue-light);color:var(--blue2);padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
 
-        /* ── NAV ── */
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 10px 8px 20px; border-top: 1px solid var(--gray-200); z-index: 100; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 6px 16px; border-radius: 14px; transition: all .2s; flex: 1; }
-        .nav-item:active { background: var(--blue-light); }
-        .nav-item.active { background: var(--blue-light); }
-        .nav-icon { font-size: 22px; line-height: 1; }
-        .nav-label { font-size: 10px; font-weight: 600; color: var(--gray-400); letter-spacing: .3px; }
-        .nav-item.active .nav-label { color: var(--blue); }
+/* ── CARDS ── */
+.card{background:var(--white);border-radius:var(--radius-lg);padding:20px;margin:12px 16px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.card-blue{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border:none;box-shadow:0 8px 32px rgba(26,109,255,0.25)}
+.card-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;opacity:0.7;margin-bottom:6px}
+.number-display{font-size:26px;font-weight:700;letter-spacing:1px;margin:8px 0;word-break:break-all;cursor:pointer}
+.card-blue .number-display{color:#fff}
+.number-display:not(.card-blue .number-display){color:var(--blue)}
+.pool-tag{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.2);padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600}
+.pool-tag.dark{background:var(--blue-light);color:var(--blue2)}
 
-        /* ── PAGES ── */
-        .page { display: none; padding-bottom: 16px; }
-        .page.active { display: block; }
+/* ── SECTION HEADER ── */
+.sec-header{padding:16px 20px 8px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3)}
 
-        /* ── SECTION TITLE ── */
-        .section-title { font-size: 11px; font-weight: 700; color: var(--gray-400); padding: 20px 20px 10px; text-transform: uppercase; letter-spacing: 1.2px; }
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 20px;border-radius:40px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;font-family:inherit}
+.btn:active{transform:scale(0.97)}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-blue:hover{background:var(--blue2)}
+.btn-outline{background:transparent;color:var(--blue);border:1.5px solid var(--blue)}
+.btn-ghost{background:var(--blue-light);color:var(--blue2)}
+.btn-red{background:#fff1f3;color:var(--red);border:1.5px solid #ffc8d0}
+.btn-green{background:#e8fff4;color:var(--green);border:1.5px solid #b8f0d4}
+.btn-sm{padding:7px 14px;font-size:12px}
+.btn-xs{padding:5px 10px;font-size:11px}
+.btn-full{width:100%}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
 
-        /* ── CARDS ── */
-        .card { background: white; border-radius: var(--radius-lg); margin: 0 16px 12px; padding: 20px; box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200); }
-        .card-blue { background: linear-gradient(135deg, var(--blue) 0%, #0d3d99 100%); color: white; border: none; }
-        .card-blue .label { color: rgba(255,255,255,0.75); }
+/* ── REGION LIST ── */
+.region-item{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:8px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:all 0.15s}
+.region-item:active{background:var(--blue-light);border-color:var(--blue)}
+.region-name{font-weight:700;font-size:15px;color:var(--text)}
+.region-code{font-size:12px;color:var(--text3);margin-top:2px}
+.region-trick{font-size:11px;color:var(--amber);margin-top:3px}
+.region-count{background:var(--blue-light);color:var(--blue);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}
+.region-paused{color:var(--red);font-size:12px;font-weight:600}
 
-        /* ── NUMBER DISPLAY ── */
-        .number-label { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-        .number-value { font-size: 28px; font-weight: 800; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--blue); margin-bottom: 14px; cursor: pointer; transition: opacity .15s; word-break: break-all; }
-        .number-value:active { opacity: 0.7; }
-        .number-value.dark { color: white; }
-        .region-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-light); padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 600; color: var(--blue); }
-        .btn-row { display: flex; gap: 10px; margin-top: 16px; }
-        .btn { padding: 11px 20px; border-radius: 50px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
-        .btn-sm { padding: 8px 16px; font-size: 12px; }
-        .btn-primary { background: var(--blue); color: white; box-shadow: 0 4px 12px rgba(26,107,255,0.3); }
-        .btn-primary:active { background: var(--blue-dark); transform: scale(0.97); }
-        .btn-secondary { background: var(--gray-100); color: var(--gray-700); }
-        .btn-secondary:active { background: var(--gray-200); transform: scale(0.97); }
-        .btn-danger { background: rgba(255,77,106,0.1); color: var(--red); }
-        .btn-danger:active { background: rgba(255,77,106,0.2); }
-        .btn-green { background: rgba(0,196,140,0.1); color: var(--green); }
+/* ── OTP CARD ── */
+.otp-card{background:linear-gradient(135deg,var(--green),#00a855);border-radius:var(--radius-lg);padding:20px;margin:0 16px 12px;color:#fff;animation:slideUp 0.3s ease}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.otp-label{font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.8;margin-bottom:6px}
+.otp-code{font-size:44px;font-weight:800;letter-spacing:6px;text-align:center;cursor:pointer;margin:10px 0;font-family:'JetBrains Mono',monospace}
+.otp-countdown{font-size:12px;text-align:center;opacity:0.85}
+.otp-message{font-size:11px;text-align:center;opacity:0.75;margin-top:6px;word-break:break-all}
 
-        /* ── OTP CARD ── */
-        .otp-card { background: linear-gradient(135deg, #00c48c, #00966d); border-radius: var(--radius-lg); margin: 0 16px 12px; padding: 20px; color: white; animation: slideUp .3s ease; box-shadow: 0 8px 24px rgba(0,196,140,0.3); }
-        @keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
-        .otp-header { font-size: 11px; font-weight: 700; letter-spacing: 1px; opacity: .8; margin-bottom: 8px; text-transform: uppercase; }
-        .otp-code { font-size: 48px; font-weight: 900; font-family: monospace; letter-spacing: 6px; text-align: center; cursor: pointer; margin: 8px 0; }
-        .otp-code:active { opacity: .7; }
-        .otp-timer { text-align: center; font-size: 12px; opacity: .8; }
-        .otp-msg { font-size: 11px; opacity: .75; text-align: center; margin-top: 6px; word-break: break-all; }
+/* ── SAVED / PENDING ITEMS ── */
+.list-item{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:6px 16px;display:flex;justify-content:space-between;align-items:center}
+.list-item.column{flex-direction:column;align-items:stretch;gap:10px}
+.item-title{font-weight:700;font-size:14px;color:var(--text)}
+.item-sub{font-size:12px;color:var(--text3);margin-top:3px}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.badge-green{background:#e6fff2;color:#00a855}
+.badge-amber{background:#fff8e6;color:#d97706}
+.badge-red{background:#fff1f3;color:var(--red)}
+.badge-blue{background:var(--blue-light);color:var(--blue2)}
+.badge-ready{background:linear-gradient(90deg,var(--blue),#00c96a);color:#fff}
 
-        /* ── REGION LIST ── */
-        .filter-bar { display: flex; align-items: center; gap: 10px; background: white; margin: 8px 16px; padding: 12px 16px; border-radius: 50px; border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
-        .filter-bar:focus-within { border-color: var(--blue); }
-        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: var(--gray-900); }
-        .filter-input::placeholder { color: var(--gray-400); }
-        .filter-btn { background: var(--blue); color: white; border: none; padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .filter-btn:active { background: var(--blue-dark); }
+/* ── FILTER ROW ── */
+.filter-row{display:flex;gap:10px;padding:10px 16px;background:var(--white);border-bottom:1px solid var(--border)}
+.filter-input{flex:1;border:1.5px solid var(--border);border-radius:30px;padding:10px 16px;font-size:14px;color:var(--text);outline:none;background:var(--bg);font-family:inherit}
+.filter-input:focus{border-color:var(--blue);background:#fff}
+.filter-input::placeholder{color:var(--text3)}
 
-        .pool-item { display: flex; justify-content: space-between; align-items: center; background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); cursor: pointer; transition: all .2s; box-shadow: var(--shadow-sm); }
-        .pool-item:active { background: var(--blue-light); border-color: var(--blue); transform: scale(0.99); }
-        .pool-item.paused { opacity: .5; cursor: not-allowed; }
-        .pool-name { font-size: 15px; font-weight: 700; color: var(--gray-900); }
-        .pool-code { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
-        .pool-tip { font-size: 11px; color: var(--yellow); margin-top: 3px; font-weight: 500; }
-        .pool-count { background: var(--blue-light); padding: 5px 12px; border-radius: 50px; font-size: 12px; font-weight: 700; color: var(--blue); }
-        .pool-paused { font-size: 11px; color: var(--red); font-weight: 600; }
+/* ── POOL PENDING CARD ── */
+.pending-pool{background:var(--white);border:1px solid var(--border);border-radius:var(--radius-lg);margin:8px 16px;overflow:hidden}
+.pending-pool-header{background:var(--blue-light);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.pending-pool-name{font-weight:700;font-size:15px;color:var(--blue2)}
+.pending-pool-count{font-size:12px;color:var(--text3)}
+.pending-pool-body{padding:12px 16px}
 
-        /* ── SAVED PAGE ── */
-        .saved-item { display: flex; justify-content: space-between; align-items: center; background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
-        .saved-num { font-family: monospace; font-size: 15px; font-weight: 700; color: var(--blue); cursor: pointer; }
-        .saved-num:active { opacity: .7; }
-        .timer-badge { padding: 5px 12px; border-radius: 50px; font-size: 11px; font-weight: 700; }
-        .timer-green { background: rgba(0,196,140,0.1); color: var(--green); }
-        .timer-yellow { background: rgba(255,176,32,0.12); color: var(--yellow); }
-        .timer-red { background: rgba(255,77,106,0.1); color: var(--red); }
-        .timer-ready { background: rgba(26,107,255,0.1); color: var(--blue); }
+/* ── READY NUMBER CARD ── */
+.ready-card{background:var(--white);border:2px solid var(--blue);border-radius:var(--radius-xl);margin:8px 16px;overflow:hidden;box-shadow:0 4px 24px rgba(26,109,255,0.12)}
+.ready-card-header{background:linear-gradient(135deg,var(--blue),var(--blue2));padding:14px 18px;display:flex;justify-content:space-between;align-items:center}
+.ready-card-pool{font-weight:700;font-size:15px;color:#fff}
+.ready-card-queue{font-size:12px;color:rgba(255,255,255,0.8)}
+.ready-card-body{padding:16px 18px}
+.ready-number{font-size:22px;font-weight:700;color:var(--blue);cursor:pointer;letter-spacing:0.5px;font-family:'JetBrains Mono',monospace}
 
-        .ready-card { background: white; margin: 0 16px 12px; border-radius: var(--radius-lg); border: 2px solid var(--blue); box-shadow: var(--shadow-md); overflow: hidden; }
-        .ready-card-head { background: var(--blue); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
-        .ready-pool-name { font-size: 13px; font-weight: 700; color: white; }
-        .ready-queue { font-size: 11px; color: rgba(255,255,255,0.8); }
-        .ready-card-body { padding: 16px; }
-        .ready-number { font-family: monospace; font-size: 22px; font-weight: 800; color: var(--blue); cursor: pointer; margin-bottom: 12px; }
-        .ready-number:active { opacity: .7; }
-        .ready-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-        .ready-otp { background: linear-gradient(135deg, #00c48c, #00966d); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 10px; }
-        .ready-otp-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: .8px; }
-        .ready-otp-code { font-size: 28px; font-weight: 900; font-family: monospace; color: white; cursor: pointer; margin: 4px 0; }
-        .ready-otp-msg { font-size: 10px; color: rgba(255,255,255,0.75); word-break: break-all; }
+/* ── HISTORY ── */
+.history-item{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:6px 16px}
+.history-num{font-size:12px;color:var(--text3);margin-bottom:4px}
+.history-otp{font-size:26px;font-weight:800;color:var(--green);cursor:pointer;font-family:'JetBrains Mono',monospace}
+.history-time{font-size:11px;color:var(--text3);margin-top:4px}
 
-        /* ── HISTORY ── */
-        .history-item { background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
-        .history-num { font-family: monospace; font-size: 12px; color: var(--gray-400); margin-bottom: 4px; }
-        .history-otp { font-size: 26px; font-weight: 800; font-family: monospace; color: var(--green); cursor: pointer; }
-        .history-otp:active { opacity: .7; }
-        .history-time { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+/* ── ADMIN ── */
+.admin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;padding:12px 16px}
+.admin-card{background:var(--white);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:18px 12px;text-align:center;cursor:pointer;transition:all 0.15s}
+.admin-card:active{background:var(--blue-light);border-color:var(--blue);transform:scale(0.97)}
+.admin-card-icon{font-size:28px;margin-bottom:8px}
+.admin-card-label{font-size:12px;font-weight:700;color:var(--text)}
+.admin-panel{background:var(--white);border-radius:var(--radius-lg);margin:8px 16px;border:1px solid var(--border)}
+.fg{margin-bottom:18px}
+.fg label{display:block;font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text3);margin-bottom:7px}
+.fg input,.fg select,.fg textarea{width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:12px;font-size:14px;color:var(--text);background:var(--bg);outline:none;font-family:inherit;transition:border 0.15s}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--blue);background:#fff}
+.brow{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.admin-section{padding:16px}
 
-        /* ── ADMIN ── */
-        .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px; }
-        .admin-card { background: white; border-radius: var(--radius); padding: 16px 12px; cursor: pointer; border: 1.5px solid var(--gray-200); text-align: center; transition: all .2s; box-shadow: var(--shadow-sm); }
-        .admin-card:active { background: var(--blue-light); border-color: var(--blue); transform: scale(0.97); }
-        .admin-icon { font-size: 26px; margin-bottom: 6px; }
-        .admin-label { font-size: 11px; font-weight: 700; color: var(--gray-700); }
+/* ── FORM PRESETS ── */
+.preset-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.preset-btn{background:var(--blue-light);color:var(--blue2);border:1.5px solid var(--blue-mid);padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all 0.15s}
+.preset-btn:active{background:var(--blue);color:#fff}
 
-        /* ── MODALS ── */
-        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(13,31,66,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: flex-end; justify-content: center; }
-        .modal.show { display: flex; }
-        .modal-content { background: white; border-radius: var(--radius-xl) var(--radius-xl) 0 0; max-height: 90vh; overflow-y: auto; width: 100%; max-width: 600px; padding-bottom: 20px; animation: slideUp .25s ease; }
-        .modal-handle { width: 40px; height: 4px; background: var(--gray-200); border-radius: 4px; margin: 12px auto 0; }
-        .modal-header { padding: 16px 20px; font-weight: 800; font-size: 18px; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); }
-        .modal-body { padding: 20px; }
-        .fg { margin-bottom: 18px; }
-        .fg label { display: block; font-size: 11px; font-weight: 700; color: var(--gray-500); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .8px; }
-        .fg input, .fg select, .fg textarea { width: 100%; padding: 13px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); background: var(--gray-50); color: var(--gray-900); outline: none; font-size: 14px; transition: border-color .2s; }
-        .fg input:focus, .fg select:focus, .fg textarea:focus { border-color: var(--blue); background: white; }
-        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 0 20px; margin-top: 10px; }
+/* ── NAV ── */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:8px 0 16px;z-index:200;box-shadow:0 -4px 20px rgba(26,109,255,0.08)}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 16px;border-radius:16px;transition:all 0.15s}
+.nav-item:active{background:var(--blue-light)}
+.nav-icon{font-size:22px}
+.nav-label{font-size:10px;font-weight:600;color:var(--text3)}
+.nav-item.active .nav-label{color:var(--blue)}
+.nav-item.active .nav-icon{filter:drop-shadow(0 0 6px rgba(26,109,255,0.4))}
 
-        /* ── FEEDBACK MODAL ── */
-        .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 20px; }
-        .feedback-btn { padding: 14px; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--gray-200); background: var(--gray-50); color: var(--gray-700); transition: all .2s; text-align: center; }
-        .feedback-btn:active { transform: scale(0.97); }
-        .feedback-btn.bad { border-color: var(--red); background: rgba(255,77,106,0.06); color: var(--red); }
-        .feedback-btn.good { border-color: var(--green); background: rgba(0,196,140,0.06); color: var(--green); }
+/* ── PAGE ── */
+.page{display:none;padding-bottom:20px}
+.page.active{display:block}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty-icon{font-size:48px;margin-bottom:12px}
+.empty-text{font-size:14px}
 
-        /* ── SAVE FORM ── */
-        .save-form { background: white; margin: 0 16px 12px; border-radius: var(--radius-lg); padding: 20px; border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
-        .save-form textarea { width: 100%; border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 12px; font-size: 14px; resize: vertical; min-height: 80px; outline: none; background: var(--gray-50); color: var(--gray-900); }
-        .save-form textarea:focus { border-color: var(--blue); }
-        .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-        .preset-btn { padding: 7px 14px; border-radius: 50px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--gray-200); background: var(--gray-50); color: var(--gray-700); cursor: pointer; transition: all .2s; }
-        .preset-btn:active { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
-        .save-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
-        .save-row input { flex: 1; border: 1.5px solid var(--gray-200); border-radius: 50px; padding: 11px 16px; font-size: 13px; outline: none; background: var(--gray-50); color: var(--gray-900); }
-        .save-row input:focus { border-color: var(--blue); }
+/* ── TOAST ── */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 24px;border-radius:40px;font-size:13px;font-weight:600;z-index:9999;max-width:90%;text-align:center;animation:toastAnim 2.5s ease forwards}
+@keyframes toastAnim{0%{opacity:0;transform:translateX(-50%) translateY(10px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}
 
-        /* ── MISC ── */
-        .loading { text-align: center; padding: 40px 20px; color: var(--gray-400); }
-        .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 12px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .empty-state { text-align: center; padding: 48px 20px; color: var(--gray-400); }
-        .empty-icon { font-size: 48px; margin-bottom: 12px; }
-        .empty-text { font-size: 14px; font-weight: 500; }
-        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--gray-900); color: white; padding: 11px 22px; border-radius: 50px; font-size: 13px; font-weight: 500; z-index: 9999; max-width: 90%; text-align: center; animation: toastAnim 2.5s ease forwards; white-space: nowrap; }
-        @keyframes toastAnim { 0%{opacity:0;transform:translateX(-50%) translateY(12px)} 12%{opacity:1;transform:translateX(-50%) translateY(0)} 80%{opacity:1} 100%{opacity:0;transform:translateX(-50%) translateY(-8px)} }
-        .badge-green { display: inline-block; background: rgba(0,196,140,0.1); color: var(--green); padding: 3px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; }
-        .badge-red { display: inline-block; background: rgba(255,77,106,0.1); color: var(--red); padding: 3px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; }
-        .divider { height: 1px; background: var(--gray-200); margin: 4px 16px; }
-        .hidden { display: none !important; }
-    </style>
+/* ── MODAL ── */
+.modal{display:none;position:fixed;inset:0;background:rgba(10,22,40,0.55);backdrop-filter:blur(4px);z-index:1000;align-items:flex-end;justify-content:center}
+.modal.show{display:flex}
+.modal-sheet{background:var(--white);border-radius:28px 28px 0 0;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;padding:8px 0 24px}
+.modal-handle{width:40px;height:4px;border-radius:4px;background:var(--border);margin:10px auto 16px}
+.modal-title{font-size:17px;font-weight:700;padding:0 20px 14px;border-bottom:1px solid var(--border);color:var(--text)}
+.modal-body{padding:16px 20px}
+.feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+.feedback-btn{background:var(--surface2);border:1.5px solid var(--border);padding:14px;border-radius:14px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text);font-family:inherit;transition:all 0.15s}
+.feedback-btn:active{transform:scale(0.97)}
+.feedback-btn.bad{background:#fff1f3;color:var(--red);border-color:#ffc8d0}
+.feedback-btn.good{background:#e6fff2;color:#00a855;border-color:#b8f0d4}
+
+/* ── AUTH ── */
+#authContainer{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,#e8f0ff 0%,#f0f4ff 50%,#dce8ff 100%)}
+.auth-card{background:#fff;border-radius:var(--radius-xl);padding:36px 28px;width:100%;max-width:360px;box-shadow:0 12px 60px rgba(26,109,255,0.15);border:1px solid var(--border)}
+.auth-logo{text-align:center;margin-bottom:20px}
+.auth-logo-icon{width:64px;height:64px;background:linear-gradient(135deg,var(--blue),var(--blue2));border-radius:20px;display:inline-flex;align-items:center;justify-content:center;font-size:32px;color:#fff;margin-bottom:12px}
+.auth-title{font-size:22px;font-weight:800;color:var(--text);text-align:center;margin-bottom:4px}
+.auth-sub{font-size:13px;color:var(--text3);text-align:center;margin-bottom:24px}
+.auth-tabs{display:flex;background:var(--bg);border-radius:30px;padding:4px;margin-bottom:20px}
+.auth-tab{flex:1;text-align:center;padding:10px;border-radius:26px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text3);transition:all 0.2s}
+.auth-tab.active{background:#fff;color:var(--blue);box-shadow:0 2px 8px rgba(26,109,255,0.12)}
+.auth-input{width:100%;padding:14px 18px;border:1.5px solid var(--border);border-radius:14px;font-size:15px;margin-bottom:14px;outline:none;background:var(--bg);color:var(--text);font-family:inherit;transition:border 0.15s}
+.auth-input:focus{border-color:var(--blue);background:#fff}
+.auth-btn{width:100%;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border:none;padding:16px;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px;transition:all 0.15s}
+.auth-btn:active{transform:scale(0.98)}
+.auth-error{color:var(--red);font-size:12px;text-align:center;margin-top:8px;font-weight:600}
+
+/* ── SPINNER ── */
+.spinner{width:36px;height:36px;border:3px solid var(--blue-mid);border-top-color:var(--blue);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{text-align:center;padding:30px;color:var(--text3);font-size:14px}
+
+/* ── DIVIDER ── */
+.divider{height:1px;background:var(--border);margin:0 16px}
+hr{border:none;border-top:1px solid var(--border)}
+</style>
 </head>
 <body>
 
 <!-- AUTH -->
 <div id="authContainer">
-    <div class="auth-wrap">
-        <div class="auth-card">
-            <div class="auth-logo">
-                <svg viewBox="0 0 52 52" fill="none"><circle cx="26" cy="26" r="26" fill="#1a6bff"/><rect x="13" y="17" width="26" height="18" rx="4" fill="white" opacity=".2"/><rect x="16" y="20" width="20" height="12" rx="2" fill="white"/><circle cx="26" cy="26" r="3" fill="#1a6bff"/></svg>
-            </div>
-            <div class="auth-title">NumBot</div>
-            <div class="auth-sub">Number management platform</div>
-            <div class="tab-row">
-                <button class="tab-btn active" id="authLoginTab" onclick="switchTab('login')">Login</button>
-                <button class="tab-btn" id="authRegisterTab" onclick="switchTab('register')">Register</button>
-            </div>
-            <div id="loginForm">
-                <input type="text" id="loginUsername" class="auth-input" placeholder="Username" autocomplete="username">
-                <input type="password" id="loginPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
-                <button class="auth-btn" onclick="doLogin()">Sign In</button>
-                <div id="loginError" class="error-msg"></div>
-            </div>
-            <div id="registerForm" style="display:none;">
-                <input type="text" id="regUsername" class="auth-input" placeholder="Choose username" autocomplete="username">
-                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)" autocomplete="new-password">
-                <button class="auth-btn" onclick="doRegister()">Create Account</button>
-                <div id="regError" class="error-msg"></div>
-            </div>
-        </div>
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">⚡</div>
+      <div class="auth-title">NEON GRID</div>
+      <div class="auth-sub">Number Management Platform</div>
     </div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Login</div>
+      <div class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Register</div>
+    </div>
+    <div id="loginForm">
+      <input type="text" id="loginUsername" class="auth-input" placeholder="Username" autocomplete="username">
+      <input type="password" id="loginPassword" class="auth-input" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="auth-btn" onclick="doLogin()">Sign In</button>
+      <div id="loginError" class="auth-error"></div>
+    </div>
+    <div id="registerForm" style="display:none">
+      <input type="text" id="regUsername" class="auth-input" placeholder="Username">
+      <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)" onkeydown="if(event.key==='Enter')doRegister()">
+      <button class="auth-btn" onclick="doRegister()">Create Account</button>
+      <div id="regError" class="auth-error"></div>
+    </div>
+  </div>
 </div>
 
 <!-- APP -->
-<div id="appContainer" style="display:none;">
-    <div class="top-bar">
-        <div class="top-bar-left">
-            <div class="top-avatar">👤</div>
-            <div>
-                <div class="top-user" id="userName">User</div>
-                <div class="top-id" id="userId">ID: --</div>
-            </div>
-        </div>
-        <div class="top-right">
-            <span class="time-label" id="currentTime">--:--</span>
-            <div class="conn-dot" id="connDot"></div>
-            <div id="adminBadge" style="display:none;" class="admin-badge">ADMIN</div>
-        </div>
+<div id="appContainer" style="display:none">
+
+  <div class="topbar">
+    <div class="topbar-logo">⚡ NEON GRID</div>
+    <div class="topbar-right">
+      <span class="topbar-time" id="currentTime">--:--</span>
+      <span id="adminTagEl" style="display:none" class="admin-tag">ADMIN</span>
+    </div>
+  </div>
+
+  <div class="user-header">
+    <div>
+      <div class="user-name" id="userName">--</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px"><span class="online-dot"></span><span id="userId">ID: --</span></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+
+  <!-- HOME PAGE -->
+  <div id="homePage" class="page active">
+    <div class="sec-header">Quick Access</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 16px">
+      <div class="card" style="margin:0;cursor:pointer;text-align:center" onclick="navigateTo('numbers')">
+        <div style="font-size:32px;margin-bottom:8px">📱</div>
+        <div style="font-weight:700;font-size:14px;color:var(--blue)">Get Number</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Assign a new number</div>
+      </div>
+      <div class="card" style="margin:0;cursor:pointer;text-align:center" onclick="navigateTo('saved')">
+        <div style="font-size:32px;margin-bottom:8px">💾</div>
+        <div style="font-weight:700;font-size:14px;color:var(--blue)">Saved Numbers</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Pending & ready pools</div>
+      </div>
+      <div class="card" style="margin:0;cursor:pointer;text-align:center" onclick="navigateTo('history')">
+        <div style="font-size:32px;margin-bottom:8px">📜</div>
+        <div style="font-weight:700;font-size:14px;color:var(--blue)">OTP History</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">View all OTPs received</div>
+      </div>
+      <div class="card" style="margin:0;cursor:pointer;text-align:center" onclick="navigateTo('numbers');setTimeout(()=>document.getElementById('prefixFilter').focus(),300)">
+        <div style="font-size:32px;margin-bottom:8px">🔍</div>
+        <div style="font-weight:700;font-size:14px;color:var(--blue)">Browse Pools</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Filter by prefix</div>
+      </div>
     </div>
 
-    <!-- HOME PAGE -->
-    <div id="homePage" class="page active">
-        <div class="section-title">Platform</div>
-        <div class="card card-blue" style="margin-top:8px;">
-            <div class="number-label" style="color:rgba(255,255,255,0.7);">WELCOME BACK</div>
-            <div style="font-size:26px;font-weight:800;color:white;" id="homeUserName">User</div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-top:4px;">NumBot Number Platform</div>
+    <div class="sec-header" style="margin-top:8px">Custom Links</div>
+    <div id="customButtonsList" style="padding:0 16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- NUMBERS PAGE -->
+  <div id="numbersPage" class="page">
+    <div class="card card-blue" style="margin-top:16px">
+      <div class="card-title">YOUR ACTIVE NUMBER</div>
+      <div class="number-display mono" id="currentNumber" onclick="copyNumber()" title="Tap to copy">—</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span class="pool-tag" id="currentRegionTag">No region selected</span>
+        <div class="btn-row">
+          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:none" onclick="copyNumber()">📋 Copy</button>
+          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:none" onclick="changeNumber()">🔄 Change</button>
         </div>
-        <div class="section-title">Quick Links</div>
-        <div id="customButtonsList" style="padding: 0 16px;"></div>
+      </div>
     </div>
 
-    <!-- NUMBERS PAGE -->
-    <div id="numbersPage" class="page">
-        <div class="card" style="margin-top:16px;">
-            <div class="number-label">YOUR ACTIVE NUMBER</div>
-            <div class="number-value" id="currentNumber" onclick="copyNumber()" title="Tap to copy">—</div>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div class="region-pill" id="currentRegion">No region selected</div>
-                <div class="btn-row" style="margin:0;">
-                    <button class="btn btn-sm btn-secondary" onclick="changeNumber()">🔄 Change</button>
-                    <button class="btn btn-sm btn-primary" onclick="copyNumber()">📋 Copy</button>
-                </div>
-            </div>
-        </div>
-        <div id="otpDisplay" style="display:none;"></div>
-        <div class="section-title">SELECT REGION</div>
-        <div class="filter-bar">
-            <input type="text" id="prefixFilter" class="filter-input" placeholder="Search by name or prefix…">
-            <button class="filter-btn" onclick="applyFilter()">Go</button>
-        </div>
-        <div id="regionList"><div class="loading"><div class="spinner"></div>Loading regions…</div></div>
+    <div id="otpDisplayArea" style="display:none"></div>
+
+    <div class="filter-row">
+      <input type="text" id="prefixFilter" class="filter-input" placeholder="🔍 Filter by prefix (e.g. 8101)">
+      <button class="btn btn-blue btn-sm" onclick="applyFilter()">Filter</button>
+    </div>
+    <div id="regionList">
+      <div class="loading-text"><div class="spinner"></div>Loading regions...</div>
+    </div>
+  </div>
+
+  <!-- SAVED PAGE -->
+  <div id="savedPage" class="page">
+
+    <!-- READY NUMBERS — ONLY ONE POOL VISIBLE AT A TIME -->
+    <div id="readySection" style="display:none">
+      <div class="sec-header" style="color:var(--green)">✅ READY NUMBERS</div>
+      <div id="readyCard"><!-- rendered by JS --></div>
     </div>
 
-    <!-- SAVED PAGE -->
-    <div id="savedPage" class="page">
-        <!-- READY NUMBERS (shown first, only when they exist) -->
-        <div id="readySection" style="display:none;">
-            <div class="section-title">✅ READY NUMBERS</div>
-            <div id="readyList"></div>
+    <!-- SAVE NUMBERS FORM -->
+    <div class="sec-header">💾 SAVE NUMBERS</div>
+    <div style="padding:0 16px 12px">
+      <div class="fg">
+        <label>Phone Numbers (one per line)</label>
+        <textarea id="savedNumbersInput" rows="4" placeholder="e.g.&#10;2349157338416&#10;2349167577481" style="resize:vertical"></textarea>
+      </div>
+      <div class="fg">
+        <label>Timer</label>
+        <input type="text" id="timerInput" placeholder="e.g. 8h, 30m, 1d, 4h" value="30m">
+        <div class="preset-row">
+          <button class="preset-btn" onclick="setTimer('30m')">30m</button>
+          <button class="preset-btn" onclick="setTimer('1h')">1h</button>
+          <button class="preset-btn" onclick="setTimer('2h')">2h</button>
+          <button class="preset-btn" onclick="setTimer('4h')">4h</button>
+          <button class="preset-btn" onclick="setTimer('8h')">8h</button>
+          <button class="preset-btn" onclick="setTimer('1d')">1d</button>
         </div>
-
-        <!-- SAVE FORM -->
-        <div class="section-title">💾 SAVE NUMBERS</div>
-        <div class="save-form">
-            <textarea id="savedNumbersInput" placeholder="Enter numbers, one per line…"></textarea>
-            <div style="margin-top:12px;">
-                <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Timer</div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <input type="text" id="timerInput" value="30m" placeholder="30m, 2h, 1d…" style="flex:1;border:1.5px solid var(--gray-200);border-radius:50px;padding:10px 14px;font-size:13px;outline:none;background:var(--gray-50);color:var(--gray-900);">
-                </div>
-                <div class="preset-row">
-                    <button class="preset-btn" onclick="setTimerPreset('30m')">30m</button>
-                    <button class="preset-btn" onclick="setTimerPreset('2h')">2h</button>
-                    <button class="preset-btn" onclick="setTimerPreset('4h')">4h</button>
-                    <button class="preset-btn" onclick="setTimerPreset('8h')">8h</button>
-                    <button class="preset-btn" onclick="setTimerPreset('1d')">1d</button>
-                    <button class="preset-btn" onclick="setTimerPreset('2s')">Test</button>
-                </div>
-            </div>
-            <div class="save-row">
-                <input type="text" id="poolNameInput" placeholder="Pool name (e.g. UK, Nigeria)">
-                <button class="btn btn-primary" onclick="saveNumbers()">Save</button>
-            </div>
-        </div>
-
-        <!-- PENDING POOLS — grouped by pool name with countdown timers -->
-        <div id="savedPoolsSection" style="display:none;">
-            <div class="section-title">⏳ PENDING POOLS</div>
-            <div id="savedList"></div>
-        </div>
+      </div>
+      <div class="fg">
+        <label>Pool Name</label>
+        <input type="text" id="poolNameInput" placeholder="e.g. Nigeria, uk, USA">
+      </div>
+      <button class="btn btn-blue btn-full" onclick="saveNumbers()">💾 Save Numbers</button>
     </div>
 
-    <!-- HISTORY PAGE -->
-    <div id="historyPage" class="page">
-        <div class="section-title">📜 OTP HISTORY</div>
-        <div id="historyList"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No OTP history yet</div></div></div>
+    <!-- PENDING POOLS -->
+    <div id="pendingSection" style="display:none">
+      <div class="sec-header">⏳ PENDING POOLS</div>
+      <div id="pendingList"></div>
+    </div>
+  </div>
+
+  <!-- HISTORY PAGE -->
+  <div id="historyPage" class="page">
+    <div class="sec-header">📜 OTP HISTORY</div>
+    <div id="historyList">
+      <div class="loading-text"><div class="spinner"></div>Loading...</div>
+    </div>
+  </div>
+
+  <!-- ADMIN PAGE -->
+  <div id="adminPage" class="page hidden" style="display:none">
+    <div class="sec-header">🛠️ ADMIN PANEL</div>
+    <div class="admin-grid">
+      <div class="admin-card" onclick="adminView('stats')"><div class="admin-card-icon">📊</div><div class="admin-card-label">Stats</div></div>
+      <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-card-icon">➕</div><div class="admin-card-label">Create Pool</div></div>
+      <div class="admin-card" onclick="openUploadModal()"><div class="admin-card-icon">📁</div><div class="admin-card-label">Upload Numbers</div></div>
+      <div class="admin-card" onclick="adminView('users')"><div class="admin-card-icon">👥</div><div class="admin-card-label">Users</div></div>
+      <div class="admin-card" onclick="adminView('bad')"><div class="admin-card-icon">🚫</div><div class="admin-card-label">Bad Numbers</div></div>
+      <div class="admin-card" onclick="adminView('reviews')"><div class="admin-card-icon">⭐</div><div class="admin-card-label">Reviews</div></div>
+      <div class="admin-card" onclick="adminView('broadcast')"><div class="admin-card-icon">📢</div><div class="admin-card-label">Broadcast</div></div>
+      <div class="admin-card" onclick="adminView('settings')"><div class="admin-card-icon">⚙️</div><div class="admin-card-label">Settings</div></div>
+      <div class="admin-card" onclick="adminView('buttons')"><div class="admin-card-icon">🔗</div><div class="admin-card-label">Custom Buttons</div></div>
+      <div class="admin-card" onclick="adminView('access')"><div class="admin-card-icon">🔒</div><div class="admin-card-label">Pool Access</div></div>
     </div>
 
-    <!-- ADMIN PAGE -->
-    <div id="adminPage" class="page hidden">
-        <div class="section-title">🛠 ADMIN PANEL</div>
-        <div class="admin-grid">
-            <div class="admin-card" onclick="loadAdminStats()"><div class="admin-icon">📊</div><div class="admin-label">Stats</div></div>
-            <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-icon">➕</div><div class="admin-label">New Pool</div></div>
-            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload</div></div>
-            <div class="admin-card" onclick="loadUsersList()"><div class="admin-icon">👥</div><div class="admin-label">Users</div></div>
-            <div class="admin-card" onclick="loadBadNumbers()"><div class="admin-icon">🚫</div><div class="admin-label">Bad Nums</div></div>
-            <div class="admin-card" onclick="showBroadcast()"><div class="admin-icon">📢</div><div class="admin-label">Broadcast</div></div>
-            <div class="admin-card" onclick="showSettings()"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
-            <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
-            <div class="admin-card" onclick="loadAdminButtonsMgr()"><div class="admin-icon">🔘</div><div class="admin-label">Buttons</div></div>
-            <div class="admin-card" onclick="loadAdminPools()"><div class="admin-icon">🗂</div><div class="admin-label">Pools</div></div>
-        </div>
-        <div id="adminStatsDiv" class="card" style="display:none;margin-top:12px;"></div>
-        <div id="adminUsersDiv" style="display:none;padding:0 16px;"></div>
-        <div id="adminBadDiv" style="display:none;padding:0 16px;"></div>
-        <div id="adminReviewsDiv" style="display:none;padding:0 16px;"></div>
-        <div id="adminButtonsDiv" style="display:none;padding:0 16px;margin-top:4px;"></div>
-        <div id="adminBroadcastDiv" class="card" style="display:none;margin-top:12px;">
-            <textarea id="broadcastMsg" rows="3" placeholder="Message to broadcast…" style="width:100%;padding:12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);background:var(--gray-50);font-size:14px;resize:none;outline:none;"></textarea>
-            <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="sendBroadcast()">Send Broadcast</button>
-        </div>
-        <div id="adminSettingsDiv" class="card" style="display:none;margin-top:12px;">
-            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - Auto-approve all</option></select></div>
-            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded Link</option></select></div>
-            <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-        </div>
-        <div id="poolsList" style="padding:0 16px;margin-top:4px;"></div>
+    <div id="adminContent" class="admin-panel" style="display:none">
+      <div id="adminContentInner" style="padding:16px"></div>
     </div>
 
-    <!-- BOTTOM NAV -->
-    <div class="bottom-nav">
-        <div class="nav-item active" data-page="home"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
-        <div class="nav-item" data-page="numbers"><div class="nav-icon">📱</div><div class="nav-label">Numbers</div></div>
-        <div class="nav-item" data-page="saved"><div class="nav-icon">💾</div><div class="nav-label">Saved</div></div>
-        <div class="nav-item" data-page="history"><div class="nav-icon">📜</div><div class="nav-label">History</div></div>
-        <div class="nav-item hidden" data-page="admin" id="adminNavItem"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
-    </div>
+    <div class="sec-header" style="margin-top:8px">📋 POOLS</div>
+    <div id="poolsList"></div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item active" data-page="home"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
+    <div class="nav-item" data-page="numbers"><div class="nav-icon">📱</div><div class="nav-label">Numbers</div></div>
+    <div class="nav-item" data-page="saved"><div class="nav-icon">💾</div><div class="nav-label">Saved</div></div>
+    <div class="nav-item" data-page="history"><div class="nav-icon">📜</div><div class="nav-label">History</div></div>
+    <div class="nav-item" data-page="admin" id="adminNavItem" style="display:none"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
+  </div>
 </div>
 
-<!-- MODALS -->
-<!-- Feedback modal -->
+<!-- FEEDBACK MODAL -->
 <div id="feedbackModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-handle"></div>
-        <div class="modal-header">Rate Your Number</div>
-        <div style="font-family:monospace;font-size:18px;text-align:center;padding:16px 20px 0;color:var(--blue);font-weight:700;" id="feedbackNumber"></div>
-        <div class="feedback-grid">
-            <button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button>
-            <button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button>
-            <button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button>
-            <button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button>
-            <button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button>
-            <button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button>
-        </div>
-        <div id="otherFeedbackDiv" style="display:none;padding:0 20px 20px;">
-            <textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue…" style="width:100%;padding:12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);font-size:14px;outline:none;resize:none;"></textarea>
-            <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="submitFeedback('other')">Submit</button>
-        </div>
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rate Your Number</div>
+    <div class="modal-body">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--blue);text-align:center;margin-bottom:16px" id="feedbackNumber"></div>
+      <div class="feedback-grid">
+        <button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button>
+        <button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button>
+        <button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button>
+        <button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button>
+        <button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button>
+        <button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button>
+      </div>
+      <div id="otherFeedbackDiv" style="display:none;margin-top:12px">
+        <textarea id="otherFeedbackText" rows="2" class="fg" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-family:inherit" placeholder="Describe the issue..."></textarea>
+        <button class="btn btn-blue btn-full" style="margin-top:8px" onclick="submitFeedback('other')">Submit</button>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- Change Pool modal (hidden, only shown when button clicked) -->
+<!-- CHANGE POOL MODAL (for saved/ready numbers) -->
 <div id="changePoolModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-handle"></div>
-        <div class="modal-header">🌐 Switch Pool</div>
-        <div class="modal-body">
-            <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">Current Number</div>
-            <div id="changePoolCurrentNum" style="font-family:monospace;font-size:18px;color:var(--blue);font-weight:700;margin-bottom:20px;"></div>
-            <div class="fg">
-                <label>Switch To Pool</label>
-                <select id="changePoolSelect" style="width:100%;"></select>
-            </div>
-            <div style="font-size:12px;color:var(--gray-400);margin-top:6px;">You will get the next available number from that pool.</div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button>
-            <button class="btn btn-primary" onclick="submitSwitchPool()">Switch Pool</button>
-        </div>
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🌐 Switch Pool</div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Current Number</div>
+      <div id="changePoolCurrentNum" class="mono" style="font-size:17px;font-weight:700;color:var(--blue);margin-bottom:16px"></div>
+      <div class="fg">
+        <label>Switch To Pool</label>
+        <select id="changePoolSelect" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:12px;background:var(--bg);color:var(--text);font-size:14px;outline:none;font-family:inherit"></select>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:16px">You'll get the next available number from that pool</div>
+      <div class="brow">
+        <button class="btn btn-ghost" onclick="closeChangePoolModal()">Cancel</button>
+        <button class="btn btn-blue" onclick="submitSwitchPool()">Switch Pool</button>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- Pool create/edit modal -->
+<!-- CREATE/EDIT POOL MODAL -->
 <div id="poolModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-handle"></div>
-        <div class="modal-header" id="poolModalTitle">Create Pool</div>
-        <div class="modal-body">
-            <div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g. Nigeria"></div>
-            <div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g. 234"></div>
-            <div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g. -1001234567890"></div>
-            <div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div>
-            <div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g. 5+4"></div>
-            <div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use above"></div>
-            <div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only</option><option value="1">1 - Platform Only</option><option value="2">2 - Both</option></select></div>
-            <div class="fg"><label>Trick Text</label><textarea id="poolTrickText" rows="2" placeholder="Tips for users…"></textarea></div>
-            <div style="display:flex;gap:20px;margin:12px 0;">
-                <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;"><input type="checkbox" id="poolAdminOnly"> Admin Only</label>
-                <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;"><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label>
-            </div>
-            <div id="pauseReasonDiv" style="display:none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="savePool()">Save Pool</button>
-        </div>
+  <div class="modal-sheet" style="border-radius:28px 28px 0 0;max-height:95vh">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="poolModalTitle">Create New Pool</div>
+    <div class="modal-body">
+      <div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g. Nigeria"></div>
+      <div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g. 234"></div>
+      <div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g. -1001234567890"></div>
+      <div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div>
+      <div class="fg"><label>Match Format</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g. 5+4"></div>
+      <div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div>
+      <div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 — Telegram Only 📱</option><option value="1">1 — Platform Only 🖥️</option><option value="2">2 — Both 📱+🖥️</option></select></div>
+      <div class="fg"><label>Trick Text (hint for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div>
+      <div style="display:flex;gap:20px;margin-bottom:18px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" id="poolAdminOnly"> Admin Only</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label>
+      </div>
+      <div id="pauseReasonDiv" style="display:none" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div>
+      <div class="brow">
+        <button class="btn btn-ghost" onclick="closePoolModal()">Cancel</button>
+        <button class="btn btn-blue" onclick="savePool()">Save Pool</button>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- Upload modal -->
+<!-- UPLOAD MODAL -->
 <div id="uploadModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-handle"></div>
-        <div class="modal-header">Upload Numbers</div>
-        <div class="modal-body">
-            <div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div>
-            <div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="uploadNumbers()">Upload</button>
-        </div>
-        <div id="uploadResult" style="padding:0 20px 10px;font-size:13px;color:var(--gray-500);"></div>
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📁 Upload Numbers</div>
+    <div class="modal-body">
+      <div class="fg"><label>Select Pool</label><select id="uploadPoolSelect" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:12px;background:var(--bg);color:var(--text);font-size:14px;outline:none"></select></div>
+      <div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv" style="padding:10px;border:1.5px solid var(--border);border-radius:12px;background:var(--bg)"></div>
+      <div class="brow">
+        <button class="btn btn-ghost" onclick="closeUploadModal()">Cancel</button>
+        <button class="btn btn-blue" onclick="uploadNumbers()">Upload</button>
+      </div>
+      <div id="uploadResult" style="margin-top:12px"></div>
     </div>
+  </div>
 </div>
 
 <script>
-const API_BASE = window.location.origin;
+const API = window.location.origin;
 let currentUser = null;
 let currentAssignment = null;
 let currentPoolId = null;
 let ws = null;
-let otpTimer = null;
-let currentFilter = null;
+let otpAutoTimer = null;
+let currentFilter = '';
 let allRegions = [];
-const savedOtps = {};
+let savedOtps = {};      // number -> {otp, raw_message}
+let currentReadyPool = null;  // currently displayed pool name on save page
+let changeTargetId = null;
+let currentEditPoolId = null;
 
-// ── UTILS ──
+// ── UTILS ──────────────────────────────────────────────────────────────────
 function showToast(msg) {
-    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-    document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
 }
-function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
-setInterval(formatTime, 1000); formatTime();
-function copyText(t) { navigator.clipboard.writeText(t).then(() => showToast('📋 Copied!')).catch(() => { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); showToast('📋 Copied!'); }); }
-function fmt(n) { if (!n || n === '—') return n; return n.startsWith('+') ? n : '+' + n; }
-function setTimerPreset(v) { document.getElementById('timerInput').value = v; }
-function escapeHtml(t) { if (!t) return ''; return String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-function switchTab(tab) {
-    document.getElementById('loginForm').style.display = tab==='login'?'block':'none';
-    document.getElementById('registerForm').style.display = tab==='register'?'block':'none';
-    document.getElementById('authLoginTab').classList.toggle('active', tab==='login');
-    document.getElementById('authRegisterTab').classList.toggle('active', tab==='register');
+function fmt(n) {
+  if (!n || n === '—') return n;
+  return n.startsWith('+') ? n : '+' + n;
 }
+function escH(t) {
+  if (!t) return '';
+  return String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function copyText(t) { navigator.clipboard.writeText(t).then(() => showToast('📋 Copied!')); }
+function setTimer(v) { document.getElementById('timerInput').value = v; }
+function parseTimer(s) {
+  const m = s.match(/^(\d+)([smhd])$/i);
+  if (m) {
+    const n = parseInt(m[1]), u = m[2].toLowerCase();
+    if (u === 's') return Math.max(1, Math.ceil(n / 60));
+    if (u === 'h') return n * 60;
+    if (u === 'd') return n * 1440;
+    return n;
+  }
+  return parseInt(s) || 30;
+}
+function formatCountdown(sec) {
+  if (sec <= 0) return '0s';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+function timeNow() {
+  document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+setInterval(timeNow, 1000);
+timeNow();
 
-// ── AUTH ──
-async function checkAuth() {
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, {credentials:'include'});
-        if (res.ok) {
-            currentUser = await res.json();
-            document.getElementById('authContainer').style.display = 'none';
-            document.getElementById('appContainer').style.display = 'block';
-            document.getElementById('userName').textContent = currentUser.username;
-            document.getElementById('homeUserName').textContent = currentUser.username;
-            document.getElementById('userId').textContent = `ID: ${currentUser.id}`;
-            if (currentUser.is_admin) {
-                document.getElementById('adminBadge').style.display = 'inline-block';
-                document.getElementById('adminNavItem').classList.remove('hidden');
-                document.getElementById('adminPage').classList.remove('hidden');
-                loadAdminPools();
-            }
-            connectWebSocket();
-            loadRegions();
-            loadCurrentAssignment();
-            loadSavedNumbers();
-            loadHistory();
-            loadCustomButtons();
-            return true;
-        }
-    } catch(e) {}
-    document.getElementById('authContainer').style.display = 'flex';
-    document.getElementById('appContainer').style.display = 'none';
-    return false;
+// ── AUTH ───────────────────────────────────────────────────────────────────
+function switchAuthTab(tab) {
+  document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
+  document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
 }
 
 async function doLogin() {
-    const username = document.getElementById('loginUsername').value.trim();
-    const password = document.getElementById('loginPassword').value;
-    const err = document.getElementById('loginError');
-    err.textContent = '';
-    if (!username || !password) { err.textContent = 'Enter username and password'; return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username,password})});
-        const data = await res.json();
-        if (res.ok) { checkAuth(); }
-        else { err.textContent = data.detail || 'Login failed'; }
-    } catch(e) { err.textContent = 'Network error'; }
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  try {
+    const res = await fetch(`${API}/api/auth/login`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
+      body: JSON.stringify({username, password})
+    });
+    const data = await res.json();
+    if (res.ok) { checkAuth(); }
+    else { errEl.textContent = data.detail || 'Login failed'; }
+  } catch(e) { errEl.textContent = 'Network error — please try again'; }
 }
 
 async function doRegister() {
-    const username = document.getElementById('regUsername').value.trim();
-    const password = document.getElementById('regPassword').value;
-    const err = document.getElementById('regError');
-    err.textContent = '';
-    if (password.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username,password})});
-        const data = await res.json();
-        if (res.ok) {
-            if (data.approved) { checkAuth(); }
-            else { err.textContent = '✅ Account created! Awaiting admin approval.'; }
-        } else { err.textContent = data.detail || 'Registration failed'; }
-    } catch(e) { err.textContent = 'Network error'; }
+  const username = document.getElementById('regUsername').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const errEl = document.getElementById('regError');
+  errEl.textContent = '';
+  if (password.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; return; }
+  try {
+    const res = await fetch(`${API}/api/auth/register`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
+      body: JSON.stringify({username, password})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      if (data.approved) checkAuth();
+      else errEl.textContent = '✅ Registered! Awaiting admin approval.';
+    } else { errEl.textContent = data.detail || 'Registration failed'; }
+  } catch(e) { errEl.textContent = 'Network error'; }
 }
 
-// ── WEBSOCKET ──
+async function doLogout() {
+  try { await fetch(`${API}/api/auth/logout`, {method:'POST', credentials:'include'}); } catch {}
+  location.reload();
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API}/api/auth/me`, {credentials:'include'});
+    if (res.ok) {
+      currentUser = await res.json();
+      document.getElementById('authContainer').style.display = 'none';
+      document.getElementById('appContainer').style.display = 'block';
+      document.getElementById('userName').textContent = currentUser.username;
+      document.getElementById('userId').textContent = `ID: ${currentUser.id}`;
+      if (currentUser.is_admin) {
+        document.getElementById('adminTagEl').style.display = 'inline-block';
+        document.getElementById('adminNavItem').style.display = 'flex';
+        document.getElementById('adminPage').style.display = 'block';
+        loadAdminPools();
+      }
+      connectWebSocket();
+      loadRegions();
+      loadCurrentAssignment();
+      loadCustomButtons();
+      loadSavedPage();
+      return true;
+    }
+  } catch {}
+  document.getElementById('authContainer').style.display = 'flex';
+  document.getElementById('appContainer').style.display = 'none';
+  return false;
+}
+
+// ── WEBSOCKET ──────────────────────────────────────────────────────────────
 function connectWebSocket() {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}/ws/user/${currentUser.id}`);
-    ws.onopen = () => { document.getElementById('connDot').classList.remove('off'); };
-    ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.type === 'otp') displayOTP(data);
-        else if (data.type === 'saved_otp') displaySavedOTP(data);
-        else if (data.type === 'broadcast') showToast('📢 ' + data.message);
-        else if (data.type === 'notification') showToast(data.message);
-    };
-    ws.onclose = () => { document.getElementById('connDot').classList.add('off'); setTimeout(connectWebSocket, 5000); };
-    ws.onerror = () => { document.getElementById('connDot').classList.add('off'); };
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/user/${currentUser.id}`);
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'otp') showOtpOnNumberPage(data);
+    else if (data.type === 'saved_otp') showSavedOtp(data);
+    else if (data.type === 'broadcast') showToast(`📢 ${data.message}`);
+    else if (data.type === 'number_ready') { showToast(data.message); loadSavedPage(); }
+    else if (data.type === 'notification') showToast(data.message);
+  };
+  ws.onclose = () => setTimeout(connectWebSocket, 5000);
 }
 
-function displayOTP(data) {
-    const div = document.getElementById('otpDisplay');
-    if (otpTimer) clearTimeout(otpTimer);
-    div.innerHTML = `<div class="otp-card">
-        <div class="otp-header">🔑 OTP CODE</div>
-        <div class="otp-code" onclick="copyText('${escapeHtml(data.otp)}')">${escapeHtml(data.otp)}</div>
-        <div class="otp-timer" id="otpCountdown">Auto-deletes in 30s</div>
-        <div class="otp-msg">${escapeHtml(data.raw_message || '')}</div>
-    </div>`;
-    div.style.display = 'block';
-    let secs = 30;
-    const interval = setInterval(() => {
-        secs--;
-        const cd = document.getElementById('otpCountdown');
-        if (cd) cd.textContent = `Auto-deletes in ${secs}s`;
-        if (secs <= 0) { clearInterval(interval); div.style.display = 'none'; }
-    }, 1000);
-    otpTimer = setTimeout(() => { clearInterval(interval); div.style.display = 'none'; }, 30000);
-    loadHistory();
+function showOtpOnNumberPage(data) {
+  const container = document.getElementById('otpDisplayArea');
+  if (otpAutoTimer) clearTimeout(otpAutoTimer);
+  container.innerHTML = `<div class="otp-card" style="margin:0 16px 12px">
+    <div class="otp-label">🔑 OTP CODE</div>
+    <div class="otp-code" onclick="copyText('${escH(data.otp)}')">${escH(data.otp)}</div>
+    <div class="otp-countdown" id="otpCountdown">Auto-deletes in 30s</div>
+    ${data.raw_message ? `<div class="otp-message">${escH(data.raw_message)}</div>` : ''}
+  </div>`;
+  container.style.display = 'block';
+  let sec = 30;
+  const interval = setInterval(() => {
+    sec--;
+    const el = document.getElementById('otpCountdown');
+    if (el) el.textContent = `Auto-deletes in ${sec}s`;
+    if (sec <= 0) { clearInterval(interval); container.style.display = 'none'; }
+  }, 1000);
+  otpAutoTimer = setTimeout(() => { clearInterval(interval); container.style.display = 'none'; }, 30000);
+  loadHistory();
 }
 
-function displaySavedOTP(data) {
-    savedOtps[data.number] = {otp: data.otp, raw_message: data.raw_message || ''};
-    showToast(`🔑 OTP ${data.number}: ${data.otp}`);
-    loadReadyNumbers();
-    loadHistory();
-    setTimeout(() => { delete savedOtps[data.number]; loadReadyNumbers(); }, 30000);
+function showSavedOtp(data) {
+  savedOtps[data.number] = {otp: data.otp, raw_message: data.raw_message || ''};
+  showToast(`🔑 OTP for ${data.number}: ${data.otp}`);
+  renderReadyNumbers();
+  setTimeout(() => { delete savedOtps[data.number]; renderReadyNumbers(); }, 30000);
+  loadHistory();
 }
 
-// ── NAVIGATION ──
+// ── NAVIGATION ─────────────────────────────────────────────────────────────
 function navigateTo(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.getElementById(page + 'Page').classList.add('active');
-    document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
-    if (page === 'saved') { loadSavedNumbers(); }
-    if (page === 'history') { loadHistory(); }
-    if (page === 'numbers') { loadCurrentAssignment(); }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`${page}Page`).classList.add('active');
+  const navEl = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (navEl) navEl.classList.add('active');
+  if (page === 'numbers') loadRegions();
+  if (page === 'saved') loadSavedPage();
+  if (page === 'history') loadHistory();
+  if (page === 'admin') loadAdminPools();
 }
-document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
+document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', () => navigateTo(n.dataset.page)));
 
-// ── REGIONS ──
+// ── CUSTOM BUTTONS ─────────────────────────────────────────────────────────
+async function loadCustomButtons() {
+  try {
+    const res = await fetch(`${API}/api/buttons`, {credentials:'include'});
+    if (!res.ok) return;
+    const btns = await res.json();
+    const container = document.getElementById('customButtonsList');
+    if (!btns.length) { container.innerHTML = ''; return; }
+    container.innerHTML = btns.map(b => `<a href="${escH(b.url)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">${escH(b.label)}</a>`).join('');
+  } catch {}
+}
+
+// ── NUMBERS PAGE ───────────────────────────────────────────────────────────
 async function loadRegions() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        if (!res.ok) throw new Error();
-        allRegions = await res.json();
-        renderRegions();
-    } catch(e) { document.getElementById('regionList').innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Failed to load regions</div></div>'; }
+  try {
+    const res = await fetch(`${API}/api/pools`, {credentials:'include'});
+    if (!res.ok) throw new Error();
+    allRegions = await res.json();
+    renderRegions();
+  } catch(e) {
+    document.getElementById('regionList').innerHTML = '<div class="loading-text">Failed to load regions. Check connection.</div>';
+  }
 }
 
 function renderRegions() {
-    const container = document.getElementById('regionList');
-    let list = allRegions;
-    if (currentFilter) list = allRegions.filter(r => r.name.toLowerCase().includes(currentFilter.toLowerCase()) || r.country_code.includes(currentFilter));
-    if (!list.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No regions found</div></div>'; return; }
-    container.innerHTML = list.map(r => `
-        <div class="pool-item ${r.is_paused ? 'paused' : ''}" onclick="selectRegion(${r.id})">
-            <div>
-                <div class="pool-name">${escapeHtml(r.name)}</div>
-                <div class="pool-code">+${escapeHtml(r.country_code)}</div>
-                ${r.trick_text ? `<div class="pool-tip">💡 ${escapeHtml(r.trick_text)}</div>` : ''}
-            </div>
-            <div>${r.is_paused
-                ? `<span class="pool-paused">⏸ Paused</span>`
-                : `<span class="pool-count">${r.number_count}</span>`}
-            </div>
-        </div>`).join('');
+  const container = document.getElementById('regionList');
+  let list = allRegions;
+  if (currentFilter) {
+    const f = currentFilter.toLowerCase();
+    list = allRegions.filter(r => r.name.toLowerCase().includes(f) || r.country_code.includes(f));
+  }
+  if (!list.length) { container.innerHTML = '<div class="loading-text">No regions found</div>'; return; }
+  container.innerHTML = list.map(r => `
+    <div class="region-item" onclick="${r.is_paused ? `showToast('Paused: ${escH(r.pause_reason || 'Temporarily unavailable')}')` : `selectRegion(${r.id})`}">
+      <div>
+        <div class="region-name">${escH(r.name)}</div>
+        <div class="region-code">+${escH(r.country_code)}</div>
+        ${r.trick_text ? `<div class="region-trick">💡 ${escH(r.trick_text)}</div>` : ''}
+      </div>
+      <div>
+        ${r.is_paused ? `<span class="region-paused">⏸ Paused</span>` : `<span class="region-count">${r.number_count}</span>`}
+      </div>
+    </div>`).join('');
 }
 
-function applyFilter() { currentFilter = document.getElementById('prefixFilter').value.trim(); renderRegions(); }
+function applyFilter() {
+  currentFilter = document.getElementById('prefixFilter').value.trim();
+  renderRegions();
+}
 
 async function selectRegion(poolId) {
-    const region = allRegions.find(r => r.id === poolId);
-    if (region && region.is_paused) { showToast(`⏸ Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({pool_id: poolId})});
-        const data = await res.json();
-        if (res.ok) {
-            currentAssignment = data;
-            currentPoolId = data.pool_id;
-            document.getElementById('currentNumber').textContent = fmt(data.number);
-            document.getElementById('currentNumber').onclick = () => copyText(fmt(data.number));
-            document.getElementById('currentRegion').textContent = data.pool_name;
-            document.getElementById('otpDisplay').style.display = 'none';
-            if (otpTimer) clearTimeout(otpTimer);
-            showToast(`✅ Assigned: ${fmt(data.number)}`);
-            loadRegions();
-        } else { showToast(data.detail || 'Failed to assign number'); }
-    } catch(e) { showToast('Network error'); }
+  try {
+    const res = await fetch(`${API}/api/pools/assign`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({pool_id: poolId})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentAssignment = data;
+      currentPoolId = data.pool_id;
+      document.getElementById('currentNumber').textContent = fmt(data.number);
+      document.getElementById('currentRegionTag').textContent = data.pool_name;
+      document.getElementById('otpDisplayArea').style.display = 'none';
+      if (otpAutoTimer) clearTimeout(otpAutoTimer);
+      showToast(`✅ Assigned: ${fmt(data.number)}`);
+      loadRegions();
+    } else { showToast(data.detail || 'Failed to assign number'); }
+  } catch(e) { showToast('Network error'); }
 }
 
 async function loadCurrentAssignment() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools/my-assignment`, {credentials:'include'});
-        const data = await res.json();
-        if (data.assignment) {
-            currentAssignment = data.assignment;
-            currentPoolId = data.assignment.pool_id;
-            document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
-            document.getElementById('currentNumber').onclick = () => copyText(fmt(currentAssignment.number));
-            document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
-        }
-    } catch(e) {}
+  try {
+    const res = await fetch(`${API}/api/pools/my-assignment`, {credentials:'include'});
+    const data = await res.json();
+    if (data.assignment) {
+      currentAssignment = data.assignment;
+      currentPoolId = data.assignment.pool_id;
+      document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
+      document.getElementById('currentRegionTag').textContent = currentAssignment.pool_name;
+    }
+  } catch {}
 }
 
-function copyNumber() { if (currentAssignment) copyText(fmt(currentAssignment.number)); else showToast('No number to copy'); }
+function copyNumber() {
+  if (currentAssignment) copyText(fmt(currentAssignment.number));
+  else showToast('No active number');
+}
 
 function changeNumber() {
-    if (!currentAssignment) { showToast('No active number to change'); return; }
-    document.getElementById('feedbackNumber').textContent = fmt(currentAssignment.number);
-    document.getElementById('feedbackModal').classList.add('show');
-}
-
-async function submitFeedback(type) {
-    const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
-    const markAsBad = type === 'bad';
-    document.getElementById('feedbackModal').classList.remove('show');
-    document.getElementById('otherFeedbackDiv').style.display = 'none';
-    document.getElementById('otherFeedbackText').value = '';
-    if (!currentAssignment) return;
-    const savedAssignment = currentAssignment;
-    const savedPoolId = currentPoolId;
-    document.getElementById('currentNumber').textContent = '…';
-    const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, {method:'POST',credentials:'include'});
-    fetch(`${API_BASE}/api/reviews`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({number:savedAssignment.number,rating:markAsBad?1:4,comment,mark_as_bad:markAsBad})});
-    await releasePromise;
-    if (savedPoolId) {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({pool_id:savedPoolId})});
-        const data = await res.json();
-        if (res.ok) {
-            currentAssignment = data;
-            document.getElementById('currentNumber').textContent = fmt(data.number);
-            document.getElementById('currentNumber').onclick = () => copyText(fmt(data.number));
-            document.getElementById('currentRegion').textContent = data.pool_name;
-            document.getElementById('otpDisplay').style.display = 'none';
-            if (otpTimer) clearTimeout(otpTimer);
-            showToast(`✅ New number: ${fmt(data.number)}`);
-        } else {
-            showToast('No more numbers — select another region');
-            currentAssignment = null; currentPoolId = null;
-            document.getElementById('currentNumber').textContent = '—';
-            document.getElementById('currentRegion').textContent = 'No region selected';
-        }
-    }
-    loadRegions();
+  if (!currentAssignment) { showToast('No active number to change'); return; }
+  document.getElementById('feedbackNumber').textContent = fmt(currentAssignment.number);
+  document.getElementById('otherFeedbackDiv').style.display = 'none';
+  document.getElementById('otherFeedbackText').value = '';
+  document.getElementById('feedbackModal').classList.add('show');
 }
 
 function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
 
-// ── TIMER PARSER ──
-function parseTimer(t) {
-    const m = t.match(/^(\d+)([smhd])$/i);
-    if (m) {
-        const n = parseInt(m[1]), u = m[2].toLowerCase();
-        if (u==='s') return Math.max(1, Math.ceil(n/60));
-        if (u==='h') return n*60;
-        if (u==='d') return n*1440;
-        return n;
+async function submitFeedback(type) {
+  const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
+  const markAsBad = type === 'bad';
+  document.getElementById('feedbackModal').classList.remove('show');
+  if (!currentAssignment) return;
+
+  const savedAssignment = currentAssignment;
+  const savedPoolId = currentPoolId;
+  document.getElementById('currentNumber').textContent = '...';
+
+  const releaseP = fetch(`${API}/api/pools/release/${savedAssignment.assignment_id}`, {method:'POST', credentials:'include'});
+  fetch(`${API}/api/reviews`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+    body: JSON.stringify({number: savedAssignment.number, rating: markAsBad ? 1 : 4, comment, mark_as_bad: markAsBad})
+  });
+  await releaseP;
+
+  if (savedPoolId) {
+    const res = await fetch(`${API}/api/pools/assign`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({pool_id: savedPoolId})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentAssignment = data;
+      document.getElementById('currentNumber').textContent = fmt(data.number);
+      document.getElementById('currentRegionTag').textContent = data.pool_name;
+      document.getElementById('otpDisplayArea').style.display = 'none';
+      showToast(`✅ New number: ${fmt(data.number)}`);
+    } else {
+      showToast('No more numbers in this pool');
+      currentAssignment = null; currentPoolId = null;
+      document.getElementById('currentNumber').textContent = '—';
+      document.getElementById('currentRegionTag').textContent = 'No region selected';
     }
-    const n = parseInt(t); return isNaN(n) ? 30 : n;
+    loadRegions();
+  }
 }
 
-// ── SAVE NUMBERS ──
-async function saveNumbers() {
-    const numbers = document.getElementById('savedNumbersInput').value.split('\n').map(l=>l.trim()).filter(l=>l);
-    const timerMinutes = parseTimer(document.getElementById('timerInput').value.trim());
-    const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
-    if (!numbers.length) { showToast('Enter at least one number'); return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/saved`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({numbers,timer_minutes:timerMinutes,pool_name:poolName})});
-        const data = await res.json();
-        if (res.ok) { showToast(`✅ Saved ${data.saved} numbers`); document.getElementById('savedNumbersInput').value = ''; loadSavedNumbers(); }
-        else { showToast(data.detail || 'Failed to save'); }
-    } catch(e) { showToast('Network error'); }
+// ── SAVED PAGE ─────────────────────────────────────────────────────────────
+async function loadSavedPage() {
+  await Promise.all([loadReadyNumbers(), loadPendingNumbers()]);
 }
-
-async function loadSavedNumbers() {
-    try {
-        const res = await fetch(`${API_BASE}/api/saved`, {credentials:'include'});
-        const data = await res.json();
-        // Show pending numbers (not yet ready) grouped by pool name
-        const pending = data.filter(item => !item.moved);
-        const section = document.getElementById('savedPoolsSection');
-        const container = document.getElementById('savedList');
-        if (!pending.length) {
-            section.style.display = 'none';
-            container.innerHTML = '';
-        } else {
-            section.style.display = 'block';
-            // Group by pool_name
-            const groups = {};
-            pending.forEach(item => {
-                if (!groups[item.pool_name]) groups[item.pool_name] = [];
-                groups[item.pool_name].push(item);
-            });
-            container.innerHTML = Object.entries(groups).map(([poolName, items]) => {
-                const sorted = items.sort((a, b) => a.seconds_left - b.seconds_left);
-                const rows = sorted.map(item => {
-                    const sl = item.seconds_left;
-                    let timeStr;
-                    if (item.status === 'expired') timeStr = 'Moving to ready...';
-                    else if (sl >= 3600) timeStr = Math.floor(sl/3600) + 'h ' + Math.floor((sl%3600)/60) + 'm';
-                    else if (sl >= 60) timeStr = Math.floor(sl/60) + 'm ' + (sl%60) + 's';
-                    else timeStr = sl + 's';
-                    const cls = item.status==='expired'?'timer-ready':item.status==='red'?'timer-red':item.status==='yellow'?'timer-yellow':'timer-green';
-                    return '<div class="saved-item">' +
-                        '<div>' +
-                        '<div class="saved-num" onclick="copyText('' + escapeHtml(item.number) + '')">' + escapeHtml(item.number) + '</div>' +
-                        '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">' + escapeHtml(poolName) + '</div>' +
-                        '</div>' +
-                        '<div style="display:flex;align-items:center;gap:8px;">' +
-                        '<span class="timer-badge ' + cls + '">' + timeStr + '</span>' +
-                        '<button onclick="deleteSaved(' + item.id + ')" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--gray-400);" title="Remove">🗑</button>' +
-                        '</div>' +
-                        '</div>';
-                }).join('');
-                return '<div style="margin-bottom:8px;">' +
-                    '<div style="font-size:11px;font-weight:700;color:var(--gray-500);padding:4px 16px 6px;text-transform:uppercase;letter-spacing:.8px;">📦 ' + escapeHtml(poolName) + ' (' + items.length + ' pending)</div>' +
-                    rows + '</div>';
-            }).join('');
-        }
-    } catch(e) {}
-    loadReadyNumbers();
-}
-
-async function deleteSavedPool(ids) {
-    if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
-    for (const id of ids) await fetch(`${API_BASE}/api/saved/${id}`, {method:'DELETE',credentials:'include'});
-    loadSavedNumbers();
-}
-
-// Track which ready pool is currently selected
-let selectedReadyPool = null;
-let allReadyGroups = {};
 
 async function loadReadyNumbers() {
-    try {
-        const res = await fetch(`${API_BASE}/api/saved/ready`, {credentials:'include'});
-        const data = await res.json();
-        const container = document.getElementById('readyList');
-        const section = document.getElementById('readySection');
-        if (!data.length) { section.style.display='none'; container.innerHTML=''; selectedReadyPool = null; return; }
-        section.style.display = 'block';
+  try {
+    const res = await fetch(`${API}/api/saved/ready`, {credentials:'include'});
+    const data = await res.json();
+    const grouped = {};
+    data.forEach(item => {
+      if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
+      grouped[item.pool_name].push(item);
+    });
 
-        // Group by pool_name
-        allReadyGroups = {};
-        data.forEach(item => {
-            if (!allReadyGroups[item.pool_name]) allReadyGroups[item.pool_name] = [];
-            allReadyGroups[item.pool_name].push(item);
-        });
+    const poolNames = Object.keys(grouped);
+    const section = document.getElementById('readySection');
 
-        const poolNames = Object.keys(allReadyGroups);
+    if (!poolNames.length) {
+      section.style.display = 'none';
+      document.getElementById('readyCard').innerHTML = '';
+      currentReadyPool = null;
+      return;
+    }
 
-        // If selected pool no longer exists, pick first
-        if (!selectedReadyPool || !allReadyGroups[selectedReadyPool]) {
-            selectedReadyPool = poolNames[0];
-        }
+    section.style.display = 'block';
 
-        const items = allReadyGroups[selectedReadyPool];
-        const active = items[0];
-        const count = items.length;
-        const otpInfo = savedOtps[active.number];
+    // If current pool is gone or not set, pick first
+    if (!currentReadyPool || !grouped[currentReadyPool]) {
+      currentReadyPool = poolNames[0];
+    }
 
-        const otpHtml = otpInfo ? `<div class="ready-otp">
-            <div class="ready-otp-label">🔑 OTP CODE — tap to copy</div>
-            <div class="ready-otp-code" onclick="copyText('${escapeHtml(otpInfo.otp)}')">${escapeHtml(otpInfo.otp)} 📋</div>
-            ${otpInfo.raw_message ? `<div class="ready-otp-msg">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
-        </div>` : '';
-
-        container.innerHTML = `
-            <div class="ready-card">
-                <div class="ready-card-head">
-                    <div class="ready-pool-name">📦 ${escapeHtml(selectedReadyPool)}</div>
-                    <div class="ready-queue">${count} in queue</div>
-                </div>
-                <div class="ready-card-body">
-                    <div class="ready-number" onclick="copyText('${escapeHtml(active.number)}');showToast('📋 Copied!')">${escapeHtml(active.number)} 📋</div>
-                    <div class="ready-actions">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${escapeHtml(selectedReadyPool)}')">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${escapeHtml(active.number)}', '${escapeHtml(selectedReadyPool)}')">🌐 Change Pool</button>
-                    </div>
-                    ${otpHtml}
-                </div>
-            </div>`;
-    } catch(e) {}
+    renderReadyNumbers(grouped);
+  } catch {}
 }
 
-let changeTargetId = null;
+function renderReadyNumbers(grouped) {
+  // If no grouped passed, re-fetch
+  if (!grouped) { loadReadyNumbers(); return; }
 
-async function doNextNumber(id, poolName) {
-    try {
-        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, {method:'POST',credentials:'include'});
-        const data = await res.json();
-        if (res.ok) {
-            showToast(`✅ New number: ${data.number}`);
-            await triggerSavedMonitor(data.number);
-            loadReadyNumbers();
-        } else { showToast(data.detail || 'No more numbers in this pool'); }
-    } catch(e) { showToast('Network error'); }
+  const poolNames = Object.keys(grouped);
+  if (!poolNames.length) {
+    document.getElementById('readySection').style.display = 'none';
+    document.getElementById('readyCard').innerHTML = '';
+    return;
+  }
+  if (!currentReadyPool || !grouped[currentReadyPool]) {
+    currentReadyPool = poolNames[0];
+  }
+
+  const items = grouped[currentReadyPool];
+  const front = items[0];
+  const qCount = items.length;
+  const otpInfo = savedOtps[front.number];
+
+  let otpHtml = '';
+  if (otpInfo) {
+    otpHtml = `<div style="background:linear-gradient(135deg,var(--green),#00a855);border-radius:14px;padding:14px;color:#fff;margin-top:12px;text-align:center">
+      <div style="font-size:11px;opacity:0.8;margin-bottom:4px">🔑 OTP CODE</div>
+      <div class="mono" style="font-size:32px;font-weight:800;cursor:pointer;letter-spacing:4px" onclick="copyText('${escH(otpInfo.otp)}')">${escH(otpInfo.otp)}</div>
+      ${otpInfo.raw_message ? `<div style="font-size:11px;opacity:0.75;margin-top:6px;word-break:break-all">${escH(otpInfo.raw_message)}</div>` : ''}
+    </div>`;
+  }
+
+  const html = `
+    <div class="ready-card">
+      <div class="ready-card-header">
+        <div>
+          <div class="ready-card-pool">📦 ${escH(currentReadyPool)}</div>
+          <div class="ready-card-queue">${qCount} number${qCount!==1?'s':''} in queue</div>
+        </div>
+        <span style="background:rgba(255,255,255,0.25);padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;color:#fff">READY</span>
+      </div>
+      <div class="ready-card-body">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Slot 1 of ${qCount} — tap to copy</div>
+        <div class="ready-number" onclick="copyText('${escH(front.number)}')">${escH(front.number)} 📋</div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-blue btn-sm" onclick="doChangeNumber(${front.id}, '${escH(currentReadyPool).replace(/'/g,"\\'")}')">🔄 Change Number</button>
+          <button class="btn btn-ghost btn-sm" onclick="openChangePoolModal(${front.id}, '${escH(front.number).replace(/'/g,"\\'")}', '${escH(currentReadyPool).replace(/'/g,"\\'")}')">🌐 Change Pool</button>
+        </div>
+        ${poolNames.length > 1 ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Other pools: ${poolNames.filter(p=>p!==currentReadyPool).map(p=>`<span style="cursor:pointer;color:var(--blue);font-weight:600;margin-left:6px" onclick="switchReadyPool('${escH(p).replace(/'/g,"\\'")}')">${escH(p)} (${grouped[p].length})</span>`).join('')}</div>` : ''}
+        ${otpHtml}
+      </div>
+    </div>`;
+  document.getElementById('readyCard').innerHTML = html;
+}
+
+function switchReadyPool(poolName) {
+  currentReadyPool = poolName;
+  loadReadyNumbers();
+}
+
+async function doChangeNumber(id, poolName) {
+  try {
+    const res = await fetch(`${API}/api/saved/${id}/next-number`, {method:'POST', credentials:'include'});
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`✅ New number: ${data.number}`);
+      delete savedOtps[data.number];
+      await triggerSavedMonitor(data.number);
+      loadReadyNumbers();
+    } else { showToast(data.detail || 'No more numbers in this pool'); }
+  } catch(e) { showToast('Network error'); }
 }
 
 async function triggerSavedMonitor(number) {
-    try {
-        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({number})});
-        if (res.ok) showToast('👁️ Monitoring started…');
-    } catch(e) {}
+  try {
+    const res = await fetch(`${API}/api/saved/trigger-monitor`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({number})
+    });
+    if (res.ok) showToast('👁️ Monitoring started...');
+  } catch {}
 }
 
-async function openSwitchPool(id, number, currentPool) {
-    changeTargetId = id;
-    document.getElementById('changePoolCurrentNum').textContent = number;
-    const select = document.getElementById('changePoolSelect');
-    select.innerHTML = '<option>Loading pools…</option>';
+async function openChangePoolModal(id, number, currentPool) {
+  changeTargetId = id;
+  document.getElementById('changePoolCurrentNum').textContent = number;
+  try {
+    const res = await fetch(`${API}/api/saved/ready-pools`, {credentials:'include'});
+    const pools = await res.json();
+    const opts = pools.filter(p => p.pool_name !== currentPool && p.count > 0);
+    if (!opts.length) { showToast('No other pools with available numbers'); return; }
+    document.getElementById('changePoolSelect').innerHTML = opts.map(p => `<option value="${escH(p.pool_name)}">${escH(p.pool_name)} (${p.count} available)</option>`).join('');
     document.getElementById('changePoolModal').classList.add('show');
-    try {
-        // Show only other ready pools (pools that have ready numbers)
-        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, {credentials:'include'});
-        const readyPools = await res.json();
-        const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
-        if (!options.length) {
-            select.innerHTML = '<option disabled>No other ready pools available</option>';
-            return;
-        }
-        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
-    } catch(e) { select.innerHTML = '<option disabled>Failed to load pools</option>'; }
+  } catch(e) { showToast('Failed to load pools'); }
 }
+
+function closeChangePoolModal() { document.getElementById('changePoolModal').classList.remove('show'); }
 
 async function submitSwitchPool() {
-    const newPool = document.getElementById('changePoolSelect').value;
-    if (!newPool) { showToast('Select a pool'); return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, {method:'POST',credentials:'include'});
-        const data = await res.json();
-        if (res.ok) {
-            showToast(`✅ Switched to ${newPool}: ${data.number}`);
-            document.getElementById('changePoolModal').classList.remove('show');
-            selectedReadyPool = newPool; // auto-select the switched pool
-            await triggerSavedMonitor(data.number);
-            loadReadyNumbers();
-        } else { showToast(data.detail || 'Switch failed'); }
-    } catch(e) { showToast('Network error'); }
+  const newPool = document.getElementById('changePoolSelect').value;
+  if (!newPool) { showToast('Select a pool'); return; }
+  try {
+    const res = await fetch(`${API}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, {method:'POST', credentials:'include'});
+    const data = await res.json();
+    if (res.ok) {
+      currentReadyPool = newPool;
+      showToast(`✅ Switched to ${newPool}: ${data.number}`);
+      closeChangePoolModal();
+      await triggerSavedMonitor(data.number);
+      loadReadyNumbers();
+    } else { showToast(data.detail || 'Switch failed'); }
+  } catch(e) { showToast('Network error'); }
 }
 
-async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`,{method:'DELETE',credentials:'include'}); loadSavedNumbers(); }
+async function loadPendingNumbers() {
+  try {
+    const res = await fetch(`${API}/api/saved`, {credentials:'include'});
+    const data = await res.json();
+    const pending = data.filter(item => !item.moved);
+    const section = document.getElementById('pendingSection');
+    const container = document.getElementById('pendingList');
 
-// ── HISTORY ──
+    if (!pending.length) {
+      section.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+
+    section.style.display = 'block';
+
+    // Group by pool_name
+    const grouped = {};
+    pending.forEach(item => {
+      if (!grouped[item.pool_name]) grouped[item.pool_name] = {items: [], minSec: Infinity, status: 'green'};
+      grouped[item.pool_name].items.push(item);
+      if (item.seconds_left < grouped[item.pool_name].minSec) {
+        grouped[item.pool_name].minSec = item.seconds_left;
+        grouped[item.pool_name].status = item.status;
+      }
+    });
+
+    container.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
+      const count = g.items.length;
+      const badgeClass = g.status === 'red' ? 'badge-red' : (g.status === 'yellow' ? 'badge-amber' : 'badge-green');
+      const timeStr = g.status === 'expired' ? 'Expiring...' : formatCountdown(g.minSec);
+      const ids = g.items.map(i => i.id);
+      return `
+        <div class="pending-pool">
+          <div class="pending-pool-header">
+            <div>
+              <div class="pending-pool-name">📦 ${escH(poolName)}</div>
+              <div class="pending-pool-count">${count} number${count!==1?'s':''} pending</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge ${badgeClass}">⏱ ${timeStr}</span>
+              <button onclick="deleteSavedPool(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="background:none;border:none;cursor:pointer;font-size:18px" title="Delete pool">🗑️</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Start countdown updates
+    startCountdownUpdates();
+  } catch {}
+}
+
+let countdownInterval = null;
+function startCountdownUpdates() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    // Just reload saved page every 60s
+  }, 60000);
+}
+
+async function saveNumbers() {
+  const raw = document.getElementById('savedNumbersInput').value;
+  const numbers = raw.split('\n').map(l => l.trim()).filter(l => l);
+  const timerRaw = document.getElementById('timerInput').value.trim();
+  const timerMinutes = parseTimer(timerRaw);
+  const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
+  if (!numbers.length) { showToast('Enter at least one number'); return; }
+  try {
+    const res = await fetch(`${API}/api/saved`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({numbers, timer_minutes: timerMinutes, pool_name: poolName})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`✅ Saved ${data.saved} number${data.saved!==1?'s':''} to "${poolName}" pool`);
+      document.getElementById('savedNumbersInput').value = '';
+      loadSavedPage();
+    } else { showToast(data.detail || 'Failed to save'); }
+  } catch(e) { showToast('Network error'); }
+}
+
+async function deleteSavedPool(ids) {
+  if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
+  for (const id of ids) {
+    try { await fetch(`${API}/api/saved/${id}`, {method:'DELETE', credentials:'include'}); } catch {}
+  }
+  loadSavedPage();
+}
+
+// ── HISTORY ────────────────────────────────────────────────────────────────
 async function loadHistory() {
-    try {
-        const res = await fetch(`${API_BASE}/api/otp/my`, {credentials:'include'});
-        const data = await res.json();
-        const container = document.getElementById('historyList');
-        if (!data.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No OTP history yet</div></div>'; return; }
-        container.innerHTML = data.map(item => `<div class="history-item">
-            <div class="history-num">${escapeHtml(item.number)}</div>
-            <div class="history-otp" onclick="copyText('${escapeHtml(item.otp_code)}')">${escapeHtml(item.otp_code)} 📋</div>
-            <div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div>
-        </div>`).join('');
-    } catch(e) {}
+  try {
+    const res = await fetch(`${API}/api/otp/my`, {credentials:'include'});
+    const data = await res.json();
+    const container = document.getElementById('historyList');
+    if (!data.length) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No OTP history yet</div></div>';
+      return;
+    }
+    container.innerHTML = data.map(item => `
+      <div class="history-item">
+        <div class="history-num">${escH(item.number)}</div>
+        <div class="history-otp" onclick="copyText('${escH(item.otp_code)}')">${escH(item.otp_code)} 📋</div>
+        <div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div>
+      </div>`).join('');
+  } catch {}
 }
 
-// ── CUSTOM BUTTONS ──
-async function loadCustomButtons() {
-    try {
-        const res = await fetch(`${API_BASE}/api/buttons`, {credentials:'include'});
-        const buttons = await res.json();
-        const container = document.getElementById('customButtonsList');
-        if (!buttons.length) { container.innerHTML = ''; return; }
-        container.innerHTML = buttons.map(b => `<a href="${escapeHtml(b.url)}" target="_blank" style="display:flex;align-items:center;justify-content:space-between;background:white;padding:14px 16px;border-radius:var(--radius);border:1.5px solid var(--gray-200);margin-bottom:10px;text-decoration:none;box-shadow:var(--shadow-sm);transition:all .2s;">
-            <span style="font-size:14px;font-weight:600;color:var(--gray-900);">${escapeHtml(b.label)}</span>
-            <span style="color:var(--blue);">→</span>
-        </a>`).join('');
-    } catch(e) {}
+// ── ADMIN ──────────────────────────────────────────────────────────────────
+const ADMIN_SECTIONS = ['stats','users','bad','reviews','broadcast','settings','buttons','access'];
+
+function adminView(section) {
+  const content = document.getElementById('adminContent');
+  const inner = document.getElementById('adminContentInner');
+  content.style.display = 'block';
+
+  if (section === 'stats') {
+    fetch(`${API}/api/admin/stats`, {credentials:'include'}).then(r=>r.json()).then(s => {
+      inner.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${[['👥 Users',s.total_users,'blue'],['⏳ Pending',s.pending_approval,'amber'],
+           ['🌍 Pools',s.total_pools,'blue'],['📞 Numbers',s.total_numbers,'green'],
+           ['🔑 OTPs',s.total_otps,'green'],['🚫 Bad',s.bad_numbers,'red'],
+           ['💾 Saved',s.saved_numbers,'blue'],['🟢 Online',s.online_users,'green']
+        ].map(([label,val,color])=>`<div style="background:var(--bg);border-radius:14px;padding:14px;border:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--text3)">${label}</div>
+          <div style="font-size:24px;font-weight:800;color:var(--${color==='green'?'green':color==='red'?'red':'blue'})">${val}</div>
+        </div>`).join('')}
+      </div>`;
+    });
+  } else if (section === 'users') {
+    fetch(`${API}/api/admin/users`, {credentials:'include'}).then(r=>r.json()).then(users => {
+      inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">👥 Users (${users.length})</div>` +
+        (users.length ? users.map(u => {
+          const status = u.is_admin ? '👑 Admin' : (u.is_blocked ? '🚫 Blocked' : (u.is_approved ? '✅ Active' : '⏳ Pending'));
+          const approveBtn = (!u.is_approved && !u.is_blocked && !u.is_admin) ? `<button class="btn btn-green btn-xs" onclick="adminApprove(${u.id})">Approve</button>` : '';
+          const blockBtn = u.is_admin ? '' : (u.is_blocked ? `<button class="btn btn-blue btn-xs" onclick="adminToggleUser(${u.id},false)">Unblock</button>` : `<button class="btn btn-red btn-xs" onclick="adminToggleUser(${u.id},true)">Block</button>`);
+          const denyBtn = (!u.is_approved && !u.is_blocked && !u.is_admin) ? `<button class="btn btn-ghost btn-xs" onclick="adminDeny(${u.id})">Deny</button>` : '';
+          return `<div class="list-item">
+            <div><div class="item-title">${escH(u.username)}</div><div class="item-sub">ID: ${u.id} · ${status}</div></div>
+            <div class="btn-row">${approveBtn}${denyBtn}${blockBtn}</div>
+          </div>`;
+        }).join('') : '<div class="empty-state">No users found</div>');
+    });
+  } else if (section === 'bad') {
+    fetch(`${API}/api/admin/bad-numbers`, {credentials:'include'}).then(r=>r.json()).then(bad => {
+      inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">🚫 Bad Numbers (${bad.length})</div>` +
+        (bad.length ? bad.map(b => `<div class="list-item">
+          <div><div class="item-title mono">${escH(b.number)}</div><div class="item-sub">${escH(b.reason||'')}</div></div>
+          <button class="btn btn-blue btn-xs" onclick="adminRemoveBad('${escH(b.number)}')">Remove</button>
+        </div>`).join('') : '<div class="empty-state">No bad numbers 🎉</div>');
+    });
+  } else if (section === 'reviews') {
+    fetch(`${API}/api/admin/reviews`, {credentials:'include'}).then(r=>r.json()).then(reviews => {
+      inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">⭐ Reviews (${reviews.length})</div>` +
+        (reviews.length ? reviews.map(r => `<div class="list-item">
+          <div><div class="item-title mono">${escH(r.number)}</div><div class="item-sub">${'⭐'.repeat(Math.max(0,r.rating))} · ${escH(r.comment||'No comment')}</div></div>
+        </div>`).join('') : '<div class="empty-state">No reviews yet</div>');
+    });
+  } else if (section === 'broadcast') {
+    inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">📢 Broadcast Message</div>
+      <div class="fg"><label>Message</label><textarea id="broadcastMsg" rows="4" placeholder="Type your message..."></textarea></div>
+      <button class="btn btn-blue" onclick="sendBroadcast()">Send to All Users</button>`;
+  } else if (section === 'settings') {
+    fetch(`${API}/api/admin/stats`, {credentials:'include'}).then(() => {
+      inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">⚙️ Settings</div>
+        <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON — New users need approval</option><option value="off">OFF — All users can access</option></select></div>
+        <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: t.me/earnplusz</option></select></div>
+        <button class="btn btn-blue" onclick="saveSettings()">Save Settings</button>`;
+    });
+  } else if (section === 'buttons') {
+    loadAdminButtons();
+  } else if (section === 'access') {
+    loadPoolAccessAdmin();
+  }
 }
 
-// ── ADMIN ──
-let currentEditPoolId = null;
+async function adminApprove(userId) {
+  await fetch(`${API}/api/admin/users/${userId}/approve`, {method:'POST', credentials:'include'});
+  showToast('✅ User approved'); adminView('users');
+}
+async function adminDeny(userId) {
+  await fetch(`${API}/api/admin/users/${userId}/deny`, {method:'POST', credentials:'include'});
+  showToast('User denied'); adminView('users');
+}
+async function adminToggleUser(userId, block) {
+  const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
+  await fetch(`${API}${url}`, {method:'POST', credentials:'include'});
+  showToast(block ? '🚫 User blocked' : '✅ User unblocked'); adminView('users');
+}
+async function adminRemoveBad(number) {
+  await fetch(`${API}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, {method:'DELETE', credentials:'include'});
+  showToast('Removed from bad numbers'); adminView('bad');
+}
+async function sendBroadcast() {
+  const msg = document.getElementById('broadcastMsg').value.trim();
+  if (!msg) { showToast('Enter a message'); return; }
+  const res = await fetch(`${API}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, {method:'POST', credentials:'include'});
+  if (res.ok) { showToast('📢 Broadcast sent!'); document.getElementById('broadcastMsg').value = ''; }
+  else showToast('Broadcast failed');
+}
+async function saveSettings() {
+  const approval = document.getElementById('approvalMode').value;
+  const redirect = document.getElementById('otpRedirect').value;
+  await fetch(`${API}/api/admin/settings/approval?enabled=${approval==='on'}`, {method:'POST', credentials:'include'});
+  await fetch(`${API}/api/admin/settings/otp-redirect?mode=${redirect}`, {method:'POST', credentials:'include'});
+  showToast('✅ Settings saved');
+}
+
+// Admin custom buttons
+async function loadAdminButtons() {
+  const inner = document.getElementById('adminContentInner');
+  try {
+    const res = await fetch(`${API}/api/buttons`, {credentials:'include'});
+    const btns = await res.json();
+    inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">🔗 Custom Buttons</div>
+      ${btns.map(b=>`<div class="list-item"><div><div class="item-title">${escH(b.label)}</div><div class="item-sub">${escH(b.url)}</div></div><button class="btn btn-red btn-xs" onclick="adminDeleteButton(${b.id})">Delete</button></div>`).join('')}
+      <div style="margin-top:14px">
+        <div class="fg"><label>Label</label><input type="text" id="newBtnLabel" placeholder="e.g. 📢 Join Channel"></div>
+        <div class="fg"><label>URL</label><input type="text" id="newBtnUrl" placeholder="https://..."></div>
+        <button class="btn btn-blue" onclick="adminAddButton()">Add Button</button>
+      </div>`;
+  } catch { inner.innerHTML = 'Failed to load'; }
+}
+
+async function adminAddButton() {
+  const label = document.getElementById('newBtnLabel').value.trim();
+  const url = document.getElementById('newBtnUrl').value.trim();
+  if (!label || !url) { showToast('Fill in both fields'); return; }
+  await fetch(`${API}/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, {method:'POST', credentials:'include'});
+  showToast('Button added'); loadAdminButtons(); loadCustomButtons();
+}
+async function adminDeleteButton(id) {
+  await fetch(`${API}/api/admin/buttons/${id}`, {method:'DELETE', credentials:'include'});
+  showToast('Button deleted'); loadAdminButtons(); loadCustomButtons();
+}
+
+async function loadPoolAccessAdmin() {
+  const inner = document.getElementById('adminContentInner');
+  try {
+    const poolsRes = await fetch(`${API}/api/pools`, {credentials:'include'});
+    const pools = await poolsRes.json();
+    inner.innerHTML = `<div style="font-weight:700;margin-bottom:12px;font-size:16px">🔒 Pool Access Control</div>
+      <div class="fg"><label>Pool</label><select id="accessPoolSelect">${pools.map(p=>`<option value="${p.id}">${escH(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>User ID</label><input type="number" id="accessUserId" placeholder="User ID"></div>
+      <div class="btn-row">
+        <button class="btn btn-blue btn-sm" onclick="adminGrantAccess()">Grant Access</button>
+        <button class="btn btn-red btn-sm" onclick="adminRevokeAccess()">Revoke Access</button>
+      </div>`;
+  } catch { inner.innerHTML = 'Failed to load'; }
+}
+
+async function adminGrantAccess() {
+  const poolId = document.getElementById('accessPoolSelect').value;
+  const userId = document.getElementById('accessUserId').value;
+  if (!poolId || !userId) { showToast('Fill all fields'); return; }
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/access/${userId}`, {method:'POST', credentials:'include'});
+  if (res.ok) showToast('✅ Access granted');
+  else showToast((await res.json()).detail || 'Failed');
+}
+async function adminRevokeAccess() {
+  const poolId = document.getElementById('accessPoolSelect').value;
+  const userId = document.getElementById('accessUserId').value;
+  if (!poolId || !userId) { showToast('Fill all fields'); return; }
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/access/${userId}`, {method:'DELETE', credentials:'include'});
+  if (res.ok) showToast('✅ Access revoked');
+  else showToast((await res.json()).detail || 'Failed');
+}
+
+// ── POOL MANAGEMENT ────────────────────────────────────────────────────────
+async function loadAdminPools() {
+  try {
+    const res = await fetch(`${API}/api/pools`, {credentials:'include'});
+    if (!res.ok) throw new Error();
+    const pools = await res.json();
+    const container = document.getElementById('poolsList');
+    if (!pools.length) { container.innerHTML = '<div class="loading-text">No pools — create one above</div>'; return; }
+    container.innerHTML = pools.map(p => `
+      <div class="list-item column" style="margin:6px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div class="item-title">${escH(p.name)} <span style="font-size:12px;color:var(--text3)">(+${escH(p.country_code)})</span>${p.is_admin_only?'<span class="badge badge-blue" style="margin-left:6px">🔒 Admin</span>':''}</div>
+            <div class="item-sub">${p.number_count} numbers · Mode: ${p.uses_platform} · Format: ${escH(p.match_format)}${p.is_paused?` · <span style="color:var(--red)">⏸ Paused</span>`:''}</div>
+            ${p.trick_text?`<div style="font-size:11px;color:var(--amber);margin-top:3px">💡 ${escH(p.trick_text)}</div>`:''}
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-blue btn-xs" onclick="openEditPoolModal(${p.id})">✏️</button>
+            <button class="btn btn-red btn-xs" onclick="deletePool(${p.id},'${escH(p.name).replace(/'/g,"\\'")}')">🗑️</button>
+          </div>
+        </div>
+        <div class="btn-row" style="flex-wrap:wrap">
+          <button class="btn btn-ghost btn-xs" onclick="cutPoolNumbers(${p.id})">✂️ Cut</button>
+          <button class="btn btn-ghost btn-xs" onclick="exportPool(${p.id})">📤 Export</button>
+          <button class="btn btn-red btn-xs" onclick="clearPool(${p.id},'${escH(p.name).replace(/'/g,"\\'")}')">🧹 Clear</button>
+          <button class="btn btn-ghost btn-xs" onclick="${p.is_paused?`resumePool(${p.id})`:`pausePool(${p.id})`}">${p.is_paused?'▶ Resume':'⏸ Pause'}</button>
+          <button class="btn btn-ghost btn-xs" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Public':'🔒 Admin Only'}</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { document.getElementById('poolsList').innerHTML = '<div class="loading-text">Failed to load pools</div>'; }
+}
 
 function openCreatePoolModal() {
-    currentEditPoolId = null;
-    document.getElementById('poolModalTitle').textContent = 'Create New Pool';
-    ['poolName','poolCode','poolGroupId','poolOtpLink','poolTelegramMatchFormat','poolTrickText','poolPauseReason'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('poolMatchFormat').value = '5+4';
-    document.getElementById('poolUsesPlatform').value = '0';
-    document.getElementById('poolAdminOnly').checked = false;
-    document.getElementById('poolPaused').checked = false;
-    document.getElementById('pauseReasonDiv').style.display = 'none';
+  currentEditPoolId = null;
+  document.getElementById('poolModalTitle').textContent = 'Create New Pool';
+  ['poolName','poolCode','poolGroupId','poolOtpLink','poolTrickText','poolPauseReason'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('poolMatchFormat').value = '5+4';
+  document.getElementById('poolTelegramMatchFormat').value = '';
+  document.getElementById('poolUsesPlatform').value = '0';
+  document.getElementById('poolAdminOnly').checked = false;
+  document.getElementById('poolPaused').checked = false;
+  document.getElementById('pauseReasonDiv').style.display = 'none';
+  document.getElementById('poolModal').classList.add('show');
+}
+
+async function openEditPoolModal(poolId) {
+  currentEditPoolId = poolId;
+  try {
+    const res = await fetch(`${API}/api/pools`, {credentials:'include'});
+    const pools = await res.json();
+    const pool = pools.find(p => p.id === poolId);
+    if (!pool) return;
+    document.getElementById('poolModalTitle').textContent = `Edit: ${pool.name}`;
+    document.getElementById('poolName').value = pool.name;
+    document.getElementById('poolCode').value = pool.country_code;
+    document.getElementById('poolGroupId').value = pool.otp_group_id || '';
+    document.getElementById('poolOtpLink').value = pool.otp_link || '';
+    document.getElementById('poolMatchFormat').value = pool.match_format || '5+4';
+    document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || '';
+    document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0;
+    document.getElementById('poolTrickText').value = pool.trick_text || '';
+    document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false;
+    document.getElementById('poolPaused').checked = pool.is_paused || false;
+    document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none';
+    document.getElementById('poolPauseReason').value = pool.pause_reason || '';
     document.getElementById('poolModal').classList.add('show');
+  } catch(e) { showToast('Failed to load pool data'); }
+}
+
+async function savePool() {
+  const data = {
+    name: document.getElementById('poolName').value.trim(),
+    country_code: document.getElementById('poolCode').value.trim(),
+    otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
+    otp_link: document.getElementById('poolOtpLink').value.trim(),
+    match_format: document.getElementById('poolMatchFormat').value.trim() || '5+4',
+    telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
+    uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
+    trick_text: document.getElementById('poolTrickText').value.trim(),
+    is_admin_only: document.getElementById('poolAdminOnly').checked,
+    is_paused: document.getElementById('poolPaused').checked,
+    pause_reason: document.getElementById('poolPauseReason').value.trim()
+  };
+  if (!data.name || !data.country_code) { showToast('Pool name and country code are required'); return; }
+  try {
+    const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
+    const method = currentEditPoolId ? 'PUT' : 'POST';
+    const res = await fetch(`${API}${url}`, {method, headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify(data)});
+    if (res.ok) {
+      showToast(currentEditPoolId ? '✅ Pool updated!' : '✅ Pool created!');
+      closePoolModal(); loadAdminPools(); loadRegions();
+    } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool'); }
+  } catch(e) { showToast('Network error'); }
 }
 
 function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); }
 
-async function savePool() {
-    const body = {
-        name: document.getElementById('poolName').value.trim(),
-        country_code: document.getElementById('poolCode').value.trim(),
-        otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
-        otp_link: document.getElementById('poolOtpLink').value.trim(),
-        match_format: document.getElementById('poolMatchFormat').value.trim() || '5+4',
-        telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
-        uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
-        trick_text: document.getElementById('poolTrickText').value.trim(),
-        is_admin_only: document.getElementById('poolAdminOnly').checked,
-        is_paused: document.getElementById('poolPaused').checked,
-        pause_reason: document.getElementById('poolPauseReason').value.trim()
-    };
-    if (!body.name || !body.country_code) { showToast('Name and country code are required'); return; }
-    const url = currentEditPoolId ? `${API_BASE}/api/admin/pools/${currentEditPoolId}` : `${API_BASE}/api/admin/pools`;
-    const method = currentEditPoolId ? 'PUT' : 'POST';
-    try {
-        const res = await fetch(url, {method,headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)});
-        const data = await res.json();
-        if (res.ok) { showToast(currentEditPoolId ? '✅ Pool updated' : '✅ Pool created'); closePoolModal(); loadAdminPools(); loadRegions(); }
-        else { showToast(data.detail || 'Failed to save pool'); }
-    } catch(e) { showToast('Network error'); }
+async function cutPoolNumbers(poolId) {
+  const count = prompt('How many numbers to cut from the top?');
+  if (!count || isNaN(parseInt(count))) return;
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, {method:'POST', credentials:'include'});
+  const data = await res.json();
+  if (res.ok) { showToast(`✂️ Removed ${data.removed} numbers`); loadAdminPools(); }
+  else showToast(data.detail || 'Cut failed');
 }
 
-function openUploadModal() {
-    fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
-        document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-    });
+function exportPool(poolId) { window.open(`${API}/api/admin/pools/${poolId}/export`, '_blank'); }
+
+async function clearPool(poolId, poolName) {
+  if (!confirm(`⚠️ Clear ALL numbers from "${poolName}"?`)) return;
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/clear`, {method:'POST', credentials:'include'});
+  const data = await res.json();
+  if (res.ok) { showToast(`🧹 Cleared ${data.deleted} numbers`); loadAdminPools(); }
+  else showToast(data.detail || 'Clear failed');
+}
+
+async function pausePool(poolId) {
+  const reason = prompt('Pause reason (optional):') || '';
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {method:'POST', credentials:'include'});
+  if (res.ok) { showToast('⏸ Pool paused'); loadAdminPools(); }
+  else showToast('Failed');
+}
+
+async function resumePool(poolId) {
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/resume`, {method:'POST', credentials:'include'});
+  if (res.ok) { showToast('▶ Pool resumed'); loadAdminPools(); }
+  else showToast('Failed');
+}
+
+async function toggleAdminOnly(poolId) {
+  const res = await fetch(`${API}/api/admin/pools/${poolId}/toggle-admin-only`, {method:'POST', credentials:'include'});
+  const data = await res.json();
+  if (res.ok) { showToast(data.is_admin_only ? '🔒 Now Admin Only' : '🔓 Now Public'); loadAdminPools(); }
+  else showToast('Toggle failed');
+}
+
+async function deletePool(poolId, poolName) {
+  if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers?`)) return;
+  try {
+    const res = await fetch(`${API}/api/admin/pools/${poolId}`, {method:'DELETE', credentials:'include'});
+    if (res.ok) { showToast(`Pool "${poolName}" deleted`); loadAdminPools(); loadRegions(); }
+    else showToast('Failed to delete pool');
+  } catch(e) { showToast('Network error'); }
+}
+
+async function openUploadModal() {
+  try {
+    const res = await fetch(`${API}/api/pools`, {credentials:'include'});
+    const pools = await res.json();
+    document.getElementById('uploadPoolSelect').innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p=>`<option value="${p.id}">${escH(p.name)} (+${p.country_code}) — ${p.number_count} numbers</option>`).join('');
+    document.getElementById('uploadResult').innerHTML = '';
+    document.getElementById('uploadFile').value = '';
     document.getElementById('uploadModal').classList.add('show');
+  } catch(e) { showToast('Failed to load pools'); }
 }
 
 function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); }
 
 async function uploadNumbers() {
-    const poolId = document.getElementById('uploadPoolSelect').value;
-    const file = document.getElementById('uploadFile').files[0];
-    if (!file) { showToast('Select a file first'); return; }
-    const form = new FormData(); form.append('file', file);
-    const resultDiv = document.getElementById('uploadResult');
-    resultDiv.textContent = 'Uploading…';
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/upload`, {method:'POST',credentials:'include',body:form});
-        const data = await res.json();
-        if (res.ok) { resultDiv.textContent = `✅ Added ${data.added}, skipped bad: ${data.skipped_bad}, cooldown: ${data.skipped_cooldown}, duplicates: ${data.duplicates}`; loadAdminPools(); loadRegions(); }
-        else { resultDiv.textContent = data.detail || 'Upload failed'; }
-    } catch(e) { resultDiv.textContent = 'Network error'; }
+  const poolId = document.getElementById('uploadPoolSelect').value;
+  const fileInput = document.getElementById('uploadFile');
+  if (!poolId) { showToast('Select a pool'); return; }
+  if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file'); return; }
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  try {
+    const res = await fetch(`${API}/api/admin/pools/${poolId}/upload`, {method:'POST', credentials:'include', body:formData});
+    const data = await res.json();
+    if (res.ok) {
+      document.getElementById('uploadResult').innerHTML = `<div style="background:#e6fff2;border-radius:12px;padding:14px;border:1px solid #b8f0d4;margin-top:8px">
+        ✅ Added: <strong>${data.added}</strong><br>
+        🚫 Bad skipped: ${data.skipped_bad}<br>
+        ⏳ Cooldown skipped: ${data.skipped_cooldown}<br>
+        🔁 Duplicates: ${data.duplicates}
+      </div>`;
+      showToast(`${data.added} numbers uploaded!`); loadAdminPools();
+    } else { showToast(data.detail || 'Upload failed'); }
+  } catch(e) { showToast('Network error'); }
 }
 
-async function loadAdminStats() {
-    hideAllAdminPanels();
-    const div = document.getElementById('adminStatsDiv');
-    div.style.display = 'block';
-    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/stats`, {credentials:'include'});
-        const d = await res.json();
-        div.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            ${Object.entries(d).map(([k,v])=>`<div style="text-align:center;"><div style="font-size:22px;font-weight:800;color:var(--blue);">${v}</div><div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;">${k.replace(/_/g,' ')}</div></div>`).join('')}
-        </div>`;
-    } catch(e) { div.innerHTML = 'Failed to load stats'; }
-}
-
-async function editPool(poolId) {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        const pools = await res.json();
-        const p = pools.find(x => x.id === poolId);
-        if (!p) return;
-        currentEditPoolId = poolId;
-        document.getElementById('poolModalTitle').textContent = 'Edit Pool';
-        document.getElementById('poolName').value = p.name;
-        document.getElementById('poolCode').value = p.country_code;
-        document.getElementById('poolGroupId').value = p.otp_group_id || '';
-        document.getElementById('poolOtpLink').value = p.otp_link || '';
-        document.getElementById('poolMatchFormat').value = p.match_format || '5+4';
-        document.getElementById('poolTelegramMatchFormat').value = p.telegram_match_format || '';
-        document.getElementById('poolUsesPlatform').value = p.uses_platform || 0;
-        document.getElementById('poolTrickText').value = p.trick_text || '';
-        document.getElementById('poolAdminOnly').checked = !!p.is_admin_only;
-        document.getElementById('poolPaused').checked = !!p.is_paused;
-        document.getElementById('pauseReasonDiv').style.display = p.is_paused ? 'block' : 'none';
-        document.getElementById('poolPauseReason').value = p.pause_reason || '';
-        document.getElementById('poolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pool data'); }
-}
-
-async function deletePool(poolId) {
-    if (!confirm('Delete this pool and ALL its numbers? This cannot be undone.')) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, {method:'DELETE',credentials:'include'});
-        if (res.ok) { showToast('✅ Pool deleted'); loadAdminPools(); loadRegions(); }
-        else { const d = await res.json(); showToast(d.detail || 'Delete failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-async function pausePool(poolId) {
-    const reason = prompt('Pause reason (optional):') || '';
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {method:'POST',credentials:'include'});
-    if (res.ok) { showToast('Pool paused'); loadAdminPools(); loadRegions(); }
-    else { showToast('Failed'); }
-}
-
-async function resumePool(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, {method:'POST',credentials:'include'});
-    if (res.ok) { showToast('Pool resumed'); loadAdminPools(); loadRegions(); }
-    else { showToast('Failed'); }
-}
-
-async function loadBadNumbers() {
-    hideAllAdminPanels();
-    const div = document.getElementById('adminBadDiv');
-    div.style.display = 'block';
-    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/bad-numbers`, {credentials:'include'});
-        const nums = await res.json();
-        if (!nums.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No bad numbers</div></div>'; return; }
-        div.innerHTML = nums.map(n=>`<div class="saved-item">
-            <div><div class="saved-num">${escapeHtml(n.number)}</div><div style="font-size:11px;color:var(--gray-400);margin-top:2px;">${escapeHtml(n.reason)}</div></div>
-            <button class="btn btn-sm btn-secondary" onclick="removeBadNum('${escapeHtml(n.number)}')">Remove</button>
-        </div>`).join('');
-    } catch(e) { div.innerHTML = 'Failed'; }
-}
-
-async function removeBadNum(number) { await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`,{method:'DELETE',credentials:'include'}); loadBadNumbers(); }
-
-async function loadReviews() {
-    hideAllAdminPanels();
-    const div = document.getElementById('adminReviewsDiv');
-    div.style.display = 'block';
-    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/reviews`, {credentials:'include'});
-        const reviews = await res.json();
-        if (!reviews.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No reviews yet</div></div>'; return; }
-        div.innerHTML = reviews.map(r=>`<div class="card" style="margin-bottom:8px;">
-            <div style="font-family:monospace;font-weight:700;color:var(--blue);">${escapeHtml(r.number)}</div>
-            <div style="font-size:13px;margin-top:4px;">Rating: ${'⭐'.repeat(r.rating)}</div>
-            ${r.comment?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;">${escapeHtml(r.comment)}</div>`:''}
-        </div>`).join('');
-    } catch(e) { div.innerHTML = 'Failed'; }
-}
-
-
-function showBroadcast() {
-    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminSettingsDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-    document.getElementById('adminBroadcastDiv').style.display='block';
-}
-
-async function sendBroadcast() {
-    const msg = document.getElementById('broadcastMsg').value.trim();
-    if (!msg) { showToast('Enter a message'); return; }
-    await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`,{method:'POST',credentials:'include'});
-    showToast('Broadcast sent'); document.getElementById('broadcastMsg').value='';
-}
-
-function showSettings() {
-    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminBroadcastDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-    document.getElementById('adminSettingsDiv').style.display='block';
-}
-async function saveSettings() {
-    const ap = document.getElementById('approvalMode').value;
-    const otp = document.getElementById('otpRedirect').value;
-    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${ap==='on'}`,{method:'POST',credentials:'include'});
-    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${otp}`,{method:'POST',credentials:'include'});
-    showToast('Settings saved');
-}
-
-// ── EXPORT NUMBERS ──
-async function exportPool(poolId, poolName) {
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/export`, {credentials:'include'});
-        if (!res.ok) { showToast('Export failed'); return; }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `${poolName}_numbers.txt`; a.click();
-        URL.revokeObjectURL(url);
-        showToast('✅ Export downloaded');
-    } catch(e) { showToast('Network error'); }
-}
-
-// ── CUT NUMBERS ──
-async function cutPool(poolId, poolName) {
-    const count = prompt(`How many numbers to cut from "${poolName}"?`);
-    if (!count || isNaN(parseInt(count))) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, {method:'POST',credentials:'include'});
-        const d = await res.json();
-        if (res.ok) { showToast(`✅ Removed ${d.removed} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
-        else { showToast(d.detail || 'Cut failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-// ── CLEAR POOL ──
-async function clearPool(poolId, poolName) {
-    if (!confirm(`Clear ALL numbers from "${poolName}"? This cannot be undone.`)) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, {method:'POST',credentials:'include'});
-        const d = await res.json();
-        if (res.ok) { showToast(`✅ Cleared ${d.deleted} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
-        else { showToast(d.detail || 'Clear failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-// ── POOL ACCESS CONTROL ──
-async function managePoolAccess(poolId, poolName) {
-    const userId = prompt(`Grant/revoke access for pool "${poolName}".\nEnter user ID to GRANT access (or type "revoke:USER_ID" to revoke):`);
-    if (!userId) return;
-    if (userId.startsWith('revoke:')) {
-        const uid = parseInt(userId.split(':')[1]);
-        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'DELETE',credentials:'include'});
-        showToast(res.ok ? `✅ Access revoked for user ${uid}` : 'Failed');
-    } else {
-        const uid = parseInt(userId);
-        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'POST',credentials:'include'});
-        showToast(res.ok ? `✅ Access granted to user ${uid}` : 'Failed');
-    }
-    loadAdminPools();
-}
-
-// ── TOGGLE ADMIN ONLY ──
-async function toggleAdminOnly(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, {method:'POST',credentials:'include'});
-    if (res.ok) { showToast('✅ Updated'); loadAdminPools(); loadRegions(); }
-    else { showToast('Failed'); }
-}
-
-// ── ENHANCED loadAdminPools with all actions ──
-async function loadAdminPools() {
-    hideAllAdminPanels();
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        const pools = await res.json();
-        const container = document.getElementById('poolsList');
-        if (!pools.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No pools yet</div></div>'; return; }
-        container.innerHTML = pools.map(p => `
-            <div class="card" style="margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                    <div style="flex:1;">
-                        <div style="font-size:15px;font-weight:700;color:var(--gray-900);">${escapeHtml(p.name)} ${p.is_admin_only?'🔒':''}</div>
-                        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">+${escapeHtml(p.country_code)} · ${p.number_count} numbers · Format: ${escapeHtml(p.match_format)} · Mode: ${['Telegram','Platform','Both'][p.uses_platform]||'?'}</div>
-                        ${p.otp_group_id?`<div style="font-size:11px;color:var(--gray-500);margin-top:1px;">Group: ${p.otp_group_id}</div>`:''}
-                        ${p.trick_text?`<div style="font-size:11px;color:var(--yellow);margin-top:1px;">💡 ${escapeHtml(p.trick_text)}</div>`:''}
-                        ${p.is_paused?`<div style="font-size:11px;color:var(--red);margin-top:3px;">⏸ Paused: ${escapeHtml(p.pause_reason||'')}</div>`:''}
-                    </div>
-                    <span class="pool-count">${p.number_count}</span>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
-                    <button class="btn btn-sm btn-secondary" onclick="editPool(${p.id})">✏️ Edit</button>
-                    <button class="btn btn-sm btn-secondary" onclick="openUploadForPool(${p.id}, '${escapeHtml(p.name)}')">📁 Upload</button>
-                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id}, '${escapeHtml(p.name)}')">📤 Export</button>
-                    <button class="btn btn-sm btn-secondary" onclick="cutPool(${p.id}, '${escapeHtml(p.name)}')">✂️ Cut</button>
-                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name)}')">🧹 Clear</button>
-                    ${p.is_paused
-                        ? `<button class="btn btn-sm btn-green" onclick="resumePool(${p.id})">▶ Resume</button>`
-                        : `<button class="btn btn-sm btn-danger" onclick="pausePool(${p.id})">⏸ Pause</button>`}
-                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Public':'🔒 Admin Only'}</button>
-                    <button class="btn btn-sm btn-secondary" onclick="managePoolAccess(${p.id}, '${escapeHtml(p.name)}')">🔐 Access</button>
-                    <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id})">🗑 Delete</button>
-                </div>
-            </div>`).join('');
-    } catch(e) { document.getElementById('poolsList').innerHTML = 'Failed to load pools'; }
-}
-
-// ── ENHANCED loadUsersList with pending/approved tabs ──
-async function loadUsersList() {
-    hideAllAdminPanels();
-    const div = document.getElementById('adminUsersDiv');
-    div.style.display = 'block';
-    div.innerHTML = `
-        <div style="display:flex;gap:8px;padding:8px 0;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-primary" onclick="loadUsersTab('all')">All Users</button>
-            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('pending')">⏳ Pending</button>
-            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('approved')">✅ Approved</button>
-            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('blocked')">🚫 Blocked</button>
-        </div>
-        <div id="usersTabContent"><div class="loading"><div class="spinner"></div>Loading…</div></div>`;
-    loadUsersTab('all');
-}
-
-async function loadUsersTab(tab) {
-    const div = document.getElementById('usersTabContent');
-    if (!div) return;
-    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/users`, {credentials:'include'});
-        const users = await res.json();
-        let filtered = users;
-        if (tab === 'pending') filtered = users.filter(u => !u.is_approved && !u.is_blocked);
-        else if (tab === 'approved') filtered = users.filter(u => u.is_approved && !u.is_blocked);
-        else if (tab === 'blocked') filtered = users.filter(u => u.is_blocked);
-        if (!filtered.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users in this category</div></div>'; return; }
-        div.innerHTML = filtered.map(u => `<div class="card" style="margin-bottom:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <div style="font-weight:700;color:var(--gray-900);">${escapeHtml(u.username)} ${u.is_admin?'👑':''}</div>
-                    <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">ID: ${u.id} · Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
-                </div>
-                <div>${u.is_blocked?'<span class="badge-red">Blocked</span>':u.is_approved?'<span class="badge-green">Active</span>':'<span style="background:rgba(255,176,32,0.15);color:var(--yellow);padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;">Pending</span>'}</div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="approveUser(${u.id})">✅ Approve</button>` : ''}
-                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-danger" onclick="denyUser(${u.id})">❌ Deny</button>` : ''}
-                ${u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="unblockUser(${u.id})">🔓 Unblock</button>` : `<button class="btn btn-sm btn-danger" onclick="blockUser(${u.id})">🚫 Block</button>`}
-                ${u.is_approved ? `<button class="btn btn-sm btn-danger" onclick="revokeUser(${u.id})">🔒 Revoke</button>` : ''}
-            </div>
-        </div>`).join('');
-    } catch(e) { div.innerHTML = 'Failed to load users'; }
-}
-
-async function approveUser(id) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${id}/approve`,{method:'POST',credentials:'include'});
-    if (res.ok) { showToast('✅ User approved'); loadUsersTab('pending'); }
-    else { showToast('Failed'); }
-}
-async function denyUser(id) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
-    if (res.ok) { showToast('User denied'); loadUsersTab('pending'); }
-}
-async function blockUser(id) {
-    if (!confirm('Block this user?')) return;
-    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
-    if (res.ok) { showToast('User blocked'); loadUsersTab('all'); }
-}
-async function unblockUser(id) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${id}/unblock`,{method:'POST',credentials:'include'});
-    if (res.ok) { showToast('✅ User unblocked'); loadUsersTab('blocked'); }
-}
-async function revokeUser(id) {
-    if (!confirm('Revoke access for this user?')) return;
-    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
-    if (res.ok) { showToast('Access revoked'); loadUsersTab('approved'); }
-}
-
-function openUploadForPool(poolId, poolName) {
-    fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
-        document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}" ${p.id===poolId?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
-    });
-    document.getElementById('uploadModal').classList.add('show');
-}
-
-// ── ADMIN CUSTOM BUTTONS MANAGER ──
-function hideAllAdminPanels() {
-    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminBroadcastDiv','adminSettingsDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-}
-
-function loadAdminButtonsMgr() {
-    hideAllAdminPanels();
-    const div = document.getElementById('adminButtonsDiv');
-    div.style.display = 'block';
-    div.innerHTML = '<div class="card" style="margin-bottom:12px;">' +
-        '<div style="font-weight:700;font-size:14px;margin-bottom:12px;">➕ Add Custom Button</div>' +
-        '<div class="fg"><label>Button Label</label><input type="text" id="newBtnLabel" placeholder="e.g. 📢 Join Channel"></div>' +
-        '<div class="fg"><label>URL</label><input type="text" id="newBtnUrl" placeholder="https://t.me/..."></div>' +
-        '<button class="btn btn-primary" style="width:100%;" onclick="addAdminButton()">Add Button</button>' +
-        '</div>' +
-        '<div id="adminBtnList"><div class="loading"><div class="spinner"></div>Loading…</div></div>';
-    refreshAdminBtnList();
-}
-
-async function refreshAdminBtnList() {
-    try {
-        const res = await fetch(`${API_BASE}/api/buttons`, {credentials:'include'});
-        const buttons = await res.json();
-        const div = document.getElementById('adminBtnList');
-        if (!div) return;
-        if (!buttons.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">🔘</div><div class="empty-text">No buttons yet</div></div>'; return; }
-        div.innerHTML = buttons.map(b =>
-            '<div class="saved-item">' +
-            '<div><div style="font-weight:700;font-size:14px;">' + escapeHtml(b.label) + '</div>' +
-            '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;word-break:break-all;">' + escapeHtml(b.url) + '</div></div>' +
-            '<button class="btn btn-sm btn-danger" onclick="deleteAdminButton(' + b.id + ')">🗑 Delete</button>' +
-            '</div>'
-        ).join('');
-    } catch(e) {}
-}
-
-async function addAdminButton() {
-    const label = document.getElementById('newBtnLabel').value.trim();
-    const url = document.getElementById('newBtnUrl').value.trim();
-    if (!label || !url) { showToast('Enter label and URL'); return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, {method:'POST',credentials:'include'});
-        if (res.ok) { showToast('✅ Button added'); document.getElementById('newBtnLabel').value=''; document.getElementById('newBtnUrl').value=''; refreshAdminBtnList(); loadCustomButtons(); }
-        else { const d = await res.json(); showToast(d.detail || 'Failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-async function deleteAdminButton(id) {
-    if (!confirm('Delete this button?')) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/buttons/${id}`, {method:'DELETE',credentials:'include'});
-        if (res.ok) { showToast('✅ Deleted'); refreshAdminBtnList(); loadCustomButtons(); }
-        else { showToast('Failed to delete'); }
-    } catch(e) { showToast('Network error'); }
-}
+// ── INIT ───────────────────────────────────────────────────────────────────
+// Close modals when clicking backdrop
+['feedbackModal','changePoolModal','poolModal','uploadModal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', (e) => {
+    if (e.target.id === id) document.getElementById(id).classList.remove('show');
+  });
+});
 
 checkAuth();
 </script>
 </body>
 </html>'''
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  FASTAPI APP
+# ═════════════════════════════════════════════════════════════════════════════
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    asyncio.create_task(scheduler())
+    asyncio.create_task(_platform_stock_watcher())
+    log.info("✅ NEON GRID started")
+    yield
+
+app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
+    allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
+)
 
 @app.get("/")
 async def serve_frontend():
@@ -2680,10 +2293,7 @@ async def serve_frontend():
 def health():
     return {"status": "ok", "service": "NEON GRID NETWORK", "timestamp": utcnow().isoformat()}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  AUTH ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── AUTH ──────────────────────────────────────────────────────────────────────
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -2695,50 +2305,40 @@ class LoginRequest(BaseModel):
 @app.post("/api/auth/register")
 async def register(req: RegisterRequest):
     username = req.username.strip()
-    password = req.password
-    
     if len(username) < 3:
         raise HTTPException(400, "Username must be at least 3 characters")
-    if len(password) < 6:
+    if len(req.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
-    
     if SessionLocal:
         with SessionLocal() as db:
             if db.query(User).filter(User.username == username).first():
                 raise HTTPException(400, "Username already taken")
             is_first = db.query(User).count() == 0
-            user = User(
-                username=username,
-                password_hash=hash_password(password),
-                is_admin=is_first,
-                is_approved=is_first
-            )
+            user = User(username=username, password_hash=hash_password(req.password),
+                        is_admin=is_first, is_approved=is_first)
             db.add(user)
             db.commit()
             db.refresh(user)
             if is_first:
                 token = create_token(user.id)
+                store_token(user.id, token)
                 resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
                 resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
                 return resp
             return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
     else:
-        if username in [u["username"] for u in users.values()]:
+        if any(u["username"] == username for u in users.values()):
             raise HTTPException(400, "Username already taken")
-        is_first = len(users) == 0
-        user_id = _counters["user"]
+        is_first = len(users) == 1
+        uid = _counters["user"]
         _counters["user"] += 1
-        users[user_id] = {
-            "id": user_id,
-            "username": username,
-            "password_hash": hash_password(password),
-            "is_admin": is_first,
-            "is_approved": is_first,
-            "is_blocked": False
-        }
+        users[uid] = {"id": uid, "username": username, "password_hash": hash_password(req.password),
+                      "is_admin": is_first, "is_approved": is_first, "is_blocked": False,
+                      "created_at": utcnow().isoformat()}
         if is_first:
-            token = create_token(user_id)
-            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
+            token = create_token(uid)
+            store_token(uid, token)
+            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": uid})
             resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
             return resp
         return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
@@ -2746,74 +2346,73 @@ async def register(req: RegisterRequest):
 @app.post("/api/auth/login")
 async def login(req: LoginRequest):
     username = req.username.strip()
-    password = req.password
-    
     if SessionLocal:
         with SessionLocal() as db:
             user = db.query(User).filter(User.username == username).first()
-            if not user or not verify_password(password, user.password_hash):
+            if not user or not verify_password(req.password, user.password_hash):
                 raise HTTPException(401, "Invalid username or password")
             if user.is_blocked:
                 raise HTTPException(403, "Account blocked")
             if not user.is_approved:
                 raise HTTPException(403, "Account pending approval")
             token = create_token(user.id)
+            store_token(user.id, token)
             resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
             resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
             return resp
     else:
-        user = None
-        for u in users.values():
-            if u["username"] == username:
-                user = u
-                break
-        if not user or not verify_password(password, user["password_hash"]):
+        user = next((u for u in users.values() if u["username"] == username), None)
+        if not user or not verify_password(req.password, user["password_hash"]):
             raise HTTPException(401, "Invalid username or password")
         if user.get("is_blocked"):
             raise HTTPException(403, "Account blocked")
         if not user.get("is_approved"):
             raise HTTPException(403, "Account pending approval")
         token = create_token(user["id"])
+        store_token(user["id"], token)
         resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
         resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
         return resp
 
 @app.post("/api/auth/logout")
-def logout(token: str = Cookie(default=None)):
-    revoke_token(token)
+async def logout(token: str = Cookie(default=None)):
+    if token and SessionLocal:
+        with SessionLocal() as db:
+            db.query(UserSession).filter(UserSession.token == token).delete()
+            db.commit()
+    elif token:
+        sessions.pop(token, None)
     resp = JSONResponse({"ok": True})
-    resp.delete_cookie("token", path="/")
+    resp.delete_cookie("token")
     return resp
 
 @app.get("/api/auth/me")
-def me(token: str = Cookie(default=None)):
+async def me(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
+    return user
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POOLS ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── POOLS ─────────────────────────────────────────────────────────────────────
 @app.get("/api/pools")
 def list_pools(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
     if SessionLocal:
         with SessionLocal() as db:
+            query = db.query(Pool)
+            if not user["is_admin"]:
+                query = query.filter(Pool.is_admin_only == False)
+            pools_list = query.order_by(Pool.name).all()
             result = []
-            for p in db.query(Pool).all():
-                if p.is_admin_only and not user["is_admin"]:
-                    continue
+            for p in pools_list:
                 if not has_pool_access(p.id, user["id"]):
                     continue
                 count = db.query(ActiveNumber).filter(ActiveNumber.pool_id == p.id).count()
                 result.append({
                     "id": p.id, "name": p.name, "country_code": p.country_code,
-                    "otp_link": p.otp_link, "otp_group_id": p.otp_group_id,
+                    "otp_group_id": p.otp_group_id, "otp_link": p.otp_link,
                     "match_format": p.match_format, "telegram_match_format": p.telegram_match_format,
                     "uses_platform": p.uses_platform, "is_paused": p.is_paused,
                     "pause_reason": p.pause_reason, "trick_text": p.trick_text,
@@ -2823,81 +2422,68 @@ def list_pools(token: str = Cookie(default=None)):
             return result
     else:
         result = []
-        for pid, p in pools.items():
-            if p.get("is_admin_only") and not user["is_admin"]:
+        for p in pools.values():
+            if not user["is_admin"] and p.get("is_admin_only"):
                 continue
-            if not has_pool_access(pid, user["id"]):
+            if not has_pool_access(p["id"], user["id"]):
                 continue
-            result.append({
-                "id": pid, "name": p["name"], "country_code": p["country_code"],
-                "otp_link": p.get("otp_link"), "otp_group_id": p.get("otp_group_id"),
-                "match_format": p.get("match_format", "5+4"), "telegram_match_format": p.get("telegram_match_format", ""),
-                "uses_platform": p.get("uses_platform", 0), "is_paused": p.get("is_paused", False),
-                "pause_reason": p.get("pause_reason", ""), "trick_text": p.get("trick_text", ""),
-                "is_admin_only": p.get("is_admin_only", False), "number_count": len(active_numbers.get(pid, [])),
-                "last_restocked": p.get("last_restocked")
-            })
-        return result
+            result.append({**p, "number_count": len(active_numbers.get(p["id"], []))})
+        return sorted(result, key=lambda x: x["name"])
+
+@app.post("/api/pools/assign")
+async def assign_number(pool_id: int, prefix: Optional[str] = None, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if not has_pool_access(pool_id, user["id"]):
+        raise HTTPException(403, "No access to this pool")
+
+    # Release existing assignment first
+    release_assignment(user["id"])
+
+    result = assign_one_number(user["id"], pool_id, prefix)
+    if not result:
+        raise HTTPException(404, "No numbers available in this pool")
+
+    # Trigger monitor bot
+    if result.get("otp_group_id") and result.get("uses_platform", 0) in (0, 2):
+        asyncio.create_task(request_monitor_bot(
+            number=result["number"], group_id=result["otp_group_id"],
+            match_format=result.get("telegram_match_format") or result.get("match_format", "5+4"),
+            user_id=user["id"]
+        ))
+    if result.get("uses_platform", 0) in (1, 2):
+        start_platform_monitor(user["id"], result["number"],
+                               result.get("telegram_match_format") or result.get("match_format", "5+4"))
+    return result
 
 class AssignRequest(BaseModel):
     pool_id: int
     prefix: Optional[str] = None
 
 @app.post("/api/pools/assign")
-async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
+async def assign_number_body(req: AssignRequest, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            pool = db.query(Pool).filter(Pool.id == req.pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            if pool.is_paused:
-                raise HTTPException(400, f"Pool paused: {pool.pause_reason or 'No reason'}")
-            if pool.is_admin_only and not user["is_admin"]:
-                raise HTTPException(403, "Admin only pool")
-            if not has_pool_access(req.pool_id, user["id"]):
-                raise HTTPException(403, "No access to this pool")
-            
-            release_assignment(user["id"])
-            assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
-            if not assignment:
-                raise HTTPException(400, "No numbers available in this pool")
-            
-            if pool.otp_group_id:
-                await request_monitor_bot(
-                    number=assignment["number"],
-                    group_id=pool.otp_group_id,
-                    match_format=pool.telegram_match_format or pool.match_format,
-                    user_id=user["id"]
-                )
-            return assignment
-    else:
-        pool = pools.get(req.pool_id)
-        if not pool:
-            raise HTTPException(404, "Pool not found")
-        if pool.get("is_paused"):
-            raise HTTPException(400, f"Pool paused: {pool.get('pause_reason', 'No reason')}")
-        if pool.get("is_admin_only") and not user["is_admin"]:
-            raise HTTPException(403, "Admin only pool")
-        if not has_pool_access(req.pool_id, user["id"]):
-            raise HTTPException(403, "No access to this pool")
-        
-        release_assignment(user["id"])
-        assignment = assign_one_number(user["id"], req.pool_id, req.prefix)
-        if not assignment:
-            raise HTTPException(400, "No numbers available in this pool")
-        
-        if pool.get("otp_group_id"):
-            await request_monitor_bot(
-                number=assignment["number"],
-                group_id=pool["otp_group_id"],
-                match_format=assignment.get("telegram_match_format") or assignment.get("match_format", "5+4"),
-                user_id=user["id"]
-            )
-        return assignment
+    if not has_pool_access(req.pool_id, user["id"]):
+        raise HTTPException(403, "No access to this pool")
+
+    release_assignment(user["id"])
+    result = assign_one_number(user["id"], req.pool_id, req.prefix)
+    if not result:
+        raise HTTPException(404, "No numbers available in this pool")
+
+    if result.get("otp_group_id") and result.get("uses_platform", 0) in (0, 2):
+        asyncio.create_task(request_monitor_bot(
+            number=result["number"], group_id=result["otp_group_id"],
+            match_format=result.get("telegram_match_format") or result.get("match_format", "5+4"),
+            user_id=user["id"]
+        ))
+    if result.get("uses_platform", 0) in (1, 2):
+        start_platform_monitor(user["id"], result["number"],
+                               result.get("telegram_match_format") or result.get("match_format", "5+4"))
+    return result
 
 @app.get("/api/pools/my-assignment")
 def my_assignment(token: str = Cookie(default=None)):
@@ -2915,10 +2501,7 @@ def release_number(assignment_id: int, token: str = Cookie(default=None)):
     release_assignment(user["id"], assignment_id)
     return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  ADMIN POOL MANAGEMENT
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── ADMIN POOL MANAGEMENT ─────────────────────────────────────────────────────
 class PoolCreate(BaseModel):
     name: str
     country_code: str
@@ -2937,7 +2520,6 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
             if db.query(Pool).filter(Pool.name == req.name).first():
@@ -2948,22 +2530,19 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
             db.refresh(pool)
             return {"ok": True, "id": pool.id}
     else:
-        for p in pools.values():
-            if p["name"] == req.name:
-                raise HTTPException(400, "Pool name already exists")
-        pool_id = _counters["pool"]
+        if any(p["name"] == req.name for p in pools.values()):
+            raise HTTPException(400, "Pool name already exists")
+        pid = _counters["pool"]
         _counters["pool"] += 1
-        pools[pool_id] = req.dict()
-        pools[pool_id]["id"] = pool_id
-        active_numbers[pool_id] = []
-        return {"ok": True, "id": pool_id}
+        pools[pid] = {**req.dict(), "id": pid}
+        active_numbers[pid] = []
+        return {"ok": True, "id": pid}
 
 @app.put("/api/admin/pools/{pool_id}")
 def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
@@ -2980,50 +2559,18 @@ def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)
         return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}")
-def delete_pool(pool_id: int, token: str = Cookie(default=None)):
+def delete_pool_endpoint(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
-            pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool_name = pool.name
-            try:
-                # 1. Delete OTP logs linked to assignments in this pool
-                assignment_ids = [a.id for a in db.query(Assignment).filter(Assignment.pool_id == pool_id).all()]
-                if assignment_ids:
-                    db.query(OTPLog).filter(OTPLog.assignment_id.in_(assignment_ids)).delete(synchronize_session=False)
-                    db.flush()
-                # 2. Delete assignments
-                db.query(Assignment).filter(Assignment.pool_id == pool_id).delete(synchronize_session=False)
-                db.flush()
-                # 3. Delete active numbers
-                db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete(synchronize_session=False)
-                db.flush()
-                # 4. Delete pool access entries
-                db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).delete(synchronize_session=False)
-                db.flush()
-                # 5. Delete saved numbers that reference this pool by name
-                db.query(SavedNumber).filter(SavedNumber.pool_name == pool_name).delete(synchronize_session=False)
-                db.flush()
-                # 6. Delete the pool itself
-                db.delete(pool)
-                db.commit()
-            except Exception as e:
-                db.rollback()
-                log.error(f"[DeletePool] Error: {e}")
-                raise HTTPException(500, f"Failed to delete pool: {str(e)}")
+            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
+            db.query(Pool).filter(Pool.id == pool_id).delete()
+            db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pool_name = pools[pool_id].get("name", "")
-        del pools[pool_id]
+        pools.pop(pool_id, None)
         active_numbers.pop(pool_id, None)
-        global saved_numbers
-        saved_numbers = [s for s in saved_numbers if s.get("pool_name") != pool_name]
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
@@ -3031,89 +2578,59 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-
-    # No file size limit — read entire file
     content = await file.read()
     lines = content.decode("utf-8", errors="ignore").splitlines()
-
-    numbers = []
     phone_re = re.compile(r'(\+?\d{6,15})')
+    numbers = []
     for line in lines:
         m = phone_re.search(line.strip())
         if m:
             numbers.append(m.group(1))
-
     if not numbers:
         raise HTTPException(400, "No valid numbers found")
 
-    added = 0
-    skipped_bad = 0
-    skipped_cooldown = 0
-    duplicates = 0
+    added = 0; skipped_bad = 0; skipped_cooldown = 0; duplicates = 0
 
     if SessionLocal:
         with SessionLocal() as db:
             bad_set = {b.number for b in db.query(BadNumber).all()}
             filtered = [n for n in numbers if n not in bad_set]
             skipped_bad = len(numbers) - len(filtered)
-
             cooldown_dups = await get_cooldown_duplicates(filtered)
             filtered = [n for n in filtered if n not in cooldown_dups]
             skipped_cooldown = len(cooldown_dups)
-
-            if not filtered:
-                return {"ok": True, "added": 0, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": 0}
-
-            now = utcnow()
-            # Use INSERT ... ON CONFLICT DO NOTHING in chunks of 500 — never crashes on duplicates
-            CHUNK = 500
-            for i in range(0, len(filtered), CHUNK):
-                chunk = filtered[i:i + CHUNK]
-                try:
-                    db.execute(
-                        text(
-                            "INSERT INTO active_numbers (pool_id, number, created_at) "
-                            "VALUES (:pool_id, :number, :created_at) "
-                            "ON CONFLICT (number) DO NOTHING"
-                        ),
-                        [{"pool_id": pool_id, "number": num, "created_at": now} for num in chunk]
-                    )
+            if filtered:
+                now = utcnow()
+                CHUNK = 500
+                for i in range(0, len(filtered), CHUNK):
+                    chunk = filtered[i:i+CHUNK]
+                    try:
+                        db.execute(text("INSERT INTO active_numbers (pool_id, number, created_at) VALUES (:pool_id, :number, :created_at) ON CONFLICT (number) DO NOTHING"),
+                                   [{"pool_id": pool_id, "number": num, "created_at": now} for num in chunk])
+                        db.commit()
+                    except Exception as e:
+                        db.rollback()
+                in_pool = {row.number for row in db.query(ActiveNumber.number).filter(ActiveNumber.pool_id == pool_id, ActiveNumber.number.in_(filtered)).all()}
+                added = len(in_pool)
+                duplicates = len(filtered) - added
+                pool = db.query(Pool).filter(Pool.id == pool_id).first()
+                if pool:
+                    pool.last_restocked = utcnow()
                     db.commit()
-                except Exception as e:
-                    db.rollback()
-                    log.error(f"[Upload] Chunk insert error: {e}")
-
-            # Count how many of our numbers landed in this pool
-            in_this_pool = {row.number for row in db.query(ActiveNumber.number).filter(
-                ActiveNumber.pool_id == pool_id,
-                ActiveNumber.number.in_(filtered)
-            ).all()}
-            added = len(in_this_pool)
-            duplicates = len(filtered) - added
-
-            pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if pool:
-                pool.last_restocked = utcnow()
-                db.commit()
     else:
         bad_set = set(bad_numbers.keys())
         filtered = [n for n in numbers if n not in bad_set]
         skipped_bad = len(numbers) - len(filtered)
-
         cooldown_dups = await get_cooldown_duplicates(filtered)
         filtered = [n for n in filtered if n not in cooldown_dups]
         skipped_cooldown = len(cooldown_dups)
-
         existing = set(active_numbers.get(pool_id, []))
-        new_numbers = [n for n in filtered if n not in existing]
-        duplicates = len(filtered) - len(new_numbers)
-
-        for num in new_numbers:
-            active_numbers.setdefault(pool_id, []).append(num)
-
+        new_nums = [n for n in filtered if n not in existing]
+        duplicates = len(filtered) - len(new_nums)
+        active_numbers.setdefault(pool_id, []).extend(new_nums)
         if pool_id in pools:
             pools[pool_id]["last_restocked"] = utcnow().isoformat()
-        added = len(new_numbers)
+        added = len(new_nums)
 
     return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
 
@@ -3122,195 +2639,135 @@ def export_pool(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
             numbers = [n.number for n in db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).all()]
     else:
         numbers = active_numbers.get(pool_id, [])
-    
-    return Response(
-        content="\n".join(numbers),
-        media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename=pool_{pool_id}.txt"}
-    )
+    return Response(content="\n".join(numbers), media_type="text/plain",
+                    headers={"Content-Disposition": f"attachment; filename=pool_{pool_id}.txt"})
 
 @app.post("/api/admin/pools/{pool_id}/cut")
 def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
-            numbers = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).limit(count).all()
-            removed = len(numbers)
-            for n in numbers:
-                db.delete(n)
+            nums = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).limit(count).all()
+            removed = len(nums)
+            for n in nums: db.delete(n)
             db.commit()
     else:
-        numbers = active_numbers.get(pool_id, [])
-        removed = min(count, len(numbers))
-        active_numbers[pool_id] = numbers[count:]
-    
+        nums = active_numbers.get(pool_id, [])
+        removed = min(count, len(nums))
+        active_numbers[pool_id] = nums[count:]
     return {"ok": True, "removed": removed}
 
 @app.post("/api/admin/pools/{pool_id}/clear")
-def clear_pool(pool_id: int, token: str = Cookie(default=None)):
+def clear_pool_endpoint(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     if SessionLocal:
         with SessionLocal() as db:
             deleted = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
             db.commit()
     else:
-        numbers = active_numbers.get(pool_id, [])
-        deleted = len(numbers)
+        deleted = len(active_numbers.get(pool_id, []))
         active_numbers[pool_id] = []
-    
     return {"ok": True, "deleted": deleted}
 
 @app.post("/api/admin/pools/{pool_id}/pause")
-def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
+def pause_pool_endpoint(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     pool_name = f"Pool {pool_id}"
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_paused = True
-            pool.pause_reason = reason
-            pool_name = pool.name
+            if not pool: raise HTTPException(404, "Pool not found")
+            pool.is_paused = True; pool.pause_reason = reason; pool_name = pool.name
             db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pools[pool_id]["is_paused"] = True
-        pools[pool_id]["pause_reason"] = reason
+        if pool_id not in pools: raise HTTPException(404, "Pool not found")
+        pools[pool_id]["is_paused"] = True; pools[pool_id]["pause_reason"] = reason
         pool_name = pools[pool_id]["name"]
-    
-    asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ Region {pool_name} is paused. {reason}"}))
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"⏸ {pool_name} paused. {reason}"}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/resume")
-def resume_pool(pool_id: int, token: str = Cookie(default=None)):
+def resume_pool_endpoint(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     pool_name = f"Pool {pool_id}"
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_paused = False
-            pool.pause_reason = ""
-            pool_name = pool.name
+            if not pool: raise HTTPException(404, "Pool not found")
+            pool.is_paused = False; pool.pause_reason = ""; pool_name = pool.name
             db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        pools[pool_id]["is_paused"] = False
-        pools[pool_id]["pause_reason"] = ""
+        if pool_id not in pools: raise HTTPException(404, "Pool not found")
+        pools[pool_id]["is_paused"] = False; pools[pool_id]["pause_reason"] = ""
         pool_name = pools[pool_id]["name"]
-    
-    asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ Region {pool_name} is now available!"}))
+    asyncio.create_task(broadcast_all({"type": "notification", "message": f"▶ {pool_name} is now available!"}))
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
-def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
+def toggle_admin_only_endpoint(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
     new_val = False
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-            pool.is_admin_only = not pool.is_admin_only
-            new_val = pool.is_admin_only
+            if not pool: raise HTTPException(404, "Pool not found")
+            pool.is_admin_only = not pool.is_admin_only; new_val = pool.is_admin_only
             db.commit()
     else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
+        if pool_id not in pools: raise HTTPException(404, "Pool not found")
         pools[pool_id]["is_admin_only"] = not pools[pool_id].get("is_admin_only", False)
         new_val = pools[pool_id]["is_admin_only"]
-    
     return {"ok": True, "is_admin_only": new_val}
 
 @app.post("/api/admin/pools/{pool_id}/trick")
 def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
-            if pool:
-                pool.trick_text = trick_text
-                db.commit()
+            if pool: pool.trick_text = trick_text; db.commit()
     else:
-        if pool_id in pools:
-            pools[pool_id]["trick_text"] = trick_text
-    
+        if pool_id in pools: pools[pool_id]["trick_text"] = trick_text
     return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POOL ACCESS CONTROL
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── POOL ACCESS ───────────────────────────────────────────────────────────────
 @app.get("/api/admin/pools/{pool_id}/access")
 def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     return get_pool_access_users(pool_id)
 
 @app.post("/api/admin/pools/{pool_id}/access/{user_id}")
-def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+def grant_access(pool_id: int, user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            if not db.query(Pool).filter(Pool.id == pool_id).first():
-                raise HTTPException(404, "Pool not found")
-            if not db.query(User).filter(User.id == user_id).first():
-                raise HTTPException(404, "User not found")
-    else:
-        if pool_id not in pools:
-            raise HTTPException(404, "Pool not found")
-        if user_id not in users:
-            raise HTTPException(404, "User not found")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     grant_pool_access(pool_id, user_id)
     return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
-def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
+def revoke_access(pool_id: int, user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     revoke_pool_access(pool_id, user_id)
     return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  OTP ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── OTP ───────────────────────────────────────────────────────────────────────
 class MonitorResultPayload(BaseModel):
     number: str
     otp: str
@@ -3322,201 +2779,78 @@ class MonitorResultPayload(BaseModel):
 async def monitor_result(payload: MonitorResultPayload):
     if SHARED_SECRET and payload.secret != SHARED_SECRET:
         raise HTTPException(403, "Invalid secret")
-    
-    log.info(f"[OTP] Received: {payload.number} -> {payload.otp} for user {payload.user_id}")
-
-    # Determine if this number is a saved/ready number (not a regular assignment)
-    is_saved_number = False
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved_entry = db.query(SavedNumber).filter(
-                SavedNumber.user_id == payload.user_id,
-                SavedNumber.number == payload.number,
-                SavedNumber.moved == True
-            ).first()
-            is_saved_number = saved_entry is not None
-    else:
-        is_saved_number = any(
-            s["user_id"] == payload.user_id and s["number"] == payload.number and s.get("moved", False)
-            for s in saved_numbers
-        )
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            assignment = db.query(Assignment).filter(
-                Assignment.user_id == payload.user_id,
-                Assignment.number == payload.number,
-                Assignment.released_at == None
-            ).first()
-            
-            otp_entry = OTPLog(
-                assignment_id=assignment.id if assignment else None,
-                user_id=payload.user_id,
-                number=payload.number,
-                otp_code=payload.otp,
-                raw_message=payload.raw_message
-            )
-            db.add(otp_entry)
-            db.commit()
-            db.refresh(otp_entry)
-            otp_id = otp_entry.id
-    else:
-        global otp_counter
-        otp_id = _counters["otp"]
-        _counters["otp"] += 1
-        otp_logs.append({
-            "id": otp_id,
-            "user_id": payload.user_id,
-            "number": payload.number,
-            "otp_code": payload.otp,
-            "raw_message": payload.raw_message,
-            "delivered_at": utcnow().isoformat()
-        })
-    
-    # Route to saved OTP slot if it's a saved number, otherwise normal OTP display
-    otp_type = "saved_otp" if is_saved_number else "otp"
-    otp_data = {
-        "type": otp_type,
-        "id": otp_id,
-        "number": payload.number,
-        "otp": payload.otp,
-        "raw_message": payload.raw_message,
-        "delivered_at": utcnow().isoformat(),
-        "auto_delete_seconds": OTP_AUTO_DELETE_DELAY
-    }
-    
-    await send_to_user(payload.user_id, otp_data)
-    await broadcast_feed({
-        "type": "feed_otp",
-        "number": payload.number,
-        "otp": payload.otp,
-        "delivered_at": utcnow().isoformat()
-    })
-    
+    log.info(f"[OTP] {payload.number} -> {payload.otp} for user {payload.user_id}")
+    await _deliver_otp(payload.user_id, payload.number, payload.otp, payload.raw_message)
     await compliance_record_otp_delivered(payload.user_id)
-    
     return {"ok": True}
 
 @app.get("/api/otp/my")
-def my_otps(token: str = Cookie(default=None)):
+def my_otps(limit: int = 50, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     if SessionLocal:
         with SessionLocal() as db:
-            logs = db.query(OTPLog).filter(OTPLog.user_id == user["id"]).order_by(OTPLog.delivered_at.desc()).limit(50).all()
-            return [{"id": l.id, "number": l.number, "otp_code": l.otp_code, "raw_message": l.raw_message, "delivered_at": l.delivered_at.isoformat()} for l in logs]
+            logs = db.query(OTPLog).filter(OTPLog.user_id == user["id"]).order_by(OTPLog.delivered_at.desc()).limit(limit).all()
+            return [{"id": o.id, "number": o.number, "otp_code": o.otp_code, "raw_message": o.raw_message, "delivered_at": o.delivered_at.isoformat()} for o in logs]
     else:
-        user_otps = [o for o in otp_logs if o["user_id"] == user["id"]]
-        user_otps.sort(key=lambda x: x["delivered_at"], reverse=True)
-        return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
+        user_logs = [o for o in otp_logs if o["user_id"] == user["id"]]
+        return sorted(user_logs, key=lambda x: x["delivered_at"], reverse=True)[:limit]
 
 @app.post("/api/otp/search")
 async def search_otp(number: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     if SessionLocal:
         with SessionLocal() as db:
-            assignment = db.query(Assignment).filter(
-                Assignment.user_id == user["id"],
-                Assignment.number == number
-            ).order_by(Assignment.assigned_at.desc()).first()
+            assignment = db.query(Assignment).filter(Assignment.user_id == user["id"], Assignment.number == number).order_by(Assignment.assigned_at.desc()).first()
             if assignment:
                 pool = db.query(Pool).filter(Pool.id == assignment.pool_id).first()
                 if pool and pool.otp_group_id:
-                    await request_search_otp(
-                        number=number,
-                        group_id=pool.otp_group_id,
-                        match_format=pool.telegram_match_format or pool.match_format,
-                        user_id=user["id"]
-                    )
-                    return {"ok": True, "message": f"Searching OTP for {number}"}
-    else:
-        for a in archived_numbers:
-            if a["user_id"] == user["id"] and a["number"] == number:
-                pool = pools.get(a["pool_id"])
-                if pool and pool.get("otp_group_id"):
-                    await request_search_otp(
-                        number=number,
-                        group_id=pool["otp_group_id"],
-                        match_format=pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
-                        user_id=user["id"]
-                    )
-                    return {"ok": True, "message": f"Searching OTP for {number}"}
-    
-    raise HTTPException(404, "Number not found in your history")
+                    await request_search_otp(number=number, group_id=pool.otp_group_id,
+                                              match_format=pool.telegram_match_format or pool.match_format, user_id=user["id"])
+                    return {"ok": True}
+    raise HTTPException(404, "Number not found")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  SAVED NUMBERS ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── SAVED NUMBERS ─────────────────────────────────────────────────────────────
 class SaveRequest(BaseModel):
     numbers: List[str]
     timer_minutes: int
     pool_name: str
 
 @app.post("/api/saved")
-def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
+def save_numbers_endpoint(req: SaveRequest, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     expires_at = utcnow() + timedelta(minutes=req.timer_minutes)
     saved = 0
-    
     if SessionLocal:
         with SessionLocal() as db:
             for number in req.numbers:
                 number = number.strip()
-                if not number:
-                    continue
-                existing = db.query(SavedNumber).filter(
-                    SavedNumber.user_id == user["id"],
-                    SavedNumber.number == number,
-                    SavedNumber.moved == False
-                ).first()
+                if not number: continue
+                existing = db.query(SavedNumber).filter(SavedNumber.user_id == user["id"],
+                                                         SavedNumber.number == number, SavedNumber.moved == False).first()
                 if not existing:
-                    db.add(SavedNumber(
-                        user_id=user["id"],
-                        number=number,
-                        pool_name=req.pool_name,
-                        expires_at=expires_at
-                    ))
+                    db.add(SavedNumber(user_id=user["id"], number=number, pool_name=req.pool_name, expires_at=expires_at))
                     saved += 1
             db.commit()
     else:
-        global saved_counter
         for number in req.numbers:
             number = number.strip()
-            if not number:
+            if not number: continue
+            if any(s["user_id"] == user["id"] and s["number"] == number and not s.get("moved") for s in saved_numbers):
                 continue
-            existing = [s for s in saved_numbers if s["user_id"] == user["id"] and s["number"] == number and not s.get("moved", False)]
-            if existing:
-                continue
-            saved_numbers.append({
-                "id": _counters["saved"],
-                "user_id": user["id"],
-                "number": number,
-                "country": "",
-                "pool_name": req.pool_name,
-                "expires_at": expires_at.isoformat(),
-                "moved": False,
-                "created_at": utcnow().isoformat()
-            })
+            saved_numbers.append({"id": _counters["saved"], "user_id": user["id"], "number": number,
+                                   "country": "", "pool_name": req.pool_name, "expires_at": expires_at.isoformat(),
+                                   "moved": False, "created_at": utcnow().isoformat()})
             _counters["saved"] += 1
             saved += 1
-    
     return {"ok": True, "saved": saved, "expires_at": expires_at.isoformat()}
 
 @app.get("/api/saved")
 def list_saved(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     if SessionLocal:
         with SessionLocal() as db:
             saved = db.query(SavedNumber).filter(SavedNumber.user_id == user["id"]).order_by(SavedNumber.expires_at).all()
@@ -3524,86 +2858,43 @@ def list_saved(token: str = Cookie(default=None)):
             result = []
             for s in saved:
                 seconds_left = max(0, int((s.expires_at - now).total_seconds()))
-                if s.moved:
-                    status = "ready"
-                elif seconds_left == 0:
-                    status = "expired"
-                elif seconds_left < 600:
-                    status = "red"
-                elif seconds_left < 3600:
-                    status = "yellow"
-                else:
-                    status = "green"
-                result.append({
-                    "id": s.id,
-                    "number": s.number,
-                    "country": s.country,
-                    "pool_name": s.pool_name,
-                    "expires_at": s.expires_at.isoformat(),
-                    "seconds_left": seconds_left,
-                    "status": status,
-                    "moved": s.moved
-                })
+                if s.moved: status = "ready"
+                elif seconds_left == 0: status = "expired"
+                elif seconds_left < 600: status = "red"
+                elif seconds_left < 3600: status = "yellow"
+                else: status = "green"
+                result.append({"id": s.id, "number": s.number, "country": s.country, "pool_name": s.pool_name,
+                                "expires_at": s.expires_at.isoformat(), "seconds_left": seconds_left,
+                                "status": status, "moved": s.moved})
             return result
     else:
         user_saved = [s for s in saved_numbers if s["user_id"] == user["id"]]
-        user_saved.sort(key=lambda x: x["expires_at"])
         now = utcnow()
         result = []
         for s in user_saved:
             expires = datetime.fromisoformat(s["expires_at"])
             seconds_left = max(0, int((expires - now).total_seconds()))
-            if s.get("moved", False):
-                status = "ready"
-            elif seconds_left == 0:
-                status = "expired"
-            elif seconds_left < 600:
-                status = "red"
-            elif seconds_left < 3600:
-                status = "yellow"
-            else:
-                status = "green"
-            result.append({
-                "id": s["id"],
-                "number": s["number"],
-                "country": s.get("country", ""),
-                "pool_name": s["pool_name"],
-                "expires_at": s["expires_at"],
-                "seconds_left": seconds_left,
-                "status": status,
-                "moved": s.get("moved", False)
-            })
-        return result
+            if s.get("moved"): status = "ready"
+            elif seconds_left == 0: status = "expired"
+            elif seconds_left < 600: status = "red"
+            elif seconds_left < 3600: status = "yellow"
+            else: status = "green"
+            result.append({"id": s["id"], "number": s["number"], "country": s.get("country",""), "pool_name": s["pool_name"],
+                            "expires_at": s["expires_at"], "seconds_left": seconds_left, "status": status, "moved": s.get("moved", False)})
+        return sorted(result, key=lambda x: x["expires_at"])
 
 @app.get("/api/saved/ready")
 def ready_numbers(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     if SessionLocal:
         with SessionLocal() as db:
-            ready = db.query(SavedNumber).filter(
-                SavedNumber.user_id == user["id"],
-                SavedNumber.moved == True
-            ).order_by(SavedNumber.created_at.desc()).all()
+            ready = db.query(SavedNumber).filter(SavedNumber.user_id == user["id"], SavedNumber.moved == True).order_by(SavedNumber.created_at.desc()).all()
             result = []
             for s in ready:
                 pool = db.query(Pool).filter(Pool.name == s.pool_name).first()
-                in_pool = False
-                if pool:
-                    in_pool = db.query(ActiveNumber).filter(
-                        ActiveNumber.pool_id == pool.id,
-                        ActiveNumber.number == s.number
-                    ).first() is not None
-                result.append({
-                    "id": s.id,
-                    "number": s.number,
-                    "country": s.country,
-                    "pool_name": s.pool_name,
-                    "pool_id": pool.id if pool else None,
-                    "in_pool": in_pool
-                })
+                result.append({"id": s.id, "number": s.number, "country": s.country, "pool_name": s.pool_name,
+                                "pool_id": pool.id if pool else None})
             return result
     else:
         ready = [s for s in saved_numbers if s["user_id"] == user["id"] and s.get("moved", False)]
@@ -3611,217 +2902,17 @@ def ready_numbers(token: str = Cookie(default=None)):
         result = []
         for s in ready:
             pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-            in_pool = pool and s["number"] in active_numbers.get(pool["id"], [])
-            result.append({
-                "id": s["id"],
-                "number": s["number"],
-                "country": s.get("country", ""),
-                "pool_name": s["pool_name"],
-                "pool_id": pool["id"] if pool else None,
-                "in_pool": in_pool
-            })
+            result.append({"id": s["id"], "number": s["number"], "country": s.get("country",""),
+                            "pool_name": s["pool_name"], "pool_id": pool["id"] if pool else None})
         return result
 
-@app.put("/api/saved/{saved_id}")
-def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"]
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Not found")
-            saved.expires_at = utcnow() + timedelta(minutes=timer_minutes)
-            saved.moved = False
-            db.commit()
-    else:
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                s["expires_at"] = (utcnow() + timedelta(minutes=timer_minutes)).isoformat()
-                s["moved"] = False
-                return {"ok": True}
-        raise HTTPException(404, "Not found")
-    
-    return {"ok": True}
-
-@app.delete("/api/saved/{saved_id}")
-def delete_saved(saved_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"]
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Not found")
-            db.delete(saved)
-            db.commit()
-    else:
-        for i, s in enumerate(saved_numbers):
-            if s["id"] == saved_id and s["user_id"] == user["id"]:
-                saved_numbers.pop(i)
-                return {"ok": True}
-        raise HTTPException(404, "Not found")
-    
-    return {"ok": True}
-
-@app.post("/api/saved/{saved_id}/next-number")
-def ready_next_number(saved_id: int, token: str = Cookie(default=None)):
-    """Replace this ready number with the next available number from the same pool."""
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"],
-                SavedNumber.moved == True
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Ready number not found")
-
-            pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-            if not pool:
-                raise HTTPException(404, "Pool not found")
-
-            # Pick next number from the pool (excluding current one)
-            next_num_row = db.query(ActiveNumber).filter(
-                ActiveNumber.pool_id == pool.id,
-                ActiveNumber.number != saved.number
-            ).order_by(ActiveNumber.id.desc()).first()
-
-            if not next_num_row:
-                raise HTTPException(404, "No more numbers available in this pool")
-
-            old_number = saved.number
-            new_number = next_num_row.number
-
-            # Remove next number from pool (it's now assigned to this saved slot)
-            db.delete(next_num_row)
-            # Do NOT put old number back — consuming it so we don't rotate between same two numbers
-
-            saved.number = new_number
-            db.commit()
-            return {"ok": True, "number": new_number, "pool_name": saved.pool_name}
-    else:
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
-                pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                if not pool:
-                    raise HTTPException(404, "Pool not found")
-                pid = pool["id"]
-                # Exclude current number to avoid getting same one back
-                nums = [n for n in active_numbers.get(pid, []) if n != s["number"]]
-                if not nums:
-                    raise HTTPException(404, "No more numbers available in this pool")
-                new_number = nums[-1]
-                nums.pop()
-                # Do NOT put old number back — don't rotate between same two numbers
-                active_numbers[pid] = nums
-                s["number"] = new_number
-                return {"ok": True, "number": new_number, "pool_name": s["pool_name"]}
-        raise HTTPException(404, "Ready number not found")
-
-@app.post("/api/saved/{saved_id}/switch-pool")
-def ready_switch_pool(saved_id: int, new_pool_name: str, token: str = Cookie(default=None)):
-    """Move this ready number slot to a different pool, picking the next number from that pool."""
-    user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-
-    new_pool_name = new_pool_name.strip()
-    if not new_pool_name:
-        raise HTTPException(400, "Pool name required")
-
-    if SessionLocal:
-        with SessionLocal() as db:
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.id == saved_id,
-                SavedNumber.user_id == user["id"],
-                SavedNumber.moved == True
-            ).first()
-            if not saved:
-                raise HTTPException(404, "Ready number not found")
-
-            new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
-            if not new_pool:
-                raise HTTPException(404, "Pool not found")
-
-            # Pick next number from the new pool
-            next_num_row = db.query(ActiveNumber).filter(
-                ActiveNumber.pool_id == new_pool.id
-            ).order_by(ActiveNumber.id.desc()).first()
-            if not next_num_row:
-                raise HTTPException(404, "No numbers available in that pool")
-
-            old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
-            old_number = saved.number
-            new_number = next_num_row.number
-
-            # Remove new number from new pool
-            db.delete(next_num_row)
-            # Return old number to old pool
-            if old_pool:
-                existing_old = db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first()
-                if not existing_old:
-                    db.add(ActiveNumber(pool_id=old_pool.id, number=old_number))
-
-            saved.number = new_number
-            saved.pool_name = new_pool_name
-            db.commit()
-            return {"ok": True, "number": new_number, "pool_name": new_pool_name}
-    else:
-        new_pool = next((p for p in pools.values() if p["name"] == new_pool_name), None)
-        if not new_pool:
-            raise HTTPException(404, "Pool not found")
-        pid_new = new_pool["id"]
-        new_nums = active_numbers.get(pid_new, [])
-        if not new_nums:
-            raise HTTPException(404, "No numbers available in that pool")
-
-        for s in saved_numbers:
-            if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
-                old_pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
-                old_number = s["number"]
-                new_number = new_nums[-1]
-                new_nums.pop()
-                active_numbers[pid_new] = new_nums
-                if old_pool:
-                    old_nums = active_numbers.get(old_pool["id"], [])
-                    if old_number not in old_nums:
-                        old_nums.append(old_number)
-                s["number"] = new_number
-                s["pool_name"] = new_pool_name
-                return {"ok": True, "number": new_number, "pool_name": new_pool_name}
-        raise HTTPException(404, "Ready number not found")
-
 @app.get("/api/saved/ready-pools")
-def list_ready_pools(token: str = Cookie(default=None)):
-    """Return pools that have ready numbers (moved=True saved numbers), with their stock count."""
+def ready_pools(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-
+    if not user: raise HTTPException(401, "Not authenticated")
     if SessionLocal:
         with SessionLocal() as db:
-            # Get all pool_names that have moved saved numbers for this user
-            from sqlalchemy import distinct
-            user_pool_names = [r.pool_name for r in db.query(SavedNumber.pool_name).filter(
-                SavedNumber.user_id == user["id"],
-                SavedNumber.moved == True
-            ).distinct().all()]
-
+            user_pool_names = list({s.pool_name for s in db.query(SavedNumber).filter(SavedNumber.user_id == user["id"], SavedNumber.moved == True).all()})
             result = []
             for pname in user_pool_names:
                 pool = db.query(Pool).filter(Pool.name == pname).first()
@@ -3830,8 +2921,7 @@ def list_ready_pools(token: str = Cookie(default=None)):
                     result.append({"pool_name": pname, "pool_id": pool.id, "count": count})
             return result
     else:
-        user_pool_names = list({s["pool_name"] for s in saved_numbers
-                                if s["user_id"] == user["id"] and s.get("moved", False)})
+        user_pool_names = list({s["pool_name"] for s in saved_numbers if s["user_id"] == user["id"] and s.get("moved", False)})
         result = []
         for pname in user_pool_names:
             pool = next((p for p in pools.values() if p["name"] == pname), None)
@@ -3840,75 +2930,132 @@ def list_ready_pools(token: str = Cookie(default=None)):
                 result.append({"pool_name": pname, "pool_id": pool["id"], "count": count})
         return result
 
+@app.delete("/api/saved/{saved_id}")
+def delete_saved(saved_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user: raise HTTPException(401, "Not authenticated")
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(SavedNumber.id == saved_id, SavedNumber.user_id == user["id"]).first()
+            if not saved: raise HTTPException(404, "Not found")
+            db.delete(saved); db.commit()
+    else:
+        for i, s in enumerate(saved_numbers):
+            if s["id"] == saved_id and s["user_id"] == user["id"]:
+                saved_numbers.pop(i)
+                return {"ok": True}
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+@app.post("/api/saved/{saved_id}/next-number")
+def ready_next_number(saved_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user: raise HTTPException(401, "Not authenticated")
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(SavedNumber.id == saved_id, SavedNumber.user_id == user["id"], SavedNumber.moved == True).first()
+            if not saved: raise HTTPException(404, "Ready number not found")
+            pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
+            if not pool: raise HTTPException(404, "Pool not found")
+            next_num_row = db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool.id, ActiveNumber.number != saved.number).order_by(ActiveNumber.id.desc()).first()
+            if not next_num_row: raise HTTPException(404, "No more numbers available in this pool")
+            old_number = saved.number
+            new_number = next_num_row.number
+            db.delete(next_num_row)
+            if not db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first():
+                db.add(ActiveNumber(pool_id=pool.id, number=old_number))
+            saved.number = new_number
+            db.commit()
+            return {"ok": True, "number": new_number, "pool_name": saved.pool_name}
+    else:
+        for s in saved_numbers:
+            if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
+                pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
+                if not pool: raise HTTPException(404, "Pool not found")
+                pid = pool["id"]
+                nums = [n for n in active_numbers.get(pid, []) if n != s["number"]]
+                if not nums: raise HTTPException(404, "No more numbers available")
+                old_number = s["number"]
+                new_number = nums[-1]
+                nums.pop()
+                if old_number not in nums: nums.append(old_number)
+                active_numbers[pid] = nums
+                s["number"] = new_number
+                return {"ok": True, "number": new_number, "pool_name": s["pool_name"]}
+        raise HTTPException(404, "Ready number not found")
+
+@app.post("/api/saved/{saved_id}/switch-pool")
+def ready_switch_pool(saved_id: int, new_pool_name: str, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user: raise HTTPException(401, "Not authenticated")
+    new_pool_name = new_pool_name.strip()
+    if SessionLocal:
+        with SessionLocal() as db:
+            saved = db.query(SavedNumber).filter(SavedNumber.id == saved_id, SavedNumber.user_id == user["id"], SavedNumber.moved == True).first()
+            if not saved: raise HTTPException(404, "Ready number not found")
+            new_pool = db.query(Pool).filter(Pool.name == new_pool_name).first()
+            if not new_pool: raise HTTPException(404, "Pool not found")
+            next_num_row = db.query(ActiveNumber).filter(ActiveNumber.pool_id == new_pool.id).order_by(ActiveNumber.id.desc()).first()
+            if not next_num_row: raise HTTPException(404, "No numbers available in that pool")
+            old_pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
+            old_number = saved.number
+            new_number = next_num_row.number
+            db.delete(next_num_row)
+            if old_pool and not db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first():
+                db.add(ActiveNumber(pool_id=old_pool.id, number=old_number))
+            saved.number = new_number; saved.pool_name = new_pool_name
+            db.commit()
+            return {"ok": True, "number": new_number, "pool_name": new_pool_name}
+    else:
+        new_pool = next((p for p in pools.values() if p["name"] == new_pool_name), None)
+        if not new_pool: raise HTTPException(404, "Pool not found")
+        pid_new = new_pool["id"]
+        new_nums = active_numbers.get(pid_new, [])
+        if not new_nums: raise HTTPException(404, "No numbers available")
+        for s in saved_numbers:
+            if s["id"] == saved_id and s["user_id"] == user["id"] and s.get("moved", False):
+                old_pool = next((p for p in pools.values() if p["name"] == s["pool_name"]), None)
+                old_number = s["number"]
+                new_number = new_nums[-1]
+                new_nums.pop(); active_numbers[pid_new] = new_nums
+                if old_pool:
+                    old_nums = active_numbers.get(old_pool["id"], [])
+                    if old_number not in old_nums: old_nums.append(old_number)
+                s["number"] = new_number; s["pool_name"] = new_pool_name
+                return {"ok": True, "number": new_number, "pool_name": new_pool_name}
+        raise HTTPException(404, "Ready number not found")
 
 class TriggerMonitorRequest(BaseModel):
     number: str
 
 @app.post("/api/saved/trigger-monitor")
 async def trigger_saved_monitor(req: TriggerMonitorRequest, token: str = Cookie(default=None)):
-    """
-    Trigger monitor bot for a saved/ready number.
-    Looks up the pool from the number's saved_number record,
-    gets group_id and match_format, sends monitor request.
-    """
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-
+    if not user: raise HTTPException(401, "Not authenticated")
     number = req.number.strip()
     pool_info = None
-
     if SessionLocal:
         with SessionLocal() as db:
-            # Find which pool this number belongs to via saved_numbers record
-            saved = db.query(SavedNumber).filter(
-                SavedNumber.user_id == user["id"],
-                SavedNumber.number == number
-            ).order_by(SavedNumber.created_at.desc()).first()
+            saved = db.query(SavedNumber).filter(SavedNumber.user_id == user["id"], SavedNumber.number == number).order_by(SavedNumber.created_at.desc()).first()
             if saved:
                 pool = db.query(Pool).filter(Pool.name == saved.pool_name).first()
                 if pool:
-                    pool_info = {
-                        "pool_id": pool.id,
-                        "otp_group_id": pool.otp_group_id,
-                        "match_format": pool.telegram_match_format or pool.match_format,
-                        "uses_platform": pool.uses_platform
-                    }
+                    pool_info = {"otp_group_id": pool.otp_group_id, "match_format": pool.telegram_match_format or pool.match_format, "uses_platform": pool.uses_platform}
     else:
         saved = next((s for s in saved_numbers if s["user_id"] == user["id"] and s["number"] == number), None)
         if saved:
             pool = next((p for p in pools.values() if p["name"] == saved["pool_name"]), None)
             if pool:
-                pool_info = {
-                    "pool_id": pool["id"],
-                    "otp_group_id": pool.get("otp_group_id"),
-                    "match_format": pool.get("telegram_match_format") or pool.get("match_format", "5+4"),
-                    "uses_platform": pool.get("uses_platform", 0)
-                }
-
-    if not pool_info:
-        raise HTTPException(404, "Could not find pool for this number")
-
-    if not pool_info["otp_group_id"]:
-        raise HTTPException(400, "Pool has no OTP group configured")
-
-    # Send monitor request — tag it as saved_number so result goes to saved OTP slot
-    ok = await request_monitor_bot(
-        number=number,
-        group_id=pool_info["otp_group_id"],
-        match_format=pool_info["match_format"],
-        user_id=user["id"]
-    )
-
+                pool_info = {"otp_group_id": pool.get("otp_group_id"), "match_format": pool.get("telegram_match_format") or pool.get("match_format","5+4"), "uses_platform": pool.get("uses_platform", 0)}
+    if not pool_info: raise HTTPException(404, "Could not find pool for this number")
+    if not pool_info["otp_group_id"]: raise HTTPException(400, "Pool has no OTP group configured")
+    ok = await request_monitor_bot(number=number, group_id=pool_info["otp_group_id"],
+                                    match_format=pool_info["match_format"], user_id=user["id"])
     if pool_info["uses_platform"] in (1, 2):
         start_platform_monitor(user["id"], number, pool_info["match_format"])
-
     return {"ok": ok, "message": f"Monitoring started for {number}"}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  REVIEWS ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── REVIEWS ───────────────────────────────────────────────────────────────────
 class ReviewRequest(BaseModel):
     number: str
     rating: int
@@ -3918,72 +3065,33 @@ class ReviewRequest(BaseModel):
 @app.post("/api/reviews")
 def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
-    if not (1 <= req.rating <= 5):
-        raise HTTPException(400, "Rating must be 1-5")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
+    if not (1 <= req.rating <= 5): raise HTTPException(400, "Rating must be 1-5")
     if SessionLocal:
         with SessionLocal() as db:
-            db.add(NumberReview(
-                user_id=user["id"],
-                number=req.number,
-                rating=req.rating,
-                comment=req.comment
-            ))
-            
+            db.add(NumberReview(user_id=user["id"], number=req.number, rating=req.rating, comment=req.comment))
             if req.mark_as_bad or req.rating == 1:
-                existing = db.query(BadNumber).filter(BadNumber.number == req.number).first()
-                if not existing:
-                    db.add(BadNumber(
-                        number=req.number,
-                        reason=req.comment or "Flagged by user",
-                        flagged_by=user["id"]
-                    ))
+                if not db.query(BadNumber).filter(BadNumber.number == req.number).first():
+                    db.add(BadNumber(number=req.number, reason=req.comment or "Flagged by user", flagged_by=user["id"]))
                 db.query(ActiveNumber).filter(ActiveNumber.number == req.number).delete()
-            
-            assignment = db.query(Assignment).filter(
-                Assignment.user_id == user["id"],
-                Assignment.number == req.number,
-                Assignment.released_at == None
-            ).first()
+            assignment = db.query(Assignment).filter(Assignment.user_id == user["id"], Assignment.number == req.number, Assignment.released_at == None).first()
             if assignment:
                 assignment.released_at = utcnow()
                 assignment.feedback = req.comment or ("bad" if req.mark_as_bad else "ok")
-            
             db.commit()
     else:
-        global review_counter
-        reviews.append({
-            "id": _counters["review"],
-            "user_id": user["id"],
-            "number": req.number,
-            "rating": req.rating,
-            "comment": req.comment,
-            "created_at": utcnow().isoformat()
-        })
+        reviews.append({"id": _counters["review"], "user_id": user["id"], "number": req.number,
+                         "rating": req.rating, "comment": req.comment, "created_at": utcnow().isoformat()})
         _counters["review"] += 1
-        
         if req.mark_as_bad or req.rating == 1:
             add_bad_number(req.number, user["id"], req.comment or "Flagged by user")
-        
-        current = get_current_assignment(user["id"])
-        if current and current["number"] == req.number:
-            release_assignment(user["id"])
-    
-    return {"ok": True, "marked_bad": req.mark_as_bad or req.rating == 1}
+    return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  ADMIN ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── ADMIN ENDPOINTS ───────────────────────────────────────────────────────────
 @app.get("/api/admin/stats")
-def stats(token: str = Cookie(default=None)):
+def admin_stats(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             return {
@@ -3995,48 +3103,55 @@ def stats(token: str = Cookie(default=None)):
                 "total_assignments": db.query(Assignment).count(),
                 "bad_numbers": db.query(BadNumber).count(),
                 "saved_numbers": db.query(SavedNumber).filter(SavedNumber.moved == False).count(),
-                "online_users": sum(len(conns) for conns in user_connections.values())
+                "online_users": sum(len(c) for c in user_connections.values())
             }
     else:
         return {
             "total_users": len(users),
-            "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u.get("is_blocked", False)),
+            "pending_approval": sum(1 for u in users.values() if not u["is_approved"] and not u.get("is_blocked")),
             "total_pools": len(pools),
             "total_numbers": sum(len(n) for n in active_numbers.values()),
             "total_otps": len(otp_logs),
             "total_assignments": len(archived_numbers),
             "bad_numbers": len(bad_numbers),
-            "saved_numbers": len([s for s in saved_numbers if not s.get("moved", False)]),
+            "saved_numbers": len([s for s in saved_numbers if not s.get("moved")]),
             "online_users": len(user_connections)
         }
 
 @app.get("/api/admin/users")
 def list_users(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
-            users_list = db.query(User).order_by(User.created_at.desc()).all()
-            return [{"id": u.id, "username": u.username, "is_admin": u.is_admin, "is_approved": u.is_approved, "is_blocked": u.is_blocked, "created_at": u.created_at.isoformat()} for u in users_list]
+            ul = db.query(User).order_by(User.created_at.desc()).all()
+            return [{"id": u.id, "username": u.username, "is_admin": u.is_admin,
+                     "is_approved": u.is_approved, "is_blocked": u.is_blocked,
+                     "created_at": u.created_at.isoformat()} for u in ul]
     else:
-        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
+        return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"],
+                 "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False),
+                 "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
 async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     approve_user(user_id)
     await send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been approved!"})
+    return {"ok": True}
+
+@app.post("/api/admin/users/{user_id}/deny")
+async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
+    deny_user(user_id)
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
 async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     block_user(user_id)
     await send_to_user(user_id, {"type": "notification", "message": "🚫 Your account has been blocked."})
     return {"ok": True}
@@ -4044,8 +3159,7 @@ async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
 @app.post("/api/admin/users/{user_id}/unblock")
 async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     unblock_user(user_id)
     await send_to_user(user_id, {"type": "notification", "message": "✅ Your account has been unblocked!"})
     return {"ok": True}
@@ -4053,110 +3167,84 @@ async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None))
 @app.get("/api/admin/bad-numbers")
 def list_bad_numbers(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             bad = db.query(BadNumber).order_by(BadNumber.created_at.desc()).all()
             return [{"number": b.number, "reason": b.reason, "created_at": b.created_at.isoformat()} for b in bad]
     else:
-        return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
+        return [{"number": num, "reason": data.get("reason",""), "created_at": data.get("marked_at","")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
 def remove_bad_number(number: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             db.query(BadNumber).filter(BadNumber.number == number).delete()
             db.commit()
     else:
         bad_numbers.pop(number, None)
-    
     return {"ok": True}
 
 @app.get("/api/admin/reviews")
 def list_reviews(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
-            reviews_list = db.query(NumberReview).order_by(NumberReview.created_at.desc()).limit(100).all()
-            return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment, "created_at": r.created_at.isoformat()} for r in reviews_list]
+            rev = db.query(NumberReview).order_by(NumberReview.created_at.desc()).limit(100).all()
+            return [{"id": r.id, "user_id": r.user_id, "number": r.number, "rating": r.rating, "comment": r.comment, "created_at": r.created_at.isoformat()} for r in rev]
     else:
-        return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
+        return sorted([{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in reviews], key=lambda x: x["created_at"], reverse=True)[:100]
 
 @app.post("/api/admin/broadcast")
 async def broadcast_message(message: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     await broadcast_all({"type": "broadcast", "message": message})
     return {"ok": True}
 
 @app.post("/api/admin/settings/approval")
 def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     set_approval_mode(enabled)
-    return {"ok": True, "mode": "on" if enabled else "off"}
+    return {"ok": True}
 
 @app.post("/api/admin/settings/otp-redirect")
-def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
+def set_otp_redirect_endpoint(mode: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
-    if mode not in ["pool", "hardcoded"]:
-        raise HTTPException(400, "Mode must be 'pool' or 'hardcoded'")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
+    if mode not in ["pool", "hardcoded"]: raise HTTPException(400, "Invalid mode")
     set_otp_redirect_mode(mode)
-    return {"ok": True, "mode": mode}
+    return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  CUSTOM BUTTONS ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── CUSTOM BUTTONS ────────────────────────────────────────────────────────────
 @app.get("/api/buttons")
 def get_buttons(token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    
+    if not user: raise HTTPException(401, "Not authenticated")
     return _get_custom_buttons()
 
 @app.post("/api/admin/buttons")
 def add_button(label: str, url: str, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             max_pos = db.query(func.max(CustomButton.position)).scalar() or 0
             db.add(CustomButton(label=label, url=url, position=max_pos + 1))
             db.commit()
     else:
-        global button_counter
         custom_buttons.append({"id": _counters["button"], "label": label, "url": url, "position": len(custom_buttons)})
         _counters["button"] += 1
-    
     return {"ok": True}
 
 @app.delete("/api/admin/buttons/{button_id}")
 def delete_button(button_id: int, token: str = Cookie(default=None)):
     user = get_user_from_token(token)
-    if not user or not user["is_admin"]:
-        raise HTTPException(403, "Admin only")
-    
+    if not user or not user["is_admin"]: raise HTTPException(403, "Admin only")
     if SessionLocal:
         with SessionLocal() as db:
             db.query(CustomButton).filter(CustomButton.id == button_id).delete()
@@ -4166,16 +3254,11 @@ def delete_button(button_id: int, token: str = Cookie(default=None)):
             if b["id"] == button_id:
                 custom_buttons.pop(i)
                 return {"ok": True}
-        raise HTTPException(404, "Button not found")
-    
     return {"ok": True}
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  WEBSOCKET ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
+# ── WEBSOCKETS ────────────────────────────────────────────────────────────────
 @app.websocket("/ws/user/{user_id}")
-async def websocket_user(websocket: WebSocket, user_id: int):
+async def ws_user(websocket: WebSocket, user_id: int):
     await connect_user(websocket, user_id)
     try:
         while True:
@@ -4184,7 +3267,7 @@ async def websocket_user(websocket: WebSocket, user_id: int):
         disconnect_user(websocket, user_id)
 
 @app.websocket("/ws/feed")
-async def websocket_feed(websocket: WebSocket):
+async def ws_feed(websocket: WebSocket):
     await connect_feed(websocket)
     try:
         while True:
@@ -4192,15 +3275,5 @@ async def websocket_feed(websocket: WebSocket):
     except WebSocketDisconnect:
         disconnect_feed(websocket)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
-    uvicorn.run(
-        "backend:app",
-        host="0.0.0.0",
-        port=PORT,
-        reload=False,
-        log_level="info"
-    )
+    uvicorn.run("backend_new:app", host="0.0.0.0", port=PORT, reload=False, log_level="info")
