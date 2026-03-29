@@ -2064,46 +2064,59 @@ async function deleteSavedPool(ids) {
     loadSavedNumbers();
 }
 
+// Track which ready pool is currently selected
+let selectedReadyPool = null;
+let allReadyGroups = {};
+
 async function loadReadyNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved/ready`, {credentials:'include'});
         const data = await res.json();
         const container = document.getElementById('readyList');
         const section = document.getElementById('readySection');
-        if (!data.length) { section.style.display='none'; container.innerHTML=''; return; }
+        if (!data.length) { section.style.display='none'; container.innerHTML=''; selectedReadyPool = null; return; }
         section.style.display = 'block';
 
-        // Group by pool_name — each pool has one active slot (front of queue)
-        const grouped = {};
+        // Group by pool_name
+        allReadyGroups = {};
         data.forEach(item => {
-            if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
-            grouped[item.pool_name].push(item);
+            if (!allReadyGroups[item.pool_name]) allReadyGroups[item.pool_name] = [];
+            allReadyGroups[item.pool_name].push(item);
         });
 
-        container.innerHTML = Object.entries(grouped).map(([poolName, items]) => {
-            const active = items[0];
-            const count = items.length;
-            const otpInfo = savedOtps[active.number];
-            const otpHtml = otpInfo ? `<div class="ready-otp">
-                <div class="ready-otp-label">🔑 OTP CODE</div>
-                <div class="ready-otp-code" onclick="copyText('${escapeHtml(otpInfo.otp)}')">${escapeHtml(otpInfo.otp)} 📋</div>
-                ${otpInfo.raw_message ? `<div class="ready-otp-msg">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
-            </div>` : '';
-            return `<div class="ready-card">
+        const poolNames = Object.keys(allReadyGroups);
+
+        // If selected pool no longer exists, pick first
+        if (!selectedReadyPool || !allReadyGroups[selectedReadyPool]) {
+            selectedReadyPool = poolNames[0];
+        }
+
+        const items = allReadyGroups[selectedReadyPool];
+        const active = items[0];
+        const count = items.length;
+        const otpInfo = savedOtps[active.number];
+
+        const otpHtml = otpInfo ? `<div class="ready-otp">
+            <div class="ready-otp-label">🔑 OTP CODE — tap to copy</div>
+            <div class="ready-otp-code" onclick="copyText('${escapeHtml(otpInfo.otp)}')">${escapeHtml(otpInfo.otp)} 📋</div>
+            ${otpInfo.raw_message ? `<div class="ready-otp-msg">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
+        </div>` : '';
+
+        container.innerHTML = `
+            <div class="ready-card">
                 <div class="ready-card-head">
-                    <div class="ready-pool-name">📦 ${escapeHtml(poolName)}</div>
+                    <div class="ready-pool-name">📦 ${escapeHtml(selectedReadyPool)}</div>
                     <div class="ready-queue">${count} in queue</div>
                 </div>
                 <div class="ready-card-body">
                     <div class="ready-number" onclick="copyText('${escapeHtml(active.number)}');showToast('📋 Copied!')">${escapeHtml(active.number)} 📋</div>
                     <div class="ready-actions">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${escapeHtml(poolName)}')">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${escapeHtml(active.number)}', '${escapeHtml(poolName)}')">🌐 Change Pool</button>
+                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${escapeHtml(selectedReadyPool)}')">🔄 Change Number</button>
+                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${escapeHtml(active.number)}', '${escapeHtml(selectedReadyPool)}')">🌐 Change Pool</button>
                     </div>
                     ${otpHtml}
                 </div>
             </div>`;
-        }).join('');
     } catch(e) {}
 }
 
@@ -2115,7 +2128,6 @@ async function doNextNumber(id, poolName) {
         const data = await res.json();
         if (res.ok) {
             showToast(`✅ New number: ${data.number}`);
-            // Trigger monitor for newly assigned number — lookup pool info from main page
             await triggerSavedMonitor(data.number);
             loadReadyNumbers();
         } else { showToast(data.detail || 'No more numbers in this pool'); }
@@ -2136,7 +2148,7 @@ async function openSwitchPool(id, number, currentPool) {
     select.innerHTML = '<option>Loading pools…</option>';
     document.getElementById('changePoolModal').classList.add('show');
     try {
-        // Only show OTHER ready pools — pools that also have numbers ready
+        // Show only other ready pools (pools that have ready numbers)
         const res = await fetch(`${API_BASE}/api/saved/ready-pools`, {credentials:'include'});
         const readyPools = await res.json();
         const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
@@ -2157,6 +2169,7 @@ async function submitSwitchPool() {
         if (res.ok) {
             showToast(`✅ Switched to ${newPool}: ${data.number}`);
             document.getElementById('changePoolModal').classList.remove('show');
+            selectedReadyPool = newPool; // auto-select the switched pool
             await triggerSavedMonitor(data.number);
             loadReadyNumbers();
         } else { showToast(data.detail || 'Switch failed'); }
@@ -2236,82 +2249,6 @@ async function savePool() {
     } catch(e) { showToast('Network error'); }
 }
 
-async function loadAdminPools() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        const pools = await res.json();
-        const container = document.getElementById('poolsList');
-        container.innerHTML = pools.map(p => `
-            <div class="card" style="margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                    <div>
-                        <div style="font-size:15px;font-weight:700;color:var(--gray-900);">${escapeHtml(p.name)}</div>
-                        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">+${escapeHtml(p.country_code)} · ${p.number_count} numbers · Format: ${escapeHtml(p.match_format)}</div>
-                        ${p.is_paused?`<div style="font-size:11px;color:var(--red);margin-top:3px;">⏸ Paused: ${escapeHtml(p.pause_reason||'')}</div>`:''}
-                    </div>
-                    <span class="pool-count">${p.number_count}</span>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
-                    <button class="btn btn-sm btn-secondary" onclick="editPool(${p.id})">✏️ Edit</button>
-                    <button class="btn btn-sm btn-secondary" onclick="openUploadForPool(${p.id})">📁 Upload</button>
-                    ${p.is_paused
-                        ? `<button class="btn btn-sm btn-green" onclick="resumePool(${p.id})">▶ Resume</button>`
-                        : `<button class="btn btn-sm btn-danger" onclick="pausePool(${p.id})">⏸ Pause</button>`}
-                    <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id})">🗑</button>
-                </div>
-            </div>`).join('');
-    } catch(e) {}
-}
-
-async function editPool(poolId) {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        const pools = await res.json();
-        const p = pools.find(x => x.id === poolId);
-        if (!p) return;
-        currentEditPoolId = poolId;
-        document.getElementById('poolModalTitle').textContent = 'Edit Pool';
-        document.getElementById('poolName').value = p.name;
-        document.getElementById('poolCode').value = p.country_code;
-        document.getElementById('poolGroupId').value = p.otp_group_id || '';
-        document.getElementById('poolOtpLink').value = p.otp_link || '';
-        document.getElementById('poolMatchFormat').value = p.match_format || '5+4';
-        document.getElementById('poolTelegramMatchFormat').value = p.telegram_match_format || '';
-        document.getElementById('poolUsesPlatform').value = p.uses_platform || 0;
-        document.getElementById('poolTrickText').value = p.trick_text || '';
-        document.getElementById('poolAdminOnly').checked = !!p.is_admin_only;
-        document.getElementById('poolPaused').checked = !!p.is_paused;
-        document.getElementById('pauseReasonDiv').style.display = p.is_paused ? 'block' : 'none';
-        document.getElementById('poolPauseReason').value = p.pause_reason || '';
-        document.getElementById('poolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pool data'); }
-}
-
-async function deletePool(poolId) {
-    if (!confirm('Delete this pool and all its numbers?')) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, {method:'DELETE',credentials:'include'});
-        if (res.ok) { showToast('Pool deleted'); loadAdminPools(); loadRegions(); }
-        else { const d = await res.json(); showToast(d.detail || 'Delete failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-async function pausePool(poolId) {
-    const reason = prompt('Pause reason (optional):') || '';
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {method:'POST',credentials:'include'});
-    if (res.ok) { showToast('Pool paused'); loadAdminPools(); loadRegions(); }
-}
-
-async function resumePool(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, {method:'POST',credentials:'include'});
-    if (res.ok) { showToast('Pool resumed'); loadAdminPools(); loadRegions(); }
-}
-
-function openUploadForPool(poolId) {
-    document.getElementById('uploadPoolSelect').innerHTML = `<option value="${poolId}">Pool ${poolId}</option>`;
-    document.getElementById('uploadModal').classList.add('show');
-}
-
 function openUploadModal() {
     fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
         document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
@@ -2349,34 +2286,51 @@ async function loadAdminStats() {
     } catch(e) { div.innerHTML = 'Failed to load stats'; }
 }
 
-async function loadUsersList() {
-    const div = document.getElementById('adminUsersDiv');
-    div.style.display = 'block';
-    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+async function editPool(poolId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/users`, {credentials:'include'});
-        const users = await res.json();
-        div.innerHTML = users.map(u => `<div class="card" style="margin-bottom:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <div style="font-weight:700;color:var(--gray-900);">${escapeHtml(u.username)}</div>
-                    <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">ID:${u.id} · ${u.is_admin?'Admin':'User'}</div>
-                </div>
-                <div style="display:flex;gap:6px;align-items:center;">
-                    ${u.is_approved?'<span class="badge-green">Active</span>':'<span class="badge-red">Pending</span>'}
-                </div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-                ${!u.is_approved?`<button class="btn btn-sm btn-green" onclick="approveUser(${u.id})">✅ Approve</button>`:''}
-                ${u.is_blocked?`<button class="btn btn-sm btn-secondary" onclick="unblockUser(${u.id})">🔓 Unblock</button>`:`<button class="btn btn-sm btn-danger" onclick="blockUser(${u.id})">🚫 Block</button>`}
-            </div>
-        </div>`).join('');
-    } catch(e) { div.innerHTML = 'Failed to load users'; }
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
+        const pools = await res.json();
+        const p = pools.find(x => x.id === poolId);
+        if (!p) return;
+        currentEditPoolId = poolId;
+        document.getElementById('poolModalTitle').textContent = 'Edit Pool';
+        document.getElementById('poolName').value = p.name;
+        document.getElementById('poolCode').value = p.country_code;
+        document.getElementById('poolGroupId').value = p.otp_group_id || '';
+        document.getElementById('poolOtpLink').value = p.otp_link || '';
+        document.getElementById('poolMatchFormat').value = p.match_format || '5+4';
+        document.getElementById('poolTelegramMatchFormat').value = p.telegram_match_format || '';
+        document.getElementById('poolUsesPlatform').value = p.uses_platform || 0;
+        document.getElementById('poolTrickText').value = p.trick_text || '';
+        document.getElementById('poolAdminOnly').checked = !!p.is_admin_only;
+        document.getElementById('poolPaused').checked = !!p.is_paused;
+        document.getElementById('pauseReasonDiv').style.display = p.is_paused ? 'block' : 'none';
+        document.getElementById('poolPauseReason').value = p.pause_reason || '';
+        document.getElementById('poolModal').classList.add('show');
+    } catch(e) { showToast('Failed to load pool data'); }
 }
 
-async function approveUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/approve`,{method:'POST',credentials:'include'}); loadUsersList(); showToast('User approved'); }
-async function blockUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'}); loadUsersList(); showToast('User blocked'); }
-async function unblockUser(id) { await fetch(`${API_BASE}/api/admin/users/${id}/unblock`,{method:'POST',credentials:'include'}); loadUsersList(); showToast('User unblocked'); }
+async function deletePool(poolId) {
+    if (!confirm('Delete this pool and ALL its numbers? This cannot be undone.')) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, {method:'DELETE',credentials:'include'});
+        if (res.ok) { showToast('✅ Pool deleted'); loadAdminPools(); loadRegions(); }
+        else { const d = await res.json(); showToast(d.detail || 'Delete failed'); }
+    } catch(e) { showToast('Network error'); }
+}
+
+async function pausePool(poolId) {
+    const reason = prompt('Pause reason (optional):') || '';
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Pool paused'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
+}
+
+async function resumePool(poolId) {
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Pool resumed'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
+}
 
 async function loadBadNumbers() {
     const div = document.getElementById('adminBadDiv');
@@ -2411,9 +2365,7 @@ async function loadReviews() {
     } catch(e) { div.innerHTML = 'Failed'; }
 }
 
-function showBroadcast() { document.getElementById('adminBroadcastDiv').style.display = 'block'; }
-async function sendBroadcast() {
-    const msg = document.getElementById('broadcastMsg').value.trim();
+
     if (!msg) { showToast('Enter a message'); return; }
     await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`,{method:'POST',credentials:'include'});
     showToast('Broadcast sent'); document.getElementById('broadcastMsg').value='';
@@ -2426,6 +2378,180 @@ async function saveSettings() {
     await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${ap==='on'}`,{method:'POST',credentials:'include'});
     await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${otp}`,{method:'POST',credentials:'include'});
     showToast('Settings saved');
+}
+
+// ── EXPORT NUMBERS ──
+async function exportPool(poolId, poolName) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/export`, {credentials:'include'});
+        if (!res.ok) { showToast('Export failed'); return; }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${poolName}_numbers.txt`; a.click();
+        URL.revokeObjectURL(url);
+        showToast('✅ Export downloaded');
+    } catch(e) { showToast('Network error'); }
+}
+
+// ── CUT NUMBERS ──
+async function cutPool(poolId, poolName) {
+    const count = prompt(`How many numbers to cut from "${poolName}"?`);
+    if (!count || isNaN(parseInt(count))) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, {method:'POST',credentials:'include'});
+        const d = await res.json();
+        if (res.ok) { showToast(`✅ Removed ${d.removed} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
+        else { showToast(d.detail || 'Cut failed'); }
+    } catch(e) { showToast('Network error'); }
+}
+
+// ── CLEAR POOL ──
+async function clearPool(poolId, poolName) {
+    if (!confirm(`Clear ALL numbers from "${poolName}"? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, {method:'POST',credentials:'include'});
+        const d = await res.json();
+        if (res.ok) { showToast(`✅ Cleared ${d.deleted} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
+        else { showToast(d.detail || 'Clear failed'); }
+    } catch(e) { showToast('Network error'); }
+}
+
+// ── POOL ACCESS CONTROL ──
+async function managePoolAccess(poolId, poolName) {
+    const userId = prompt(`Grant/revoke access for pool "${poolName}".\nEnter user ID to GRANT access (or type "revoke:USER_ID" to revoke):`);
+    if (!userId) return;
+    if (userId.startsWith('revoke:')) {
+        const uid = parseInt(userId.split(':')[1]);
+        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'DELETE',credentials:'include'});
+        showToast(res.ok ? `✅ Access revoked for user ${uid}` : 'Failed');
+    } else {
+        const uid = parseInt(userId);
+        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'POST',credentials:'include'});
+        showToast(res.ok ? `✅ Access granted to user ${uid}` : 'Failed');
+    }
+    loadAdminPools();
+}
+
+// ── TOGGLE ADMIN ONLY ──
+async function toggleAdminOnly(poolId) {
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ Updated'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
+}
+
+// ── ENHANCED loadAdminPools with all actions ──
+async function loadAdminPools() {
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
+        const pools = await res.json();
+        const container = document.getElementById('poolsList');
+        if (!pools.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No pools yet</div></div>'; return; }
+        container.innerHTML = pools.map(p => `
+            <div class="card" style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div style="flex:1;">
+                        <div style="font-size:15px;font-weight:700;color:var(--gray-900);">${escapeHtml(p.name)} ${p.is_admin_only?'🔒':''}</div>
+                        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">+${escapeHtml(p.country_code)} · ${p.number_count} numbers · Format: ${escapeHtml(p.match_format)} · Mode: ${['Telegram','Platform','Both'][p.uses_platform]||'?'}</div>
+                        ${p.otp_group_id?`<div style="font-size:11px;color:var(--gray-500);margin-top:1px;">Group: ${p.otp_group_id}</div>`:''}
+                        ${p.trick_text?`<div style="font-size:11px;color:var(--yellow);margin-top:1px;">💡 ${escapeHtml(p.trick_text)}</div>`:''}
+                        ${p.is_paused?`<div style="font-size:11px;color:var(--red);margin-top:3px;">⏸ Paused: ${escapeHtml(p.pause_reason||'')}</div>`:''}
+                    </div>
+                    <span class="pool-count">${p.number_count}</span>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
+                    <button class="btn btn-sm btn-secondary" onclick="editPool(${p.id})">✏️ Edit</button>
+                    <button class="btn btn-sm btn-secondary" onclick="openUploadForPool(${p.id}, '${escapeHtml(p.name)}')">📁 Upload</button>
+                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id}, '${escapeHtml(p.name)}')">📤 Export</button>
+                    <button class="btn btn-sm btn-secondary" onclick="cutPool(${p.id}, '${escapeHtml(p.name)}')">✂️ Cut</button>
+                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name)}')">🧹 Clear</button>
+                    ${p.is_paused
+                        ? `<button class="btn btn-sm btn-green" onclick="resumePool(${p.id})">▶ Resume</button>`
+                        : `<button class="btn btn-sm btn-danger" onclick="pausePool(${p.id})">⏸ Pause</button>`}
+                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Public':'🔒 Admin Only'}</button>
+                    <button class="btn btn-sm btn-secondary" onclick="managePoolAccess(${p.id}, '${escapeHtml(p.name)}')">🔐 Access</button>
+                    <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id})">🗑 Delete</button>
+                </div>
+            </div>`).join('');
+    } catch(e) { document.getElementById('poolsList').innerHTML = 'Failed to load pools'; }
+}
+
+// ── ENHANCED loadUsersList with pending/approved tabs ──
+async function loadUsersList() {
+    const div = document.getElementById('adminUsersDiv');
+    div.style.display = 'block';
+    div.innerHTML = `
+        <div style="display:flex;gap:8px;padding:8px 0;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-primary" onclick="loadUsersTab('all')">All Users</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('pending')">⏳ Pending</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('approved')">✅ Approved</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('blocked')">🚫 Blocked</button>
+        </div>
+        <div id="usersTabContent"><div class="loading"><div class="spinner"></div>Loading…</div></div>`;
+    loadUsersTab('all');
+}
+
+async function loadUsersTab(tab) {
+    const div = document.getElementById('usersTabContent');
+    if (!div) return;
+    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/users`, {credentials:'include'});
+        const users = await res.json();
+        let filtered = users;
+        if (tab === 'pending') filtered = users.filter(u => !u.is_approved && !u.is_blocked);
+        else if (tab === 'approved') filtered = users.filter(u => u.is_approved && !u.is_blocked);
+        else if (tab === 'blocked') filtered = users.filter(u => u.is_blocked);
+        if (!filtered.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users in this category</div></div>'; return; }
+        div.innerHTML = filtered.map(u => `<div class="card" style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div style="font-weight:700;color:var(--gray-900);">${escapeHtml(u.username)} ${u.is_admin?'👑':''}</div>
+                    <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">ID: ${u.id} · Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
+                </div>
+                <div>${u.is_blocked?'<span class="badge-red">Blocked</span>':u.is_approved?'<span class="badge-green">Active</span>':'<span style="background:rgba(255,176,32,0.15);color:var(--yellow);padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;">Pending</span>'}</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="approveUser(${u.id})">✅ Approve</button>` : ''}
+                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-danger" onclick="denyUser(${u.id})">❌ Deny</button>` : ''}
+                ${u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="unblockUser(${u.id})">🔓 Unblock</button>` : `<button class="btn btn-sm btn-danger" onclick="blockUser(${u.id})">🚫 Block</button>`}
+                ${u.is_approved ? `<button class="btn btn-sm btn-danger" onclick="revokeUser(${u.id})">🔒 Revoke</button>` : ''}
+            </div>
+        </div>`).join('');
+    } catch(e) { div.innerHTML = 'Failed to load users'; }
+}
+
+async function approveUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/approve`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ User approved'); loadUsersTab('pending'); }
+    else { showToast('Failed'); }
+}
+async function denyUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('User denied'); loadUsersTab('pending'); }
+}
+async function blockUser(id) {
+    if (!confirm('Block this user?')) return;
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('User blocked'); loadUsersTab('all'); }
+}
+async function unblockUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/unblock`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ User unblocked'); loadUsersTab('blocked'); }
+}
+async function revokeUser(id) {
+    if (!confirm('Revoke access for this user?')) return;
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Access revoked'); loadUsersTab('approved'); }
+}
+
+function openUploadForPool(poolId, poolName) {
+    fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
+        document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}" ${p.id===poolId?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+    });
+    document.getElementById('uploadModal').classList.add('show');
 }
 
 checkAuth();
@@ -2748,8 +2874,21 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
     
     if SessionLocal:
         with SessionLocal() as db:
-            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
-            db.query(Pool).filter(Pool.id == pool_id).delete()
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if not pool:
+                raise HTTPException(404, "Pool not found")
+            # Delete OTP logs linked to assignments in this pool first
+            assignment_ids = [a.id for a in db.query(Assignment).filter(Assignment.pool_id == pool_id).all()]
+            if assignment_ids:
+                db.query(OTPLog).filter(OTPLog.assignment_id.in_(assignment_ids)).delete(synchronize_session=False)
+            # Delete assignments for this pool
+            db.query(Assignment).filter(Assignment.pool_id == pool_id).delete(synchronize_session=False)
+            # Delete active numbers
+            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete(synchronize_session=False)
+            # Delete pool access entries
+            db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).delete(synchronize_session=False)
+            # Now delete the pool itself
+            db.delete(pool)
             db.commit()
     else:
         if pool_id not in pools:
