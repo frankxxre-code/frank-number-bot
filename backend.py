@@ -1066,7 +1066,7 @@ async def request_monitor_bot(number: str, group_id: int, match_format: str, use
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=10) as resp:
                     if resp.status == 200:
-                        log.info(f"[Monitor] ✅ MONITOR_REQUEST sent for {number} user={user_id}")
+                        log.info(f"[Monitor] ✅ MONITOR_REQUEST sent for {number} user={user_id} group_id={group_id} match_format={match_format}")
                         return True
                     else:
                         body = await resp.text()
@@ -2164,19 +2164,19 @@ async function triggerSavedMonitor(number) {
 async function openSwitchPool(id, number, currentPool) {
     changeTargetId = id;
     document.getElementById('changePoolCurrentNum').textContent = number;
-    // Show loading in select while fetching
     const select = document.getElementById('changePoolSelect');
     select.innerHTML = '<option>Loading pools…</option>';
     document.getElementById('changePoolModal').classList.add('show');
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, {credentials:'include'});
-        const readyPools = await res.json();
-        const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
+        // Fetch ALL available pools — user picks any pool to switch to
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
+        const allPools = await res.json();
+        const options = allPools.filter(p => p.name !== currentPool && !p.is_paused && p.number_count > 0);
         if (!options.length) {
-            select.innerHTML = '<option disabled>No other pools available</option>';
+            select.innerHTML = '<option disabled>No other pools with numbers available</option>';
             return;
         }
-        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
+        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)} (${p.number_count} available)</option>`).join('');
     } catch(e) { select.innerHTML = '<option disabled>Failed to load pools</option>'; }
 }
 
