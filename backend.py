@@ -1308,135 +1308,234 @@ FRONTEND_HTML = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>NEON GRID NETWORK</title>
+    <title>NumBot Platform</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: radial-gradient(circle at 10% 20%, #0a0f1a, #03060c); min-height: 100vh; padding-bottom: 70px; color: #eef2ff; }
-        .status-bar { background: rgba(10,132,255,0.95); backdrop-filter: blur(10px); padding: 12px 16px 8px; color: white; font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-        .header { background: rgba(15,25,35,0.8); backdrop-filter: blur(10px); padding: 16px; border-bottom: 1px solid rgba(10,132,255,0.2); }
-        .user-info { display: flex; justify-content: space-between; align-items: center; }
-        .user-name { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, #0a84ff, #5e2aff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .user-id { font-size: 12px; color: #7e8a9a; background: rgba(30,41,59,0.6); padding: 4px 10px; border-radius: 20px; }
-        .balance-card { background: linear-gradient(135deg, #0a84ff, #5e2aff); border-radius: 28px; padding: 24px; margin: 16px; color: white; box-shadow: 0 20px 35px -10px rgba(10,132,255,0.3); }
-        .balance-label { font-size: 14px; opacity: 0.8; letter-spacing: 1px; margin-bottom: 8px; }
-        .balance-amount { font-size: 48px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
-        .balance-sub { font-size: 12px; opacity: 0.7; }
-        .withdraw-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 12px 24px; border-radius: 40px; color: white; font-weight: 600; font-size: 14px; margin-top: 16px; display: inline-block; cursor: pointer; transition: all 0.2s; }
-        .withdraw-btn:active { transform: scale(0.96); background: rgba(255,255,255,0.3); }
-        .section-title { font-size: 16px; font-weight: 600; color: #7e8a9a; padding: 20px 16px 12px; letter-spacing: 0.5px; text-transform: uppercase; }
-        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 8px 16px; }
-        .menu-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 20px 16px; text-align: center; cursor: pointer; border: 1px solid rgba(10,132,255,0.2); transition: all 0.2s; }
-        .menu-card:active { transform: scale(0.97); background: rgba(30,45,65,0.8); border-color: rgba(10,132,255,0.5); }
-        .menu-icon { font-size: 36px; margin-bottom: 8px; }
-        .menu-label { font-size: 14px; font-weight: 600; color: #eef2ff; }
-        .menu-desc { font-size: 11px; color: #7e8a9a; margin-top: 4px; }
-        .number-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); margin: 16px; border-radius: 28px; padding: 24px; border: 1px solid rgba(10,132,255,0.2); }
-        .number-label { font-size: 12px; color: #7e8a9a; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-        .number-value { font-size: 28px; font-weight: 700; font-family: monospace; color: #0a84ff; word-break: break-all; margin-bottom: 16px; }
-        .region-badge { display: inline-block; background: rgba(30,41,59,0.8); padding: 6px 14px; border-radius: 30px; font-size: 12px; color: #9ca3af; }
-        .otp-card { background: linear-gradient(135deg, #10b981, #059669); margin: 16px; border-radius: 28px; padding: 24px; color: white; animation: slideIn 0.3s ease; box-shadow: 0 10px 25px -5px rgba(16,185,129,0.3); }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .otp-code { font-size: 52px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
-        .otp-timer { text-align: center; font-size: 13px; opacity: 0.9; }
-        .otp-message { font-size: 11px; opacity: 0.8; text-align: center; margin-top: 8px; word-break: break-all; }
-        .region-list { padding: 8px 16px; }
-        .region-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); cursor: pointer; transition: all 0.2s; }
-        .region-item:active { background: rgba(30,45,65,0.8); transform: scale(0.98); }
-        .region-name { font-weight: 600; color: #eef2ff; }
-        .region-code { font-size: 12px; color: #7e8a9a; margin-top: 4px; }
-        .region-count { background: rgba(10,132,255,0.2); padding: 4px 12px; border-radius: 30px; font-size: 12px; font-weight: 600; color: #0a84ff; }
-        .filter-row { display: flex; gap: 12px; padding: 12px 16px; background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); margin: 8px 16px; border-radius: 50px; border: 1px solid rgba(10,132,255,0.2); }
-        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: #eef2ff; }
-        .filter-input::placeholder { color: #5a6a7a; }
-        .filter-btn { background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; border: none; padding: 8px 20px; border-radius: 40px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .filter-btn:active { transform: scale(0.96); }
-        .saved-list { padding: 8px 16px; }
-        .saved-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); }
-        .saved-number { font-family: monospace; font-weight: 600; color: #0a84ff; }
-        .saved-timer { font-size: 12px; color: #7e8a9a; margin-top: 4px; }
-        .timer-badge { padding: 4px 12px; border-radius: 30px; font-size: 11px; font-weight: 600; }
-        .timer-green { background: rgba(16,185,129,0.2); color: #10b981; }
-        .timer-yellow { background: rgba(245,158,11,0.2); color: #f59e0b; }
-        .timer-red { background: rgba(239,68,68,0.2); color: #ef4444; }
-        .timer-ready { background: rgba(10,132,255,0.2); color: #0a84ff; }
-        .history-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; border: 1px solid rgba(10,132,255,0.2); }
-        .history-number { font-family: monospace; font-size: 12px; color: #7e8a9a; }
-        .history-otp { font-size: 24px; font-weight: 700; font-family: monospace; color: #10b981; margin: 8px 0; cursor: pointer; }
-        .history-time { font-size: 11px; color: #5a6a7a; margin-top: 4px; }
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(10,15,25,0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 8px 16px 20px; border-top: 1px solid rgba(10,132,255,0.2); z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 16px; border-radius: 40px; transition: all 0.2s; }
-        .nav-item:active { background: rgba(10,132,255,0.1); }
-        .nav-icon { font-size: 24px; }
-        .nav-label { font-size: 11px; font-weight: 500; color: #7e8a9a; }
-        .nav-item.active .nav-label { color: #0a84ff; }
-        .page { display: none; padding-bottom: 20px; }
+        :root {
+            --blue: #1a6bff;
+            --blue-dark: #1255cc;
+            --blue-light: #e8f0ff;
+            --blue-mid: #4d8dff;
+            --white: #ffffff;
+            --gray-50: #f8faff;
+            --gray-100: #eef2ff;
+            --gray-200: #dde6ff;
+            --gray-400: #8fa8d4;
+            --gray-500: #5a78a8;
+            --gray-700: #2a3f6e;
+            --gray-900: #0d1f42;
+            --green: #00c48c;
+            --red: #ff4d6a;
+            --yellow: #ffb020;
+            --shadow-sm: 0 2px 8px rgba(26,107,255,0.08);
+            --shadow-md: 0 4px 20px rgba(26,107,255,0.14);
+            --shadow-lg: 0 8px 32px rgba(26,107,255,0.2);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-lg: 24px;
+            --radius-xl: 32px;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); min-height: 100vh; padding-bottom: 80px; color: var(--gray-900); }
+
+        /* ── AUTH ── */
+        .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #1a6bff 0%, #0d3d99 60%, #07205e 100%); padding: 20px; }
+        .auth-card { background: white; border-radius: var(--radius-xl); padding: 40px 32px; width: 100%; max-width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,0.25); }
+        .auth-logo { text-align: center; margin-bottom: 8px; }
+        .auth-logo svg { width: 52px; height: 52px; }
+        .auth-title { text-align: center; font-size: 22px; font-weight: 800; color: var(--blue); margin-bottom: 4px; }
+        .auth-sub { text-align: center; font-size: 13px; color: var(--gray-400); margin-bottom: 28px; }
+        .tab-row { display: flex; background: var(--gray-100); border-radius: 50px; padding: 4px; margin-bottom: 24px; }
+        .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 50px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; background: transparent; color: var(--gray-500); }
+        .tab-btn.active { background: var(--blue); color: white; box-shadow: 0 4px 12px rgba(26,107,255,0.3); }
+        .auth-input { width: 100%; padding: 14px 18px; border: 1.5px solid var(--gray-200); border-radius: 50px; font-size: 15px; outline: none; background: var(--gray-50); color: var(--gray-900); margin-bottom: 14px; transition: border-color .2s; }
+        .auth-input:focus { border-color: var(--blue); background: white; }
+        .auth-btn { width: 100%; background: var(--blue); color: white; border: none; padding: 15px; border-radius: 50px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all .2s; box-shadow: 0 6px 20px rgba(26,107,255,0.35); margin-top: 6px; }
+        .auth-btn:active { transform: scale(0.97); background: var(--blue-dark); }
+        .error-msg { color: var(--red); font-size: 12px; margin-top: 8px; text-align: center; }
+
+        /* ── HEADER ── */
+        .top-bar { background: var(--blue); padding: 16px 20px 14px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(26,107,255,0.25); }
+        .top-bar-left { display: flex; align-items: center; gap: 10px; }
+        .top-avatar { width: 38px; height: 38px; background: rgba(255,255,255,0.25); border-radius: 50%; display: flex; align-items: center; justify-content: font-size:18px; justify-content: center; font-size: 18px; }
+        .top-user { font-size: 16px; font-weight: 700; color: white; }
+        .top-id { font-size: 11px; color: rgba(255,255,255,0.7); }
+        .top-right { display: flex; align-items: center; gap: 8px; }
+        .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #00e676; box-shadow: 0 0 6px #00e676; }
+        .conn-dot.off { background: #ff5252; box-shadow: 0 0 6px #ff5252; }
+        .admin-badge { background: rgba(255,255,255,0.25); color: white; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; letter-spacing: .5px; }
+        .time-label { font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 500; }
+
+        /* ── NAV ── */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 10px 8px 20px; border-top: 1px solid var(--gray-200); z-index: 100; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 6px 16px; border-radius: 14px; transition: all .2s; flex: 1; }
+        .nav-item:active { background: var(--blue-light); }
+        .nav-item.active { background: var(--blue-light); }
+        .nav-icon { font-size: 22px; line-height: 1; }
+        .nav-label { font-size: 10px; font-weight: 600; color: var(--gray-400); letter-spacing: .3px; }
+        .nav-item.active .nav-label { color: var(--blue); }
+
+        /* ── PAGES ── */
+        .page { display: none; padding-bottom: 16px; }
         .page.active { display: block; }
-        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 24px; border-radius: 60px; font-size: 14px; z-index: 1000; max-width: 90%; text-align: center; animation: fadeInOut 2s ease; }
-        @keyframes fadeInOut { 0% { opacity: 0; transform: translateX(-50%) translateY(20px); } 15% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
-        .loading { text-align: center; padding: 40px; color: #7e8a9a; }
-        .spinner { width: 40px; height: 40px; border: 3px solid rgba(10,132,255,0.2); border-top-color: #0a84ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 1000; align-items: center; justify-content: center; }
+
+        /* ── SECTION TITLE ── */
+        .section-title { font-size: 11px; font-weight: 700; color: var(--gray-400); padding: 20px 20px 10px; text-transform: uppercase; letter-spacing: 1.2px; }
+
+        /* ── CARDS ── */
+        .card { background: white; border-radius: var(--radius-lg); margin: 0 16px 12px; padding: 20px; box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200); }
+        .card-blue { background: linear-gradient(135deg, var(--blue) 0%, #0d3d99 100%); color: white; border: none; }
+        .card-blue .label { color: rgba(255,255,255,0.75); }
+
+        /* ── NUMBER DISPLAY ── */
+        .number-label { font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+        .number-value { font-size: 28px; font-weight: 800; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--blue); margin-bottom: 14px; cursor: pointer; transition: opacity .15s; word-break: break-all; }
+        .number-value:active { opacity: 0.7; }
+        .number-value.dark { color: white; }
+        .region-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-light); padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 600; color: var(--blue); }
+        .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+        .btn { padding: 11px 20px; border-radius: 50px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+        .btn-sm { padding: 8px 16px; font-size: 12px; }
+        .btn-primary { background: var(--blue); color: white; box-shadow: 0 4px 12px rgba(26,107,255,0.3); }
+        .btn-primary:active { background: var(--blue-dark); transform: scale(0.97); }
+        .btn-secondary { background: var(--gray-100); color: var(--gray-700); }
+        .btn-secondary:active { background: var(--gray-200); transform: scale(0.97); }
+        .btn-danger { background: rgba(255,77,106,0.1); color: var(--red); }
+        .btn-danger:active { background: rgba(255,77,106,0.2); }
+        .btn-green { background: rgba(0,196,140,0.1); color: var(--green); }
+
+        /* ── OTP CARD ── */
+        .otp-card { background: linear-gradient(135deg, #00c48c, #00966d); border-radius: var(--radius-lg); margin: 0 16px 12px; padding: 20px; color: white; animation: slideUp .3s ease; box-shadow: 0 8px 24px rgba(0,196,140,0.3); }
+        @keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        .otp-header { font-size: 11px; font-weight: 700; letter-spacing: 1px; opacity: .8; margin-bottom: 8px; text-transform: uppercase; }
+        .otp-code { font-size: 48px; font-weight: 900; font-family: monospace; letter-spacing: 6px; text-align: center; cursor: pointer; margin: 8px 0; }
+        .otp-code:active { opacity: .7; }
+        .otp-timer { text-align: center; font-size: 12px; opacity: .8; }
+        .otp-msg { font-size: 11px; opacity: .75; text-align: center; margin-top: 6px; word-break: break-all; }
+
+        /* ── REGION LIST ── */
+        .filter-bar { display: flex; align-items: center; gap: 10px; background: white; margin: 8px 16px; padding: 12px 16px; border-radius: 50px; border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
+        .filter-bar:focus-within { border-color: var(--blue); }
+        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: var(--gray-900); }
+        .filter-input::placeholder { color: var(--gray-400); }
+        .filter-btn { background: var(--blue); color: white; border: none; padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .filter-btn:active { background: var(--blue-dark); }
+
+        .pool-item { display: flex; justify-content: space-between; align-items: center; background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); cursor: pointer; transition: all .2s; box-shadow: var(--shadow-sm); }
+        .pool-item:active { background: var(--blue-light); border-color: var(--blue); transform: scale(0.99); }
+        .pool-item.paused { opacity: .5; cursor: not-allowed; }
+        .pool-name { font-size: 15px; font-weight: 700; color: var(--gray-900); }
+        .pool-code { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+        .pool-tip { font-size: 11px; color: var(--yellow); margin-top: 3px; font-weight: 500; }
+        .pool-count { background: var(--blue-light); padding: 5px 12px; border-radius: 50px; font-size: 12px; font-weight: 700; color: var(--blue); }
+        .pool-paused { font-size: 11px; color: var(--red); font-weight: 600; }
+
+        /* ── SAVED PAGE ── */
+        .saved-item { display: flex; justify-content: space-between; align-items: center; background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
+        .saved-num { font-family: monospace; font-size: 15px; font-weight: 700; color: var(--blue); cursor: pointer; }
+        .saved-num:active { opacity: .7; }
+        .timer-badge { padding: 5px 12px; border-radius: 50px; font-size: 11px; font-weight: 700; }
+        .timer-green { background: rgba(0,196,140,0.1); color: var(--green); }
+        .timer-yellow { background: rgba(255,176,32,0.12); color: var(--yellow); }
+        .timer-red { background: rgba(255,77,106,0.1); color: var(--red); }
+        .timer-ready { background: rgba(26,107,255,0.1); color: var(--blue); }
+
+        .ready-card { background: white; margin: 0 16px 12px; border-radius: var(--radius-lg); border: 2px solid var(--blue); box-shadow: var(--shadow-md); overflow: hidden; }
+        .ready-card-head { background: var(--blue); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
+        .ready-pool-name { font-size: 13px; font-weight: 700; color: white; }
+        .ready-queue { font-size: 11px; color: rgba(255,255,255,0.8); }
+        .ready-card-body { padding: 16px; }
+        .ready-number { font-family: monospace; font-size: 22px; font-weight: 800; color: var(--blue); cursor: pointer; margin-bottom: 12px; }
+        .ready-number:active { opacity: .7; }
+        .ready-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .ready-otp { background: linear-gradient(135deg, #00c48c, #00966d); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 10px; }
+        .ready-otp-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: .8px; }
+        .ready-otp-code { font-size: 28px; font-weight: 900; font-family: monospace; color: white; cursor: pointer; margin: 4px 0; }
+        .ready-otp-msg { font-size: 10px; color: rgba(255,255,255,0.75); word-break: break-all; }
+
+        /* ── HISTORY ── */
+        .history-item { background: white; margin: 0 16px 8px; padding: 16px; border-radius: var(--radius); border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
+        .history-num { font-family: monospace; font-size: 12px; color: var(--gray-400); margin-bottom: 4px; }
+        .history-otp { font-size: 26px; font-weight: 800; font-family: monospace; color: var(--green); cursor: pointer; }
+        .history-otp:active { opacity: .7; }
+        .history-time { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
+        /* ── ADMIN ── */
+        .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px; }
+        .admin-card { background: white; border-radius: var(--radius); padding: 16px 12px; cursor: pointer; border: 1.5px solid var(--gray-200); text-align: center; transition: all .2s; box-shadow: var(--shadow-sm); }
+        .admin-card:active { background: var(--blue-light); border-color: var(--blue); transform: scale(0.97); }
+        .admin-icon { font-size: 26px; margin-bottom: 6px; }
+        .admin-label { font-size: 11px; font-weight: 700; color: var(--gray-700); }
+
+        /* ── MODALS ── */
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(13,31,66,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: flex-end; justify-content: center; }
         .modal.show { display: flex; }
-        .modal-content { background: #0f172a; border-radius: 32px; max-height: 85vh; overflow-y: auto; width: 100%; max-width: 500px; margin: 20px; border: 1px solid rgba(10,132,255,0.3); }
-        .modal-header { padding: 20px; border-bottom: 1px solid rgba(10,132,255,0.2); font-weight: 700; font-size: 18px; color: #eef2ff; }
-        .feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 20px; }
-        .feedback-btn { background: rgba(30,41,59,0.8); border: none; padding: 14px; border-radius: 50px; font-size: 14px; font-weight: 500; cursor: pointer; color: #eef2ff; transition: all 0.2s; }
-        .feedback-btn:active { transform: scale(0.96); }
-        .feedback-btn.bad { background: rgba(239,68,68,0.2); color: #f87171; }
-        .feedback-btn.good { background: rgba(16,185,129,0.2); color: #34d399; }
-        .auth-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: radial-gradient(circle at 30% 20%, #0a84ff, #03060c); }
-        .auth-card { background: rgba(15,25,35,0.9); backdrop-filter: blur(10px); border-radius: 48px; padding: 40px 32px; width: 100%; max-width: 340px; border: 1px solid rgba(10,132,255,0.3); }
-        .auth-logo { text-align: center; font-size: 56px; margin-bottom: 24px; }
-        .auth-input { width: 100%; padding: 16px; border: 1px solid rgba(10,132,255,0.3); border-radius: 60px; font-size: 16px; margin-bottom: 16px; outline: none; background: rgba(30,41,59,0.6); color: #eef2ff; }
-        .auth-input:focus { border-color: #0a84ff; }
-        .auth-btn { width: 100%; background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; border: none; padding: 16px; border-radius: 60px; font-size: 16px; font-weight: 700; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
-        .auth-btn:active { transform: scale(0.97); }
-        .error-msg { color: #f87171; font-size: 12px; margin-top: 8px; text-align: center; }
-        .admin-badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 4px 12px; border-radius: 30px; font-size: 10px; font-weight: 600; margin-left: 8px; }
-        .admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; padding: 8px 16px; }
-        .admin-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; cursor: pointer; border: 1px solid rgba(10,132,255,0.2); text-align: center; transition: all 0.2s; }
-        .admin-card:active { transform: scale(0.96); background: rgba(30,45,65,0.8); }
-        .admin-icon { font-size: 28px; margin-bottom: 8px; }
-        .admin-label { font-size: 12px; font-weight: 600; color: #eef2ff; }
-        .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 30px; }
-        .btn { padding: 10px 20px; border-radius: 40px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
-        .btn-primary { background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; }
-        .btn-danger { background: rgba(239,68,68,0.8); color: white; }
-        .btn-secondary { background: rgba(30,41,59,0.8); color: #eef2ff; }
-        .fg { margin-bottom: 20px; }
-        .fg label { display: block; font-size: 12px; font-weight: 600; color: #7e8a9a; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        .fg input, .fg select, .fg textarea { width: 100%; padding: 14px; border: 1px solid rgba(10,132,255,0.3); border-radius: 20px; background: rgba(30,41,59,0.6); color: #eef2ff; outline: none; font-size: 14px; }
-        .fg input:focus, .fg select:focus { border-color: #0a84ff; }
-        .brow { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
-        .hidden { display: none; }
-        .timer-input-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .timer-input-group input { flex: 1; min-width: 100px; }
-        .timer-preset { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-        .preset-btn { background: rgba(30,41,59,0.6); border: 1px solid rgba(10,132,255,0.3); padding: 8px 12px; border-radius: 30px; font-size: 12px; cursor: pointer; transition: all 0.2s; color: #eef2ff; }
-        .preset-btn:active { transform: scale(0.95); background: rgba(10,132,255,0.2); }
+        .modal-content { background: white; border-radius: var(--radius-xl) var(--radius-xl) 0 0; max-height: 90vh; overflow-y: auto; width: 100%; max-width: 600px; padding-bottom: 20px; animation: slideUp .25s ease; }
+        .modal-handle { width: 40px; height: 4px; background: var(--gray-200); border-radius: 4px; margin: 12px auto 0; }
+        .modal-header { padding: 16px 20px; font-weight: 800; font-size: 18px; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); }
+        .modal-body { padding: 20px; }
+        .fg { margin-bottom: 18px; }
+        .fg label { display: block; font-size: 11px; font-weight: 700; color: var(--gray-500); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .8px; }
+        .fg input, .fg select, .fg textarea { width: 100%; padding: 13px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); background: var(--gray-50); color: var(--gray-900); outline: none; font-size: 14px; transition: border-color .2s; }
+        .fg input:focus, .fg select:focus, .fg textarea:focus { border-color: var(--blue); background: white; }
+        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 0 20px; margin-top: 10px; }
+
+        /* ── FEEDBACK MODAL ── */
+        .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 20px; }
+        .feedback-btn { padding: 14px; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--gray-200); background: var(--gray-50); color: var(--gray-700); transition: all .2s; text-align: center; }
+        .feedback-btn:active { transform: scale(0.97); }
+        .feedback-btn.bad { border-color: var(--red); background: rgba(255,77,106,0.06); color: var(--red); }
+        .feedback-btn.good { border-color: var(--green); background: rgba(0,196,140,0.06); color: var(--green); }
+
+        /* ── SAVE FORM ── */
+        .save-form { background: white; margin: 0 16px 12px; border-radius: var(--radius-lg); padding: 20px; border: 1.5px solid var(--gray-200); box-shadow: var(--shadow-sm); }
+        .save-form textarea { width: 100%; border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 12px; font-size: 14px; resize: vertical; min-height: 80px; outline: none; background: var(--gray-50); color: var(--gray-900); }
+        .save-form textarea:focus { border-color: var(--blue); }
+        .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .preset-btn { padding: 7px 14px; border-radius: 50px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--gray-200); background: var(--gray-50); color: var(--gray-700); cursor: pointer; transition: all .2s; }
+        .preset-btn:active { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
+        .save-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+        .save-row input { flex: 1; border: 1.5px solid var(--gray-200); border-radius: 50px; padding: 11px 16px; font-size: 13px; outline: none; background: var(--gray-50); color: var(--gray-900); }
+        .save-row input:focus { border-color: var(--blue); }
+
+        /* ── MISC ── */
+        .loading { text-align: center; padding: 40px 20px; color: var(--gray-400); }
+        .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 12px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state { text-align: center; padding: 48px 20px; color: var(--gray-400); }
+        .empty-icon { font-size: 48px; margin-bottom: 12px; }
+        .empty-text { font-size: 14px; font-weight: 500; }
+        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: var(--gray-900); color: white; padding: 11px 22px; border-radius: 50px; font-size: 13px; font-weight: 500; z-index: 9999; max-width: 90%; text-align: center; animation: toastAnim 2.5s ease forwards; white-space: nowrap; }
+        @keyframes toastAnim { 0%{opacity:0;transform:translateX(-50%) translateY(12px)} 12%{opacity:1;transform:translateX(-50%) translateY(0)} 80%{opacity:1} 100%{opacity:0;transform:translateX(-50%) translateY(-8px)} }
+        .badge-green { display: inline-block; background: rgba(0,196,140,0.1); color: var(--green); padding: 3px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; }
+        .badge-red { display: inline-block; background: rgba(255,77,106,0.1); color: var(--red); padding: 3px 10px; border-radius: 50px; font-size: 11px; font-weight: 700; }
+        .divider { height: 1px; background: var(--gray-200); margin: 4px 16px; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-<div id="authContainer" style="display: flex;">
-    <div class="auth-container">
+<!-- AUTH -->
+<div id="authContainer">
+    <div class="auth-wrap">
         <div class="auth-card">
-            <div class="auth-logo">⚡</div>
-            <h2 style="text-align: center; margin-bottom: 16px; background: linear-gradient(135deg, #0a84ff, #5e2aff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">NEON GRID</h2>
-            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
-                <button id="authLoginTab" class="auth-btn" style="background: #0a84ff; margin: 0; padding: 12px;">Login</button>
-                <button id="authRegisterTab" class="auth-btn" style="background: rgba(30,41,59,0.6); color: #9ca3af; margin: 0; padding: 12px;">Register</button>
+            <div class="auth-logo">
+                <svg viewBox="0 0 52 52" fill="none"><circle cx="26" cy="26" r="26" fill="#1a6bff"/><rect x="13" y="17" width="26" height="18" rx="4" fill="white" opacity=".2"/><rect x="16" y="20" width="20" height="12" rx="2" fill="white"/><circle cx="26" cy="26" r="3" fill="#1a6bff"/></svg>
+            </div>
+            <div class="auth-title">NumBot</div>
+            <div class="auth-sub">Number management platform</div>
+            <div class="tab-row">
+                <button class="tab-btn active" id="authLoginTab" onclick="switchTab('login')">Login</button>
+                <button class="tab-btn" id="authRegisterTab" onclick="switchTab('register')">Register</button>
             </div>
             <div id="loginForm">
-                <input type="text" id="loginUsername" class="auth-input" placeholder="Username">
-                <input type="password" id="loginPassword" class="auth-input" placeholder="Password">
-                <button class="auth-btn" onclick="doLogin()">Login</button>
+                <input type="text" id="loginUsername" class="auth-input" placeholder="Username" autocomplete="username">
+                <input type="password" id="loginPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+                <button class="auth-btn" onclick="doLogin()">Sign In</button>
                 <div id="loginError" class="error-msg"></div>
             </div>
-            <div id="registerForm" style="display: none;">
-                <input type="text" id="regUsername" class="auth-input" placeholder="Username">
-                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)">
+            <div id="registerForm" style="display:none;">
+                <input type="text" id="regUsername" class="auth-input" placeholder="Choose username" autocomplete="username">
+                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)" autocomplete="new-password">
                 <button class="auth-btn" onclick="doRegister()">Create Account</button>
                 <div id="regError" class="error-msg"></div>
             </div>
@@ -1444,117 +1543,225 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 </div>
 
-<div id="appContainer" style="display: none;">
-    <div class="status-bar"><span id="currentTime">--:--</span><span>⚡ NEON GRID</span><span>●</span></div>
-    <div class="header"><div class="user-info"><div><div class="user-name" id="userName">User</div><div class="user-id" id="userId">ID: --</div></div><div id="adminBadge" style="display: none;"><span class="admin-badge">ADMIN</span></div></div></div>
+<!-- APP -->
+<div id="appContainer" style="display:none;">
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="top-avatar">👤</div>
+            <div>
+                <div class="top-user" id="userName">User</div>
+                <div class="top-id" id="userId">ID: --</div>
+            </div>
+        </div>
+        <div class="top-right">
+            <span class="time-label" id="currentTime">--:--</span>
+            <div class="conn-dot" id="connDot"></div>
+            <div id="adminBadge" style="display:none;" class="admin-badge">ADMIN</div>
+        </div>
+    </div>
 
+    <!-- HOME PAGE -->
     <div id="homePage" class="page active">
-        <div class="balance-card"><div class="balance-label">ACCOUNT BALANCE</div><div class="balance-amount" id="balanceAmount">0</div><div class="balance-sub">≈ ₱0.00 NGN</div><div class="withdraw-btn" onclick="showToast('Withdrawal feature coming soon')">Withdraw Now</div></div>
-        <div class="section-title">ACCOUNT MANAGEMENT</div>
-        <div class="menu-grid">
-            <div class="menu-card" onclick="showToast('Withdrawal feature coming soon')"><div class="menu-icon">💰</div><div class="menu-label">Withdraw</div><div class="menu-desc">Convert points to cash</div></div>
-            <div class="menu-card" onclick="showToast('Earnings details coming soon')"><div class="menu-icon">📊</div><div class="menu-label">Earnings Details</div><div class="menu-desc">View your earning records</div></div>
-            <div class="menu-card" onclick="showToast('Withdrawal history coming soon')"><div class="menu-icon">📦</div><div class="menu-label">Withdrawal Orders</div><div class="menu-desc">Track your withdrawals</div></div>
-            <div class="menu-card" onclick="showToast('Leaderboard coming soon')"><div class="menu-icon">🏆</div><div class="menu-label">Daily Lead Card</div><div class="menu-desc">Top performers</div></div>
+        <div class="section-title">Platform</div>
+        <div class="card card-blue" style="margin-top:8px;">
+            <div class="number-label" style="color:rgba(255,255,255,0.7);">WELCOME BACK</div>
+            <div style="font-size:26px;font-weight:800;color:white;" id="homeUserName">User</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-top:4px;">NumBot Number Platform</div>
         </div>
+        <div class="section-title">Quick Links</div>
+        <div id="customButtonsList" style="padding: 0 16px;"></div>
     </div>
 
+    <!-- NUMBERS PAGE -->
     <div id="numbersPage" class="page">
-        <div class="number-card" id="currentNumberCard">
+        <div class="card" style="margin-top:16px;">
             <div class="number-label">YOUR ACTIVE NUMBER</div>
-            <div class="number-value" id="currentNumber" onclick="copyNumber()" style="cursor:pointer;" title="Tap to copy">—</div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span class="region-badge" id="currentRegion">No region selected</span>
-                <div style="display: flex; gap: 12px;">
-                    <button class="withdraw-btn" style="background: rgba(30,41,59,0.8); color: #eef2ff; padding: 8px 16px; font-size: 13px;" onclick="changeNumber()">🔄 Change</button>
-                    <button class="withdraw-btn" style="background: rgba(30,41,59,0.8); color: #eef2ff; padding: 8px 16px; font-size: 13px;" onclick="copyNumber()">📋 Copy</button>
+            <div class="number-value" id="currentNumber" onclick="copyNumber()" title="Tap to copy">—</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="region-pill" id="currentRegion">No region selected</div>
+                <div class="btn-row" style="margin:0;">
+                    <button class="btn btn-sm btn-secondary" onclick="changeNumber()">🔄 Change</button>
+                    <button class="btn btn-sm btn-primary" onclick="copyNumber()">📋 Copy</button>
                 </div>
             </div>
         </div>
-        <div id="otpDisplay" style="display: none;"></div>
+        <div id="otpDisplay" style="display:none;"></div>
         <div class="section-title">SELECT REGION</div>
-        <div class="filter-row"><input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g., 8101)"><button class="filter-btn" onclick="applyFilter()">Filter</button></div>
-        <div id="regionList" class="region-list"><div class="loading"><div class="spinner"></div>Loading regions...</div></div>
+        <div class="filter-bar">
+            <input type="text" id="prefixFilter" class="filter-input" placeholder="Search by name or prefix…">
+            <button class="filter-btn" onclick="applyFilter()">Go</button>
+        </div>
+        <div id="regionList"><div class="loading"><div class="spinner"></div>Loading regions…</div></div>
     </div>
 
+    <!-- SAVED PAGE -->
     <div id="savedPage" class="page">
-        <!-- READY NUMBERS — always on top -->
-        <div class="section-title" id="readySection" style="display:none;">✅ READY NUMBERS</div>
-        <div id="readyList" class="saved-list"></div>
+        <!-- READY NUMBERS (shown first, only when they exist) -->
+        <div id="readySection" style="display:none;">
+            <div class="section-title">✅ READY NUMBERS</div>
+            <div id="readyList"></div>
+        </div>
 
-        <!-- SAVE NUMBERS FORM -->
+        <!-- SAVE FORM -->
         <div class="section-title">💾 SAVE NUMBERS</div>
-        <div style="padding: 0 16px 16px;">
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
-            </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <div class="timer-input-group">
-                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m">
-                    <button class="filter-btn" onclick="setTimerPreset('30m')">30m</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2h')">2h</button>
-                    <button class="filter-btn" onclick="setTimerPreset('1d')">1d</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2s')">2s</button>
+        <div class="save-form">
+            <textarea id="savedNumbersInput" placeholder="Enter numbers, one per line…"></textarea>
+            <div style="margin-top:12px;">
+                <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Timer</div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" id="timerInput" value="30m" placeholder="30m, 2h, 1d…" style="flex:1;border:1.5px solid var(--gray-200);border-radius:50px;padding:10px 14px;font-size:13px;outline:none;background:var(--gray-50);color:var(--gray-900);">
+                </div>
+                <div class="preset-row">
+                    <button class="preset-btn" onclick="setTimerPreset('30m')">30m</button>
+                    <button class="preset-btn" onclick="setTimerPreset('2h')">2h</button>
+                    <button class="preset-btn" onclick="setTimerPreset('1d')">1d</button>
+                    <button class="preset-btn" onclick="setTimerPreset('2s')">2s</button>
                 </div>
             </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name (group label)">
-                <button class="filter-btn" onclick="saveNumbers()">Save</button>
+            <div class="save-row">
+                <input type="text" id="poolNameInput" placeholder="Pool label (e.g. Nigeria)">
+                <button class="btn btn-primary" onclick="saveNumbers()">Save</button>
             </div>
         </div>
 
-        <!-- SAVED POOLS — shows pool groups with counts only, no individual numbers -->
-        <div class="section-title" id="savedPoolsSection" style="display:none;">⏳ SAVED POOLS</div>
-        <div id="savedList" class="saved-list"></div>
+        <!-- SAVED POOLS — pool count cards only, NO pool list shown here -->
+        <div id="savedPoolsSection" style="display:none;">
+            <div class="section-title">⏳ WAITING POOLS</div>
+            <div id="savedList"></div>
+        </div>
     </div>
 
+    <!-- HISTORY PAGE -->
     <div id="historyPage" class="page">
         <div class="section-title">📜 OTP HISTORY</div>
-        <div id="historyList" class="saved-list"></div>
+        <div id="historyList"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No OTP history yet</div></div></div>
     </div>
 
+    <!-- ADMIN PAGE -->
     <div id="adminPage" class="page hidden">
-        <div class="section-title">🛠️ ADMIN PANEL</div>
+        <div class="section-title">🛠 ADMIN PANEL</div>
         <div class="admin-grid">
             <div class="admin-card" onclick="loadAdminStats()"><div class="admin-icon">📊</div><div class="admin-label">Stats</div></div>
-            <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-icon">➕</div><div class="admin-label">Create Pool</div></div>
-            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload Numbers</div></div>
+            <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-icon">➕</div><div class="admin-label">New Pool</div></div>
+            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload</div></div>
             <div class="admin-card" onclick="loadUsersList()"><div class="admin-icon">👥</div><div class="admin-label">Users</div></div>
-            <div class="admin-card" onclick="loadBadNumbers()"><div class="admin-icon">🚫</div><div class="admin-label">Bad Numbers</div></div>
-            <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
+            <div class="admin-card" onclick="loadBadNumbers()"><div class="admin-icon">🚫</div><div class="admin-label">Bad Nums</div></div>
             <div class="admin-card" onclick="showBroadcast()"><div class="admin-icon">📢</div><div class="admin-label">Broadcast</div></div>
             <div class="admin-card" onclick="showSettings()"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
+            <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
         </div>
-        <div id="adminStatsDiv" class="number-card" style="display: none;"></div>
-        <div id="adminUsersDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminBadDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminReviewsDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;" onclick="sendBroadcast()">Send Broadcast</button></div>
-        <div id="adminSettingsDiv" class="number-card" style="display: none;">
-            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div>
-            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div>
-            <button class="filter-btn" onclick="saveSettings()">Save Settings</button>
+        <div id="adminStatsDiv" class="card" style="display:none;margin-top:12px;"></div>
+        <div id="adminUsersDiv" style="display:none;padding:0 16px;"></div>
+        <div id="adminBadDiv" style="display:none;padding:0 16px;"></div>
+        <div id="adminReviewsDiv" style="display:none;padding:0 16px;"></div>
+        <div id="adminBroadcastDiv" class="card" style="display:none;margin-top:12px;">
+            <textarea id="broadcastMsg" rows="3" placeholder="Message to broadcast…" style="width:100%;padding:12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);background:var(--gray-50);font-size:14px;resize:none;outline:none;"></textarea>
+            <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="sendBroadcast()">Send Broadcast</button>
         </div>
-        <div id="poolsList" class="saved-list"></div>
+        <div id="adminSettingsDiv" class="card" style="display:none;margin-top:12px;">
+            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - Auto-approve all</option></select></div>
+            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded Link</option></select></div>
+            <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        </div>
+        <div id="poolsList" style="padding:0 16px;margin-top:4px;"></div>
     </div>
 
+    <!-- BOTTOM NAV -->
     <div class="bottom-nav">
         <div class="nav-item active" data-page="home"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
         <div class="nav-item" data-page="numbers"><div class="nav-icon">📱</div><div class="nav-label">Numbers</div></div>
         <div class="nav-item" data-page="saved"><div class="nav-icon">💾</div><div class="nav-label">Saved</div></div>
         <div class="nav-item" data-page="history"><div class="nav-icon">📜</div><div class="nav-label">History</div></div>
-        <div class="nav-item" data-page="admin" id="adminNavItem" style="display: none;"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
+        <div class="nav-item hidden" data-page="admin" id="adminNavItem"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
     </div>
 </div>
 
-<!-- Modals -->
-<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button><button class="btn btn-primary" onclick="savePool()">Save</button></div></div></div></div>
+<!-- MODALS -->
+<!-- Feedback modal -->
+<div id="feedbackModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-handle"></div>
+        <div class="modal-header">Rate Your Number</div>
+        <div style="font-family:monospace;font-size:18px;text-align:center;padding:16px 20px 0;color:var(--blue);font-weight:700;" id="feedbackNumber"></div>
+        <div class="feedback-grid">
+            <button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button>
+            <button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button>
+            <button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button>
+            <button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button>
+            <button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button>
+            <button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button>
+        </div>
+        <div id="otherFeedbackDiv" style="display:none;padding:0 20px 20px;">
+            <textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue…" style="width:100%;padding:12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);font-size:14px;outline:none;resize:none;"></textarea>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="submitFeedback('other')">Submit</button>
+        </div>
+    </div>
+</div>
 
-<div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button><button class="btn btn-primary" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
+<!-- Change Pool modal (hidden, only shown when button clicked) -->
+<div id="changePoolModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-handle"></div>
+        <div class="modal-header">🌐 Switch Pool</div>
+        <div class="modal-body">
+            <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">Current Number</div>
+            <div id="changePoolCurrentNum" style="font-family:monospace;font-size:18px;color:var(--blue);font-weight:700;margin-bottom:20px;"></div>
+            <div class="fg">
+                <label>Switch To Pool</label>
+                <select id="changePoolSelect" style="width:100%;"></select>
+            </div>
+            <div style="font-size:12px;color:var(--gray-400);margin-top:6px;">You will get the next available number from that pool.</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitSwitchPool()">Switch Pool</button>
+        </div>
+    </div>
+</div>
 
-<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
+<!-- Pool create/edit modal -->
+<div id="poolModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-handle"></div>
+        <div class="modal-header" id="poolModalTitle">Create Pool</div>
+        <div class="modal-body">
+            <div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g. Nigeria"></div>
+            <div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g. 234"></div>
+            <div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g. -1001234567890"></div>
+            <div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div>
+            <div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g. 5+4"></div>
+            <div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use above"></div>
+            <div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only</option><option value="1">1 - Platform Only</option><option value="2">2 - Both</option></select></div>
+            <div class="fg"><label>Trick Text</label><textarea id="poolTrickText" rows="2" placeholder="Tips for users…"></textarea></div>
+            <div style="display:flex;gap:20px;margin:12px 0;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;"><input type="checkbox" id="poolAdminOnly"> Admin Only</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;"><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label>
+            </div>
+            <div id="pauseReasonDiv" style="display:none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="savePool()">Save Pool</button>
+        </div>
+    </div>
+</div>
 
-<div id="changePoolModal" class="modal"><div class="modal-content"><div class="modal-header">🌐 Switch Pool</div><div style="padding: 20px;"><div style="font-size:12px;color:#7e8a9a;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Current Number</div><div id="changePoolCurrentNum" style="font-family:monospace;font-size:18px;color:#0a84ff;margin-bottom:20px;"></div><div class="fg"><label>Switch To Pool</label><select id="changePoolSelect" style="width:100%;padding:14px;border:1px solid rgba(10,132,255,0.3);border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;outline:none;font-size:14px;"></select></div><div style="font-size:12px;color:#7e8a9a;margin-top:8px;">You'll get the next available number from that pool</div><div class="brow"><button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button><button class="btn btn-primary" onclick="submitSwitchPool()">Switch</button></div></div></div></div>
+<!-- Upload modal -->
+<div id="uploadModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-handle"></div>
+        <div class="modal-header">Upload Numbers</div>
+        <div class="modal-body">
+            <div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div>
+            <div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="uploadNumbers()">Upload</button>
+        </div>
+        <div id="uploadResult" style="padding:0 20px 10px;font-size:13px;color:var(--gray-500);"></div>
+    </div>
+</div>
 
 <script>
 const API_BASE = window.location.origin;
@@ -1565,26 +1772,40 @@ let ws = null;
 let otpTimer = null;
 let currentFilter = null;
 let allRegions = [];
+const savedOtps = {};
 
-function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
-function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
+// ── UTILS ──
+function showToast(msg) {
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
 setInterval(formatTime, 1000); formatTime();
-function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
+function copyText(t) { navigator.clipboard.writeText(t).then(() => showToast('📋 Copied!')).catch(() => { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); showToast('📋 Copied!'); }); }
 function fmt(n) { if (!n || n === '—') return n; return n.startsWith('+') ? n : '+' + n; }
-function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
+function setTimerPreset(v) { document.getElementById('timerInput').value = v; }
+function escapeHtml(t) { if (!t) return ''; return String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function switchTab(tab) {
+    document.getElementById('loginForm').style.display = tab==='login'?'block':'none';
+    document.getElementById('registerForm').style.display = tab==='register'?'block':'none';
+    document.getElementById('authLoginTab').classList.toggle('active', tab==='login');
+    document.getElementById('authRegisterTab').classList.toggle('active', tab==='register');
+}
 
+// ── AUTH ──
 async function checkAuth() {
     try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/auth/me`, {credentials:'include'});
         if (res.ok) {
             currentUser = await res.json();
             document.getElementById('authContainer').style.display = 'none';
             document.getElementById('appContainer').style.display = 'block';
             document.getElementById('userName').textContent = currentUser.username;
+            document.getElementById('homeUserName').textContent = currentUser.username;
             document.getElementById('userId').textContent = `ID: ${currentUser.id}`;
             if (currentUser.is_admin) {
                 document.getElementById('adminBadge').style.display = 'inline-block';
-                document.getElementById('adminNavItem').style.display = 'flex';
+                document.getElementById('adminNavItem').classList.remove('hidden');
                 document.getElementById('adminPage').classList.remove('hidden');
                 loadAdminPools();
             }
@@ -1593,6 +1814,7 @@ async function checkAuth() {
             loadCurrentAssignment();
             loadSavedNumbers();
             loadHistory();
+            loadCustomButtons();
             return true;
         }
     } catch(e) {}
@@ -1602,126 +1824,160 @@ async function checkAuth() {
 }
 
 async function doLogin() {
-    const username = document.getElementById('loginUsername').value;
+    const username = document.getElementById('loginUsername').value.trim();
     const password = document.getElementById('loginPassword').value;
-    const errorEl = document.getElementById('loginError');
+    const err = document.getElementById('loginError');
+    err.textContent = '';
+    if (!username || !password) { err.textContent = 'Enter username and password'; return; }
     try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
+        const res = await fetch(`${API_BASE}/api/auth/login`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username,password})});
         const data = await res.json();
         if (res.ok) { checkAuth(); }
-        else { errorEl.textContent = data.detail || 'Login failed'; }
-    } catch(e) { errorEl.textContent = 'Network error'; }
+        else { err.textContent = data.detail || 'Login failed'; }
+    } catch(e) { err.textContent = 'Network error'; }
 }
 
 async function doRegister() {
-    const username = document.getElementById('regUsername').value;
+    const username = document.getElementById('regUsername').value.trim();
     const password = document.getElementById('regPassword').value;
-    const errorEl = document.getElementById('regError');
-    if (password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; return; }
+    const err = document.getElementById('regError');
+    err.textContent = '';
+    if (password.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; }
     try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
+        const res = await fetch(`${API_BASE}/api/auth/register`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username,password})});
         const data = await res.json();
         if (res.ok) {
             if (data.approved) { checkAuth(); }
-            else { errorEl.textContent = 'Awaiting admin approval'; }
-        } else { errorEl.textContent = data.detail || 'Registration failed'; }
-    } catch(e) { errorEl.textContent = 'Network error'; }
+            else { err.textContent = '✅ Account created! Awaiting admin approval.'; }
+        } else { err.textContent = data.detail || 'Registration failed'; }
+    } catch(e) { err.textContent = 'Network error'; }
 }
 
+// ── WEBSOCKET ──
 function connectWebSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${location.host}/ws/user/${currentUser.id}`);
+    ws.onopen = () => { document.getElementById('connDot').classList.remove('off'); };
     ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
         if (data.type === 'otp') displayOTP(data);
         else if (data.type === 'saved_otp') displaySavedOTP(data);
-        else if (data.type === 'broadcast') showToast(`📢 ${data.message}`);
+        else if (data.type === 'broadcast') showToast('📢 ' + data.message);
+        else if (data.type === 'notification') showToast(data.message);
     };
-    ws.onclose = () => setTimeout(connectWebSocket, 5000);
+    ws.onclose = () => { document.getElementById('connDot').classList.add('off'); setTimeout(connectWebSocket, 5000); };
+    ws.onerror = () => { document.getElementById('connDot').classList.add('off'); };
 }
 
 function displayOTP(data) {
-    const otpDiv = document.getElementById('otpDisplay');
+    const div = document.getElementById('otpDisplay');
     if (otpTimer) clearTimeout(otpTimer);
-    otpDiv.innerHTML = `<div class="otp-card"><div style="text-align:center;font-size:12px;">🔑 OTP CODE</div><div class="otp-code" onclick="copyText('${data.otp}')">${data.otp}</div><div class="otp-timer" id="otpCountdown">Auto-delete in 30s</div><div class="otp-message">${escapeHtml(data.raw_message || '')}</div></div>`;
-    otpDiv.style.display = 'block';
-    let seconds = 30;
-    const timer = setInterval(() => { seconds--; const cd = document.getElementById('otpCountdown'); if (cd) cd.textContent = `Auto-delete in ${seconds}s`; if (seconds <= 0) { clearInterval(timer); otpDiv.style.display = 'none'; } }, 1000);
-    otpTimer = setTimeout(() => { clearInterval(timer); otpDiv.style.display = 'none'; }, 30000);
+    div.innerHTML = `<div class="otp-card">
+        <div class="otp-header">🔑 OTP CODE</div>
+        <div class="otp-code" onclick="copyText('${escapeHtml(data.otp)}')">${escapeHtml(data.otp)}</div>
+        <div class="otp-timer" id="otpCountdown">Auto-deletes in 30s</div>
+        <div class="otp-msg">${escapeHtml(data.raw_message || '')}</div>
+    </div>`;
+    div.style.display = 'block';
+    let secs = 30;
+    const interval = setInterval(() => {
+        secs--;
+        const cd = document.getElementById('otpCountdown');
+        if (cd) cd.textContent = `Auto-deletes in ${secs}s`;
+        if (secs <= 0) { clearInterval(interval); div.style.display = 'none'; }
+    }, 1000);
+    otpTimer = setTimeout(() => { clearInterval(interval); div.style.display = 'none'; }, 30000);
     loadHistory();
 }
 
 function displaySavedOTP(data) {
-    // Store OTP for the saved number card and refresh ready list
-    savedOtps[data.number] = { otp: data.otp, raw_message: data.raw_message || '' };
-    showToast(`🔑 OTP for ${data.number}: ${data.otp}`);
+    savedOtps[data.number] = {otp: data.otp, raw_message: data.raw_message || ''};
+    showToast(`🔑 OTP ${data.number}: ${data.otp}`);
     loadReadyNumbers();
-    // Auto-clear after 30s
-    setTimeout(() => {
-        delete savedOtps[data.number];
-        loadReadyNumbers();
-    }, 30000);
     loadHistory();
+    setTimeout(() => { delete savedOtps[data.number]; loadReadyNumbers(); }, 30000);
 }
 
+// ── NAVIGATION ──
+function navigateTo(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById(page + 'Page').classList.add('active');
+    document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
+    if (page === 'saved') { loadSavedNumbers(); }
+    if (page === 'history') { loadHistory(); }
+    if (page === 'numbers') { loadCurrentAssignment(); }
+}
+document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
+
+// ── REGIONS ──
 async function loadRegions() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
         if (!res.ok) throw new Error();
         allRegions = await res.json();
-        const container = document.getElementById('regionList');
-        let filtered = allRegions;
-        if (currentFilter) filtered = allRegions.filter(r => r.name.toLowerCase().includes(currentFilter.toLowerCase()) || r.country_code.includes(currentFilter));
-        if (!filtered.length) { container.innerHTML = '<div class="loading">No regions available</div>'; return; }
-        container.innerHTML = filtered.map(r => `<div class="region-item" onclick="selectRegion(${r.id})"><div><div class="region-name">${escapeHtml(r.name)}</div><div class="region-code">+${r.country_code}</div>${r.trick_text ? `<div style="font-size:11px;color:#f59e0b;">💡 ${escapeHtml(r.trick_text)}</div>` : ''}</div><div>${r.is_paused ? '<span style="color:#ef4444;font-size:12px;">⏸ Paused</span>' : `<span class="region-count">${r.number_count}</span>`}</div></div>`).join('');
-    } catch(e) { document.getElementById('regionList').innerHTML = '<div class="loading">Failed to load regions</div>'; }
+        renderRegions();
+    } catch(e) { document.getElementById('regionList').innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Failed to load regions</div></div>'; }
 }
 
-function applyFilter() { currentFilter = document.getElementById('prefixFilter').value.trim(); loadRegions(); }
+function renderRegions() {
+    const container = document.getElementById('regionList');
+    let list = allRegions;
+    if (currentFilter) list = allRegions.filter(r => r.name.toLowerCase().includes(currentFilter.toLowerCase()) || r.country_code.includes(currentFilter));
+    if (!list.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No regions found</div></div>'; return; }
+    container.innerHTML = list.map(r => `
+        <div class="pool-item ${r.is_paused ? 'paused' : ''}" onclick="selectRegion(${r.id})">
+            <div>
+                <div class="pool-name">${escapeHtml(r.name)}</div>
+                <div class="pool-code">+${escapeHtml(r.country_code)}</div>
+                ${r.trick_text ? `<div class="pool-tip">💡 ${escapeHtml(r.trick_text)}</div>` : ''}
+            </div>
+            <div>${r.is_paused
+                ? `<span class="pool-paused">⏸ Paused</span>`
+                : `<span class="pool-count">${r.number_count}</span>`}
+            </div>
+        </div>`).join('');
+}
+
+function applyFilter() { currentFilter = document.getElementById('prefixFilter').value.trim(); renderRegions(); }
 
 async function selectRegion(poolId) {
     const region = allRegions.find(r => r.id === poolId);
-    if (region.is_paused) { showToast(`Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
+    if (region && region.is_paused) { showToast(`⏸ Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ pool_id: poolId })
-        });
+        const res = await fetch(`${API_BASE}/api/pools/assign`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({pool_id: poolId})});
         const data = await res.json();
         if (res.ok) {
             currentAssignment = data;
             currentPoolId = data.pool_id;
             document.getElementById('currentNumber').textContent = fmt(data.number);
-            document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
+            document.getElementById('currentNumber').onclick = () => copyText(fmt(data.number));
             document.getElementById('currentRegion').textContent = data.pool_name;
-            showToast(`Number assigned: ${fmt(data.number)}`);
             document.getElementById('otpDisplay').style.display = 'none';
             if (otpTimer) clearTimeout(otpTimer);
+            showToast(`✅ Assigned: ${fmt(data.number)}`);
+            loadRegions();
         } else { showToast(data.detail || 'Failed to assign number'); }
     } catch(e) { showToast('Network error'); }
 }
 
 async function loadCurrentAssignment() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/pools/my-assignment`, {credentials:'include'});
         const data = await res.json();
         if (data.assignment) {
             currentAssignment = data.assignment;
             currentPoolId = data.assignment.pool_id;
             document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
-            document.getElementById('currentNumber').onclick = () => { copyText(fmt(currentAssignment.number)); showToast('📋 Number copied!'); };
+            document.getElementById('currentNumber').onclick = () => copyText(fmt(currentAssignment.number));
             document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
         }
     } catch(e) {}
 }
 
-async function changeNumber() {
+function copyNumber() { if (currentAssignment) copyText(fmt(currentAssignment.number)); else showToast('No number to copy'); }
+
+function changeNumber() {
     if (!currentAssignment) { showToast('No active number to change'); return; }
     document.getElementById('feedbackNumber').textContent = fmt(currentAssignment.number);
     document.getElementById('feedbackModal').classList.add('show');
@@ -1730,196 +1986,137 @@ async function changeNumber() {
 async function submitFeedback(type) {
     const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
     const markAsBad = type === 'bad';
-
-    // Close modal immediately — don't make user wait
     document.getElementById('feedbackModal').classList.remove('show');
     document.getElementById('otherFeedbackDiv').style.display = 'none';
     document.getElementById('otherFeedbackText').value = '';
-
-    if (currentAssignment) {
-        const savedAssignment = currentAssignment;
-        const savedPoolId = currentPoolId;
-
-        // Show loading state instantly
-        document.getElementById('currentNumber').textContent = '...';
-
-        // Fire review + release in parallel, don't await review
-        const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
-        fetch(`${API_BASE}/api/reviews`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number: savedAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
-        }); // fire and forget — don't block on this
-
-        await releasePromise;
-
-        if (savedPoolId) {
-            const res = await fetch(`${API_BASE}/api/pools/assign`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                body: JSON.stringify({ pool_id: savedPoolId })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                currentAssignment = data;
-                document.getElementById('currentNumber').textContent = fmt(data.number);
-                document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
-                document.getElementById('currentRegion').textContent = data.pool_name;
-                document.getElementById('otpDisplay').style.display = 'none';
-                if (otpTimer) clearTimeout(otpTimer);
-                showToast(`✅ New number: ${fmt(data.number)}`);
-            } else {
-                showToast('No more numbers in this pool, please select another region');
-                currentAssignment = null;
-                currentPoolId = null;
-                document.getElementById('currentNumber').textContent = '—';
-                document.getElementById('currentRegion').textContent = 'No region selected';
-            }
+    if (!currentAssignment) return;
+    const savedAssignment = currentAssignment;
+    const savedPoolId = currentPoolId;
+    document.getElementById('currentNumber').textContent = '…';
+    const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, {method:'POST',credentials:'include'});
+    fetch(`${API_BASE}/api/reviews`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({number:savedAssignment.number,rating:markAsBad?1:4,comment,mark_as_bad:markAsBad})});
+    await releasePromise;
+    if (savedPoolId) {
+        const res = await fetch(`${API_BASE}/api/pools/assign`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({pool_id:savedPoolId})});
+        const data = await res.json();
+        if (res.ok) {
+            currentAssignment = data;
+            document.getElementById('currentNumber').textContent = fmt(data.number);
+            document.getElementById('currentNumber').onclick = () => copyText(fmt(data.number));
+            document.getElementById('currentRegion').textContent = data.pool_name;
+            document.getElementById('otpDisplay').style.display = 'none';
+            if (otpTimer) clearTimeout(otpTimer);
+            showToast(`✅ New number: ${fmt(data.number)}`);
+        } else {
+            showToast('No more numbers — select another region');
+            currentAssignment = null; currentPoolId = null;
+            document.getElementById('currentNumber').textContent = '—';
+            document.getElementById('currentRegion').textContent = 'No region selected';
         }
-        loadRegions();
     }
+    loadRegions();
 }
 
 function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
-function copyNumber() { if (currentAssignment) copyText(fmt(currentAssignment.number)); else showToast('No number to copy'); }
 
-function parseTimer(timer) {
-    const match = timer.match(/^(\d+)([smhd])$/i);
-    if (match) {
-        const num = parseInt(match[1]);
-        const unit = match[2].toLowerCase();
-        if (unit === 's') return Math.max(1, Math.ceil(num / 60));
-        if (unit === 'h') return num * 60;
-        if (unit === 'd') return num * 1440;
+// ── TIMER PARSER ──
+function parseTimer(t) {
+    const m = t.match(/^(\d+)([smhd])$/i);
+    if (m) {
+        const n = parseInt(m[1]), u = m[2].toLowerCase();
+        if (u==='s') return Math.max(1, Math.ceil(n/60));
+        if (u==='h') return n*60;
+        if (u==='d') return n*1440;
+        return n;
     }
-    const num = parseInt(timer);
-    return isNaN(num) ? 30 : num;
+    const n = parseInt(t); return isNaN(n) ? 30 : n;
 }
 
+// ── SAVE NUMBERS ──
 async function saveNumbers() {
-    const numbers = document.getElementById('savedNumbersInput').value.split('\\n').map(l => l.trim()).filter(l => l);
-    const timerRaw = document.getElementById('timerInput').value.trim();
-    const timerMinutes = parseTimer(timerRaw);
+    const numbers = document.getElementById('savedNumbersInput').value.split('\n').map(l=>l.trim()).filter(l=>l);
+    const timerMinutes = parseTimer(document.getElementById('timerInput').value.trim());
     const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
     if (!numbers.length) { showToast('Enter at least one number'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ numbers, timer_minutes: timerMinutes, pool_name: poolName })
-        });
+        const res = await fetch(`${API_BASE}/api/saved`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({numbers,timer_minutes:timerMinutes,pool_name:poolName})});
         const data = await res.json();
-        if (res.ok) { showToast(`Saved ${data.saved} numbers`); document.getElementById('savedNumbersInput').value = ''; loadSavedNumbers(); }
+        if (res.ok) { showToast(`✅ Saved ${data.saved} numbers`); document.getElementById('savedNumbersInput').value = ''; loadSavedNumbers(); }
         else { showToast(data.detail || 'Failed to save'); }
     } catch(e) { showToast('Network error'); }
 }
 
 async function loadSavedNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/saved`, {credentials:'include'});
         const data = await res.json();
-        const container = document.getElementById('savedList');
-        const activeItems = data.filter(item => !item.moved);
-
-        if (!activeItems.length) {
-            container.innerHTML = '<div class="loading">No active saved pools</div>';
-            document.getElementById('savedPoolsSection').style.display = 'none';
-        } else {
-            // Group by pool_name — show counts only, not individual numbers
-            const grouped = {};
-            activeItems.forEach(item => {
-                if (!grouped[item.pool_name]) grouped[item.pool_name] = { items: [], minSeconds: Infinity, status: 'green' };
-                grouped[item.pool_name].items.push(item);
-                if (item.seconds_left < grouped[item.pool_name].minSeconds) {
-                    grouped[item.pool_name].minSeconds = item.seconds_left;
-                    grouped[item.pool_name].status = item.status;
-                }
-            });
-
-            document.getElementById('savedPoolsSection').style.display = 'block';
-            container.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
-                const count = g.items.length;
-                const minSec = g.minSeconds;
-                let cls = 'timer-green', time = `${Math.floor(minSec / 60)}m ${minSec % 60}s`;
-                if (g.status === 'yellow') cls = 'timer-yellow';
-                if (g.status === 'red') cls = 'timer-red';
-                if (g.status === 'expired') { cls = 'timer-red'; time = 'Expiring'; }
-                const ids = g.items.map(i => i.id);
-                return `<div class="saved-item">
-                    <div>
-                        <div class="saved-number">📦 ${escapeHtml(poolName)}</div>
-                        <div class="saved-timer">${count} number${count !== 1 ? 's' : ''} saved — timer running</div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="timer-badge ${cls}">${time}</span>
-                        <button onclick="deleteSavedPool(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="background:none;border:none;font-size:20px;cursor:pointer;" title="Delete pool">🗑️</button>
-                    </div>
-                </div>`;
-            }).join('');
-        }
+        // Waiting pools (timer still running) are background only — never shown on page
+        // Only ready numbers (moved=true) are shown, handled by loadReadyNumbers below
+        document.getElementById('savedPoolsSection').style.display = 'none';
+        document.getElementById('savedList').innerHTML = '';
     } catch(e) {}
     loadReadyNumbers();
 }
 
 async function deleteSavedPool(ids) {
     if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
-    for (const id of ids) {
-        await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
-    }
+    for (const id of ids) await fetch(`${API_BASE}/api/saved/${id}`, {method:'DELETE',credentials:'include'});
     loadSavedNumbers();
 }
 
-// Track OTPs per saved number (number -> {otp, raw_message, timer})
-const savedOtps = {};
+// Track which ready pool is currently selected
+let selectedReadyPool = null;
+let allReadyGroups = {};
 
 async function loadReadyNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/saved/ready`, {credentials:'include'});
         const data = await res.json();
         const container = document.getElementById('readyList');
         const section = document.getElementById('readySection');
-        if (!data.length) { section.style.display = 'none'; container.innerHTML = ''; return; }
+        if (!data.length) { section.style.display='none'; container.innerHTML=''; selectedReadyPool = null; return; }
         section.style.display = 'block';
 
-        // Group all slots by pool_name — each pool is one independent queue
-        const grouped = {};
+        // Group by pool_name
+        allReadyGroups = {};
         data.forEach(item => {
-            if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
-            grouped[item.pool_name].push(item);
+            if (!allReadyGroups[item.pool_name]) allReadyGroups[item.pool_name] = [];
+            allReadyGroups[item.pool_name].push(item);
         });
 
-        let html = '';
-        Object.entries(grouped).forEach(([poolName, items]) => {
-            const active = items[0]; // front of queue for this pool
-            const queueCount = items.length;
-            const otpInfo = savedOtps[active.number];
-            const otpHtml = otpInfo
-                ? `<div class="otp-card" style="margin-top:8px;padding:8px 12px;">
-                    <div style="font-size:11px;color:#7e8a9a;">🔑 OTP CODE</div>
-                    <div class="otp-code" onclick="copyText('${otpInfo.otp}')" style="font-size:22px;cursor:pointer;">${otpInfo.otp} 📋</div>
-                    ${otpInfo.raw_message ? `<div class="otp-message" style="font-size:11px;color:#9ca3af;margin-top:4px;">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
-                  </div>` : '';
-            html += `
-            <div style="padding: 0 16px 8px;">
-                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">
-                    📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${queueCount} in queue)</span>
+        const poolNames = Object.keys(allReadyGroups);
+
+        // If selected pool no longer exists, pick first
+        if (!selectedReadyPool || !allReadyGroups[selectedReadyPool]) {
+            selectedReadyPool = poolNames[0];
+        }
+
+        const items = allReadyGroups[selectedReadyPool];
+        const active = items[0];
+        const count = items.length;
+        const otpInfo = savedOtps[active.number];
+
+        const otpHtml = otpInfo ? `<div class="ready-otp">
+            <div class="ready-otp-label">🔑 OTP CODE — tap to copy</div>
+            <div class="ready-otp-code" onclick="copyText('${escapeHtml(otpInfo.otp)}')">${escapeHtml(otpInfo.otp)} 📋</div>
+            ${otpInfo.raw_message ? `<div class="ready-otp-msg">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
+        </div>` : '';
+
+        container.innerHTML = `
+            <div class="ready-card">
+                <div class="ready-card-head">
+                    <div class="ready-pool-name">📦 ${escapeHtml(selectedReadyPool)}</div>
+                    <div class="ready-queue">${count} in queue</div>
                 </div>
-                <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:8px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div class="saved-number" onclick="copyText('${active.number.replace(/'/g,"\'")}');showToast('📋 Copied!')" style="cursor:pointer;" title="Tap to copy">
-                            ${escapeHtml(active.number)} 📋
-                        </div>
-                        <span class="timer-badge timer-ready">READY</span>
-                    </div>
-                    <div style="font-size:11px;color:#7e8a9a;margin-bottom:2px;">
-                        Slot 1 of ${queueCount} — tap number to copy
-                    </div>
-                    <div style="display:flex;gap:8px;">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${poolName.replace(/'/g,"\\'")}')">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${active.number.replace(/'/g,"\'")}', '${poolName.replace(/'/g,"\'")}')">🌐 Change Pool</button>
+                <div class="ready-card-body">
+                    <div class="ready-number" onclick="copyText('${escapeHtml(active.number)}');showToast('📋 Copied!')">${escapeHtml(active.number)} 📋</div>
+                    <div class="ready-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${escapeHtml(selectedReadyPool)}')">🔄 Change Number</button>
+                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${escapeHtml(active.number)}', '${escapeHtml(selectedReadyPool)}')">🌐 Change Pool</button>
                     </div>
                     ${otpHtml}
                 </div>
             </div>`;
-        });
-        container.innerHTML = html;
     } catch(e) {}
 }
 
@@ -1927,11 +2124,10 @@ let changeTargetId = null;
 
 async function doNextNumber(id, poolName) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST', credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, {method:'POST',credentials:'include'});
         const data = await res.json();
         if (res.ok) {
-            showToast(`New number: ${data.number}`);
-            // Trigger monitor bot for the new number from the same pool
+            showToast(`✅ New number: ${data.number}`);
             await triggerSavedMonitor(data.number);
             loadReadyNumbers();
         } else { showToast(data.detail || 'No more numbers in this pool'); }
@@ -1940,106 +2136,101 @@ async function doNextNumber(id, poolName) {
 
 async function triggerSavedMonitor(number) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number })
-        });
-        if (res.ok) { showToast('👁️ Monitoring started...'); }
-    } catch(e) { /* silent */ }
+        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({number})});
+        if (res.ok) showToast('👁️ Monitoring started…');
+    } catch(e) {}
 }
 
 async function openSwitchPool(id, number, currentPool) {
     changeTargetId = id;
     document.getElementById('changePoolCurrentNum').textContent = number;
+    const select = document.getElementById('changePoolSelect');
+    select.innerHTML = '<option>Loading pools…</option>';
+    document.getElementById('changePoolModal').classList.add('show');
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, { credentials: 'include' });
+        // Show only other ready pools (pools that have ready numbers)
+        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, {credentials:'include'});
         const readyPools = await res.json();
-        const select = document.getElementById('changePoolSelect');
         const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
-        if (!options.length) { showToast('No other pools with available numbers'); return; }
+        if (!options.length) {
+            select.innerHTML = '<option disabled>No other ready pools available</option>';
+            return;
+        }
         select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
-        document.getElementById('changePoolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pools'); }
+    } catch(e) { select.innerHTML = '<option disabled>Failed to load pools</option>'; }
 }
 
 async function submitSwitchPool() {
     const newPool = document.getElementById('changePoolSelect').value;
     if (!newPool) { showToast('Select a pool'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST', credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, {method:'POST',credentials:'include'});
         const data = await res.json();
         if (res.ok) {
-            showToast(`Switched to ${newPool}: ${data.number}`);
+            showToast(`✅ Switched to ${newPool}: ${data.number}`);
             document.getElementById('changePoolModal').classList.remove('show');
+            selectedReadyPool = newPool; // auto-select the switched pool
             await triggerSavedMonitor(data.number);
             loadReadyNumbers();
         } else { showToast(data.detail || 'Switch failed'); }
     } catch(e) { showToast('Network error'); }
 }
 
-async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' }); loadSavedNumbers(); }
+async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`,{method:'DELETE',credentials:'include'}); loadSavedNumbers(); }
 
+// ── HISTORY ──
 async function loadHistory() {
     try {
-        const res = await fetch(`${API_BASE}/api/otp/my`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/otp/my`, {credentials:'include'});
         const data = await res.json();
         const container = document.getElementById('historyList');
-        if (!data.length) { container.innerHTML = '<div class="loading">No OTP history</div>'; return; }
-        container.innerHTML = data.map(item => `<div class="history-item"><div class="history-number">${escapeHtml(item.number)}</div><div class="history-otp" onclick="copyText('${item.otp_code}')">${item.otp_code} 📋</div><div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div></div>`).join('');
+        if (!data.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No OTP history yet</div></div>'; return; }
+        container.innerHTML = data.map(item => `<div class="history-item">
+            <div class="history-num">${escapeHtml(item.number)}</div>
+            <div class="history-otp" onclick="copyText('${escapeHtml(item.otp_code)}')">${escapeHtml(item.otp_code)} 📋</div>
+            <div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div>
+        </div>`).join('');
     } catch(e) {}
 }
 
-// Admin functions
+// ── CUSTOM BUTTONS ──
+async function loadCustomButtons() {
+    try {
+        const res = await fetch(`${API_BASE}/api/buttons`, {credentials:'include'});
+        const buttons = await res.json();
+        const container = document.getElementById('customButtonsList');
+        if (!buttons.length) { container.innerHTML = ''; return; }
+        container.innerHTML = buttons.map(b => `<a href="${escapeHtml(b.url)}" target="_blank" style="display:flex;align-items:center;justify-content:space-between;background:white;padding:14px 16px;border-radius:var(--radius);border:1.5px solid var(--gray-200);margin-bottom:10px;text-decoration:none;box-shadow:var(--shadow-sm);transition:all .2s;">
+            <span style="font-size:14px;font-weight:600;color:var(--gray-900);">${escapeHtml(b.label)}</span>
+            <span style="color:var(--blue);">→</span>
+        </a>`).join('');
+    } catch(e) {}
+}
+
+// ── ADMIN ──
 let currentEditPoolId = null;
 
 function openCreatePoolModal() {
     currentEditPoolId = null;
     document.getElementById('poolModalTitle').textContent = 'Create New Pool';
-    document.getElementById('poolName').value = '';
-    document.getElementById('poolCode').value = '';
-    document.getElementById('poolGroupId').value = '';
-    document.getElementById('poolOtpLink').value = '';
+    ['poolName','poolCode','poolGroupId','poolOtpLink','poolTelegramMatchFormat','poolTrickText','poolPauseReason'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('poolMatchFormat').value = '5+4';
-    document.getElementById('poolTelegramMatchFormat').value = '';
     document.getElementById('poolUsesPlatform').value = '0';
-    document.getElementById('poolTrickText').value = '';
     document.getElementById('poolAdminOnly').checked = false;
     document.getElementById('poolPaused').checked = false;
     document.getElementById('pauseReasonDiv').style.display = 'none';
     document.getElementById('poolModal').classList.add('show');
 }
 
-async function openEditPoolModal(poolId) {
-    currentEditPoolId = poolId;
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const pool = pools.find(p => p.id === poolId);
-        if (!pool) return;
-        document.getElementById('poolModalTitle').textContent = `Edit Pool: ${pool.name}`;
-        document.getElementById('poolName').value = pool.name;
-        document.getElementById('poolCode').value = pool.country_code;
-        document.getElementById('poolGroupId').value = pool.otp_group_id || '';
-        document.getElementById('poolOtpLink').value = pool.otp_link || '';
-        document.getElementById('poolMatchFormat').value = pool.match_format || '5+4';
-        document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || '';
-        document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0;
-        document.getElementById('poolTrickText').value = pool.trick_text || '';
-        document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false;
-        document.getElementById('poolPaused').checked = pool.is_paused || false;
-        document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none';
-        document.getElementById('poolPauseReason').value = pool.pause_reason || '';
-        document.getElementById('poolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pool data'); }
-}
+function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); }
 
 async function savePool() {
-    const data = {
+    const body = {
         name: document.getElementById('poolName').value.trim(),
         country_code: document.getElementById('poolCode').value.trim(),
         otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
         otp_link: document.getElementById('poolOtpLink').value.trim(),
-        match_format: document.getElementById('poolMatchFormat').value.trim(),
+        match_format: document.getElementById('poolMatchFormat').value.trim() || '5+4',
         telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
         uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
         trick_text: document.getElementById('poolTrickText').value.trim(),
@@ -2047,243 +2238,322 @@ async function savePool() {
         is_paused: document.getElementById('poolPaused').checked,
         pause_reason: document.getElementById('poolPauseReason').value.trim()
     };
-    if (!data.name || !data.country_code) { showToast('Pool name and country code are required'); return; }
+    if (!body.name || !body.country_code) { showToast('Name and country code are required'); return; }
+    const url = currentEditPoolId ? `${API_BASE}/api/admin/pools/${currentEditPoolId}` : `${API_BASE}/api/admin/pools`;
+    const method = currentEditPoolId ? 'PUT' : 'POST';
     try {
-        const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
-        const method = currentEditPoolId ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data) });
-        if (res.ok) {
-            showToast(currentEditPoolId ? 'Pool updated!' : 'Pool created!');
-            closePoolModal();
-            loadAdminPools();
-        } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool'); }
+        const res = await fetch(url, {method,headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)});
+        const data = await res.json();
+        if (res.ok) { showToast(currentEditPoolId ? '✅ Pool updated' : '✅ Pool created'); closePoolModal(); loadAdminPools(); loadRegions(); }
+        else { showToast(data.detail || 'Failed to save pool'); }
     } catch(e) { showToast('Network error'); }
 }
 
-function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); }
+function openUploadModal() {
+    fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
+        document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    });
+    document.getElementById('uploadModal').classList.add('show');
+}
 
-async function loadAdminPools() {
+function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); }
+
+async function uploadNumbers() {
+    const poolId = document.getElementById('uploadPoolSelect').value;
+    const file = document.getElementById('uploadFile').files[0];
+    if (!file) { showToast('Select a file first'); return; }
+    const form = new FormData(); form.append('file', file);
+    const resultDiv = document.getElementById('uploadResult');
+    resultDiv.textContent = 'Uploading…';
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/upload`, {method:'POST',credentials:'include',body:form});
+        const data = await res.json();
+        if (res.ok) { resultDiv.textContent = `✅ Added ${data.added}, skipped bad: ${data.skipped_bad}, cooldown: ${data.skipped_cooldown}, duplicates: ${data.duplicates}`; loadAdminPools(); loadRegions(); }
+        else { resultDiv.textContent = data.detail || 'Upload failed'; }
+    } catch(e) { resultDiv.textContent = 'Network error'; }
+}
+
+async function loadAdminStats() {
+    const div = document.getElementById('adminStatsDiv');
+    div.style.display = 'block';
+    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/stats`, {credentials:'include'});
+        const d = await res.json();
+        div.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            ${Object.entries(d).map(([k,v])=>`<div style="text-align:center;"><div style="font-size:22px;font-weight:800;color:var(--blue);">${v}</div><div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;">${k.replace(/_/g,' ')}</div></div>`).join('')}
+        </div>`;
+    } catch(e) { div.innerHTML = 'Failed to load stats'; }
+}
+
+async function editPool(poolId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
         const pools = await res.json();
-        const container = document.getElementById('poolsList');
-        if (!pools.length) { container.innerHTML = '<div class="loading">No pools — create one above</div>'; return; }
-        container.innerHTML = pools.map(p => `
-            <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div>
-                        <div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • <span style="color:#ef4444;">⏸ Paused</span>' : ''}${p.is_admin_only ? ' • 🔒' : ''}</div>
-                        ${p.trick_text ? `<div style="font-size:11px;color:#f59e0b;margin-top:2px;">💡 ${escapeHtml(p.trick_text)}</div>` : ''}
-                    </div>
-                    <div style="display:flex;gap:4px;">
-                        <button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🗑️</button>
-                    </div>
-                </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn btn-sm btn-secondary" onclick="cutPoolNumbers(${p.id})">✂️ Cut</button>
-                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id})">📤 Export</button>
-                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🧹 Clear</button>
-                    <button class="btn btn-sm btn-secondary" onclick="${p.is_paused ? `resumePool(${p.id})` : `pausePool(${p.id})`}">${p.is_paused ? '▶ Resume' : '⏸ Pause'}</button>
-                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only ? '🔓 Public' : '🔒 Admin Only'}</button>
-                </div>
-            </div>`).join('');
-    } catch(e) { document.getElementById('poolsList').innerHTML = '<div class="loading">Failed to load pools</div>'; }
+        const p = pools.find(x => x.id === poolId);
+        if (!p) return;
+        currentEditPoolId = poolId;
+        document.getElementById('poolModalTitle').textContent = 'Edit Pool';
+        document.getElementById('poolName').value = p.name;
+        document.getElementById('poolCode').value = p.country_code;
+        document.getElementById('poolGroupId').value = p.otp_group_id || '';
+        document.getElementById('poolOtpLink').value = p.otp_link || '';
+        document.getElementById('poolMatchFormat').value = p.match_format || '5+4';
+        document.getElementById('poolTelegramMatchFormat').value = p.telegram_match_format || '';
+        document.getElementById('poolUsesPlatform').value = p.uses_platform || 0;
+        document.getElementById('poolTrickText').value = p.trick_text || '';
+        document.getElementById('poolAdminOnly').checked = !!p.is_admin_only;
+        document.getElementById('poolPaused').checked = !!p.is_paused;
+        document.getElementById('pauseReasonDiv').style.display = p.is_paused ? 'block' : 'none';
+        document.getElementById('poolPauseReason').value = p.pause_reason || '';
+        document.getElementById('poolModal').classList.add('show');
+    } catch(e) { showToast('Failed to load pool data'); }
 }
 
-async function cutPoolNumbers(poolId) {
-    const count = prompt('How many numbers to cut from the top?');
-    if (!count || isNaN(parseInt(count))) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`✂️ Removed ${data.removed} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Cut failed');
-}
-
-function exportPool(poolId) {
-    window.open(`${API_BASE}/api/admin/pools/${poolId}/export`, '_blank');
-}
-
-async function clearPool(poolId, poolName) {
-    if (!confirm(`⚠️ Clear ALL numbers from "${poolName}"? This cannot be undone!`)) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`🧹 Cleared ${data.deleted} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Clear failed');
+async function deletePool(poolId) {
+    if (!confirm('Delete this pool and ALL its numbers? This cannot be undone.')) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, {method:'DELETE',credentials:'include'});
+        if (res.ok) { showToast('✅ Pool deleted'); loadAdminPools(); loadRegions(); }
+        else { const d = await res.json(); showToast(d.detail || 'Delete failed'); }
+    } catch(e) { showToast('Network error'); }
 }
 
 async function pausePool(poolId) {
     const reason = prompt('Pause reason (optional):') || '';
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('⏸ Pool paused'); loadAdminPools(); }
-    else showToast('Failed to pause pool');
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Pool paused'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
 }
 
 async function resumePool(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('▶ Pool resumed'); loadAdminPools(); }
-    else showToast('Failed to resume pool');
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Pool resumed'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
 }
 
-async function toggleAdminOnly(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(data.is_admin_only ? '🔒 Now Admin Only' : '🔓 Now Public'); loadAdminPools(); }
-    else showToast('Toggle failed');
-}
-
-async function deletePool(poolId, poolName) {
-    if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers? This cannot be undone!`)) return;
+async function loadBadNumbers() {
+    const div = document.getElementById('adminBadDiv');
+    div.style.display = 'block';
+    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' });
-        if (res.ok) { showToast(`Pool "${poolName}" deleted`); loadAdminPools(); }
-        else { showToast('Failed to delete pool'); }
-    } catch(e) { showToast('Network error'); }
+        const res = await fetch(`${API_BASE}/api/admin/bad-numbers`, {credentials:'include'});
+        const nums = await res.json();
+        if (!nums.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No bad numbers</div></div>'; return; }
+        div.innerHTML = nums.map(n=>`<div class="saved-item">
+            <div><div class="saved-num">${escapeHtml(n.number)}</div><div style="font-size:11px;color:var(--gray-400);margin-top:2px;">${escapeHtml(n.reason)}</div></div>
+            <button class="btn btn-sm btn-secondary" onclick="removeBadNum('${escapeHtml(n.number)}')">Remove</button>
+        </div>`).join('');
+    } catch(e) { div.innerHTML = 'Failed'; }
 }
 
-async function openUploadModal() {
+async function removeBadNum(number) { await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`,{method:'DELETE',credentials:'include'}); loadBadNumbers(); }
+
+async function loadReviews() {
+    const div = document.getElementById('adminReviewsDiv');
+    div.style.display = 'block';
+    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const select = document.getElementById('uploadPoolSelect');
-        select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p => `<option value="${p.id}">${p.name} (+${p.country_code}) - ${p.number_count} numbers</option>`).join('');
-        document.getElementById('uploadModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pools'); }
+        const res = await fetch(`${API_BASE}/api/admin/reviews`, {credentials:'include'});
+        const reviews = await res.json();
+        if (!reviews.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No reviews yet</div></div>'; return; }
+        div.innerHTML = reviews.map(r=>`<div class="card" style="margin-bottom:8px;">
+            <div style="font-family:monospace;font-weight:700;color:var(--blue);">${escapeHtml(r.number)}</div>
+            <div style="font-size:13px;margin-top:4px;">Rating: ${'⭐'.repeat(r.rating)}</div>
+            ${r.comment?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;">${escapeHtml(r.comment)}</div>`:''}
+        </div>`).join('');
+    } catch(e) { div.innerHTML = 'Failed'; }
 }
-
-function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); document.getElementById('uploadResult').innerHTML = ''; document.getElementById('uploadFile').value = ''; }
-
-async function uploadNumbers() {
-    const poolId = document.getElementById('uploadPoolSelect').value;
-    const fileInput = document.getElementById('uploadFile');
-    if (!poolId) { showToast('Select a pool'); return; }
-    if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file'); return; }
-    const formData = new FormData(); formData.append('file', fileInput.files[0]);
-    try {
-        const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData });
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('uploadResult').innerHTML = `<div style="background:#10b98120;padding:12px;border-radius:8px;">✅ Added: ${data.added}<br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`;
-            showToast(`${data.added} numbers uploaded!`);
-            loadAdminPools();
-        } else { showToast(data.detail || 'Upload failed'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-const ADMIN_DIVS = ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminBroadcastDiv','adminSettingsDiv'];
-function hideOtherAdminDivs(showId) {
-    ADMIN_DIVS.forEach(id => {
-        document.getElementById(id).style.display = (id === showId) ? 'block' : 'none';
-    });
-}
-
-function loadAdminStats() {
-    fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' }).then(r => r.json()).then(stats => {
-        document.getElementById('adminStatsDiv').innerHTML = `
-            <div class="number-label" style="margin-bottom:16px;">System Stats</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:14px;">
-                <span>📊 Users</span><span style="font-weight:700;color:#0a84ff;">${stats.total_users}</span>
-                <span>⏳ Pending</span><span style="font-weight:700;color:#f59e0b;">${stats.pending_approval}</span>
-                <span>🌍 Pools</span><span style="font-weight:700;color:#0a84ff;">${stats.total_pools}</span>
-                <span>📞 Numbers</span><span style="font-weight:700;color:#10b981;">${stats.total_numbers}</span>
-                <span>🔑 OTPs</span><span style="font-weight:700;color:#10b981;">${stats.total_otps}</span>
-                <span>🚫 Bad</span><span style="font-weight:700;color:#ef4444;">${stats.bad_numbers}</span>
-                <span>💾 Saved</span><span style="font-weight:700;color:#0a84ff;">${stats.saved_numbers}</span>
-                <span>🟢 Online</span><span style="font-weight:700;color:#10b981;">${stats.online_users}</span>
-            </div>`;
-        hideOtherAdminDivs('adminStatsDiv');
-    }).catch(() => showToast('Failed to load stats'));
-}
-
-function loadUsersList() {
-    fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' }).then(r => r.json()).then(users => {
-        if (!users.length) { document.getElementById('adminUsersDiv').innerHTML = '<div class="loading">No users</div>'; hideOtherAdminDivs('adminUsersDiv'); return; }
-        document.getElementById('adminUsersDiv').innerHTML = users.map(u => {
-            const status = u.is_admin ? '👑 Admin' : (u.is_blocked ? '🚫 Blocked' : (u.is_approved ? '✅ Approved' : '⏳ Pending'));
-            const approveBtn = (!u.is_approved && !u.is_blocked && !u.is_admin)
-                ? `<button class="btn btn-sm btn-primary" onclick="approveUser(${u.id})" style="margin-right:4px;">✅ Approve</button>` : '';
-            const blockBtn = u.is_admin ? '' : (u.is_blocked
-                ? `<button class="btn btn-sm btn-primary" onclick="toggleUser(${u.id}, false)">Unblock</button>`
-                : `<button class="btn btn-sm btn-danger" onclick="toggleUser(${u.id}, true)">Block</button>`);
-            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${status}</div></div><div style="display:flex;gap:4px;flex-wrap:wrap;">${approveBtn}${blockBtn}</div></div>`;
-        }).join('');
-        hideOtherAdminDivs('adminUsersDiv');
-    }).catch(() => showToast('Failed to load users'));
-}
-
-async function approveUser(userId) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('User approved ✅'); loadUsersList(); }
-    else showToast('Failed to approve user');
-}
-
-async function toggleUser(userId, block) {
-    const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
-    const res = await fetch(url, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast(block ? 'User blocked 🚫' : 'User unblocked ✅'); loadUsersList(); }
-    else showToast('Action failed');
-}
-
-function loadBadNumbers() {
-    fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' }).then(r => r.json()).then(bad => {
-        document.getElementById('adminBadDiv').innerHTML = bad.length
-            ? bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${escapeHtml(b.reason || '')}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">Remove</button></div></div>`).join('')
-            : '<div class="loading">No bad numbers 🎉</div>';
-        hideOtherAdminDivs('adminBadDiv');
-    }).catch(() => showToast('Failed to load bad numbers'));
-}
-
-async function removeBadNumber(number) {
-    await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' });
-    showToast('Removed from bad numbers');
-    loadBadNumbers();
-}
-
-function loadReviews() {
-    fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' }).then(r => r.json()).then(reviews => {
-        document.getElementById('adminReviewsDiv').innerHTML = reviews.length
-            ? reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(Math.max(0,r.rating))} • ${escapeHtml(r.comment || 'No comment')}</div></div></div>`).join('')
-            : '<div class="loading">No reviews yet</div>';
-        hideOtherAdminDivs('adminReviewsDiv');
-    }).catch(() => showToast('Failed to load reviews'));
-}
-
-function showBroadcast() { hideOtherAdminDivs('adminBroadcastDiv'); }
 
 async function sendBroadcast() {
     const msg = document.getElementById('broadcastMsg').value.trim();
     if (!msg) { showToast('Enter a message'); return; }
-    const res = await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('📢 Broadcast sent!'); document.getElementById('broadcastMsg').value = ''; }
-    else showToast('Broadcast failed');
+    await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`,{method:'POST',credentials:'include'});
+    showToast('Broadcast sent'); document.getElementById('broadcastMsg').value='';
 }
 
-function showSettings() { hideOtherAdminDivs('adminSettingsDiv'); }
-
+function showSettings() { document.getElementById('adminSettingsDiv').style.display='block'; }
 async function saveSettings() {
-    const approval = document.getElementById('approvalMode').value;
-    const redirect = document.getElementById('otpRedirect').value;
-    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' });
-    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' });
+    const ap = document.getElementById('approvalMode').value;
+    const otp = document.getElementById('otpRedirect').value;
+    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${ap==='on'}`,{method:'POST',credentials:'include'});
+    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${otp}`,{method:'POST',credentials:'include'});
     showToast('Settings saved');
 }
 
-function navigateTo(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`${page}Page`).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-    if (page === 'numbers') loadRegions();
-    if (page === 'saved') loadSavedNumbers();
-    if (page === 'history') loadHistory();
+// ── EXPORT NUMBERS ──
+async function exportPool(poolId, poolName) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/export`, {credentials:'include'});
+        if (!res.ok) { showToast('Export failed'); return; }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${poolName}_numbers.txt`; a.click();
+        URL.revokeObjectURL(url);
+        showToast('✅ Export downloaded');
+    } catch(e) { showToast('Network error'); }
 }
 
-document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
-document.getElementById('authLoginTab').onclick = () => { document.getElementById('loginForm').style.display = 'block'; document.getElementById('registerForm').style.display = 'none'; document.getElementById('authLoginTab').style.background = '#0a84ff'; document.getElementById('authLoginTab').style.color = 'white'; document.getElementById('authRegisterTab').style.background = 'rgba(30,41,59,0.6)'; document.getElementById('authRegisterTab').style.color = '#9ca3af'; };
-document.getElementById('authRegisterTab').onclick = () => { document.getElementById('loginForm').style.display = 'none'; document.getElementById('registerForm').style.display = 'block'; document.getElementById('authRegisterTab').style.background = '#0a84ff'; document.getElementById('authRegisterTab').style.color = 'white'; document.getElementById('authLoginTab').style.background = 'rgba(30,41,59,0.6)'; document.getElementById('authLoginTab').style.color = '#9ca3af'; };
+// ── CUT NUMBERS ──
+async function cutPool(poolId, poolName) {
+    const count = prompt(`How many numbers to cut from "${poolName}"?`);
+    if (!count || isNaN(parseInt(count))) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, {method:'POST',credentials:'include'});
+        const d = await res.json();
+        if (res.ok) { showToast(`✅ Removed ${d.removed} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
+        else { showToast(d.detail || 'Cut failed'); }
+    } catch(e) { showToast('Network error'); }
+}
 
-function escapeHtml(t) { if (!t) return ''; return t.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+// ── CLEAR POOL ──
+async function clearPool(poolId, poolName) {
+    if (!confirm(`Clear ALL numbers from "${poolName}"? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, {method:'POST',credentials:'include'});
+        const d = await res.json();
+        if (res.ok) { showToast(`✅ Cleared ${d.deleted} numbers from ${poolName}`); loadAdminPools(); loadRegions(); }
+        else { showToast(d.detail || 'Clear failed'); }
+    } catch(e) { showToast('Network error'); }
+}
+
+// ── POOL ACCESS CONTROL ──
+async function managePoolAccess(poolId, poolName) {
+    const userId = prompt(`Grant/revoke access for pool "${poolName}".\nEnter user ID to GRANT access (or type "revoke:USER_ID" to revoke):`);
+    if (!userId) return;
+    if (userId.startsWith('revoke:')) {
+        const uid = parseInt(userId.split(':')[1]);
+        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'DELETE',credentials:'include'});
+        showToast(res.ok ? `✅ Access revoked for user ${uid}` : 'Failed');
+    } else {
+        const uid = parseInt(userId);
+        if (isNaN(uid)) { showToast('Invalid user ID'); return; }
+        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${uid}`, {method:'POST',credentials:'include'});
+        showToast(res.ok ? `✅ Access granted to user ${uid}` : 'Failed');
+    }
+    loadAdminPools();
+}
+
+// ── TOGGLE ADMIN ONLY ──
+async function toggleAdminOnly(poolId) {
+    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, {method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ Updated'); loadAdminPools(); loadRegions(); }
+    else { showToast('Failed'); }
+}
+
+// ── ENHANCED loadAdminPools with all actions ──
+async function loadAdminPools() {
+    try {
+        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
+        const pools = await res.json();
+        const container = document.getElementById('poolsList');
+        if (!pools.length) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No pools yet</div></div>'; return; }
+        container.innerHTML = pools.map(p => `
+            <div class="card" style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div style="flex:1;">
+                        <div style="font-size:15px;font-weight:700;color:var(--gray-900);">${escapeHtml(p.name)} ${p.is_admin_only?'🔒':''}</div>
+                        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">+${escapeHtml(p.country_code)} · ${p.number_count} numbers · Format: ${escapeHtml(p.match_format)} · Mode: ${['Telegram','Platform','Both'][p.uses_platform]||'?'}</div>
+                        ${p.otp_group_id?`<div style="font-size:11px;color:var(--gray-500);margin-top:1px;">Group: ${p.otp_group_id}</div>`:''}
+                        ${p.trick_text?`<div style="font-size:11px;color:var(--yellow);margin-top:1px;">💡 ${escapeHtml(p.trick_text)}</div>`:''}
+                        ${p.is_paused?`<div style="font-size:11px;color:var(--red);margin-top:3px;">⏸ Paused: ${escapeHtml(p.pause_reason||'')}</div>`:''}
+                    </div>
+                    <span class="pool-count">${p.number_count}</span>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
+                    <button class="btn btn-sm btn-secondary" onclick="editPool(${p.id})">✏️ Edit</button>
+                    <button class="btn btn-sm btn-secondary" onclick="openUploadForPool(${p.id}, '${escapeHtml(p.name)}')">📁 Upload</button>
+                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id}, '${escapeHtml(p.name)}')">📤 Export</button>
+                    <button class="btn btn-sm btn-secondary" onclick="cutPool(${p.id}, '${escapeHtml(p.name)}')">✂️ Cut</button>
+                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name)}')">🧹 Clear</button>
+                    ${p.is_paused
+                        ? `<button class="btn btn-sm btn-green" onclick="resumePool(${p.id})">▶ Resume</button>`
+                        : `<button class="btn btn-sm btn-danger" onclick="pausePool(${p.id})">⏸ Pause</button>`}
+                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Public':'🔒 Admin Only'}</button>
+                    <button class="btn btn-sm btn-secondary" onclick="managePoolAccess(${p.id}, '${escapeHtml(p.name)}')">🔐 Access</button>
+                    <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id})">🗑 Delete</button>
+                </div>
+            </div>`).join('');
+    } catch(e) { document.getElementById('poolsList').innerHTML = 'Failed to load pools'; }
+}
+
+// ── ENHANCED loadUsersList with pending/approved tabs ──
+async function loadUsersList() {
+    const div = document.getElementById('adminUsersDiv');
+    div.style.display = 'block';
+    div.innerHTML = `
+        <div style="display:flex;gap:8px;padding:8px 0;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-primary" onclick="loadUsersTab('all')">All Users</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('pending')">⏳ Pending</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('approved')">✅ Approved</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadUsersTab('blocked')">🚫 Blocked</button>
+        </div>
+        <div id="usersTabContent"><div class="loading"><div class="spinner"></div>Loading…</div></div>`;
+    loadUsersTab('all');
+}
+
+async function loadUsersTab(tab) {
+    const div = document.getElementById('usersTabContent');
+    if (!div) return;
+    div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/users`, {credentials:'include'});
+        const users = await res.json();
+        let filtered = users;
+        if (tab === 'pending') filtered = users.filter(u => !u.is_approved && !u.is_blocked);
+        else if (tab === 'approved') filtered = users.filter(u => u.is_approved && !u.is_blocked);
+        else if (tab === 'blocked') filtered = users.filter(u => u.is_blocked);
+        if (!filtered.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users in this category</div></div>'; return; }
+        div.innerHTML = filtered.map(u => `<div class="card" style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div style="font-weight:700;color:var(--gray-900);">${escapeHtml(u.username)} ${u.is_admin?'👑':''}</div>
+                    <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">ID: ${u.id} · Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
+                </div>
+                <div>${u.is_blocked?'<span class="badge-red">Blocked</span>':u.is_approved?'<span class="badge-green">Active</span>':'<span style="background:rgba(255,176,32,0.15);color:var(--yellow);padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;">Pending</span>'}</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="approveUser(${u.id})">✅ Approve</button>` : ''}
+                ${!u.is_approved && !u.is_blocked ? `<button class="btn btn-sm btn-danger" onclick="denyUser(${u.id})">❌ Deny</button>` : ''}
+                ${u.is_blocked ? `<button class="btn btn-sm btn-green" onclick="unblockUser(${u.id})">🔓 Unblock</button>` : `<button class="btn btn-sm btn-danger" onclick="blockUser(${u.id})">🚫 Block</button>`}
+                ${u.is_approved ? `<button class="btn btn-sm btn-danger" onclick="revokeUser(${u.id})">🔒 Revoke</button>` : ''}
+            </div>
+        </div>`).join('');
+    } catch(e) { div.innerHTML = 'Failed to load users'; }
+}
+
+async function approveUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/approve`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ User approved'); loadUsersTab('pending'); }
+    else { showToast('Failed'); }
+}
+async function denyUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('User denied'); loadUsersTab('pending'); }
+}
+async function blockUser(id) {
+    if (!confirm('Block this user?')) return;
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('User blocked'); loadUsersTab('all'); }
+}
+async function unblockUser(id) {
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/unblock`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('✅ User unblocked'); loadUsersTab('blocked'); }
+}
+async function revokeUser(id) {
+    if (!confirm('Revoke access for this user?')) return;
+    const res = await fetch(`${API_BASE}/api/admin/users/${id}/block`,{method:'POST',credentials:'include'});
+    if (res.ok) { showToast('Access revoked'); loadUsersTab('approved'); }
+}
+
+function openUploadForPool(poolId, poolName) {
+    fetch(`${API_BASE}/api/pools`, {credentials:'include'}).then(r=>r.json()).then(pools => {
+        document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}" ${p.id===poolId?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+    });
+    document.getElementById('uploadModal').classList.add('show');
+}
 
 checkAuth();
 </script>
