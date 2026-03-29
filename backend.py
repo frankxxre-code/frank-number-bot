@@ -2050,42 +2050,10 @@ async function loadSavedNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved`, {credentials:'include'});
         const data = await res.json();
-        const container = document.getElementById('savedList');
-        const activeItems = data.filter(item => !item.moved);
-        if (!activeItems.length) {
-            container.innerHTML = '';
-            document.getElementById('savedPoolsSection').style.display = 'none';
-        } else {
-            document.getElementById('savedPoolsSection').style.display = 'block';
-            const grouped = {};
-            activeItems.forEach(item => {
-                if (!grouped[item.pool_name]) grouped[item.pool_name] = {items:[],minSeconds:Infinity,status:'green'};
-                grouped[item.pool_name].items.push(item);
-                if (item.seconds_left < grouped[item.pool_name].minSeconds) {
-                    grouped[item.pool_name].minSeconds = item.seconds_left;
-                    grouped[item.pool_name].status = item.status;
-                }
-            });
-            container.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
-                const count = g.items.length;
-                const sec = g.minSeconds;
-                let cls = 'timer-green', time = `${Math.floor(sec/60)}m ${sec%60}s`;
-                if (g.status==='yellow') cls='timer-yellow';
-                if (g.status==='red') cls='timer-red';
-                if (g.status==='expired') { cls='timer-red'; time='Soon'; }
-                const ids = g.items.map(i=>i.id);
-                return `<div class="saved-item">
-                    <div>
-                        <div class="saved-num">📦 ${escapeHtml(poolName)}</div>
-                        <div style="font-size:12px;color:var(--gray-400);margin-top:3px;">${count} number${count!==1?'s':''} waiting</div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="timer-badge ${cls}">${time}</span>
-                        <button onclick="deleteSavedPool(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;" title="Delete">🗑️</button>
-                    </div>
-                </div>`;
-            }).join('');
-        }
+        // Waiting pools (timer still running) are background only — never shown on page
+        // Only ready numbers (moved=true) are shown, handled by loadReadyNumbers below
+        document.getElementById('savedPoolsSection').style.display = 'none';
+        document.getElementById('savedList').innerHTML = '';
     } catch(e) {}
     loadReadyNumbers();
 }
@@ -2168,15 +2136,15 @@ async function openSwitchPool(id, number, currentPool) {
     select.innerHTML = '<option>Loading pools…</option>';
     document.getElementById('changePoolModal').classList.add('show');
     try {
-        // Fetch ALL available pools — user picks any pool to switch to
-        const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
-        const allPools = await res.json();
-        const options = allPools.filter(p => p.name !== currentPool && !p.is_paused && p.number_count > 0);
+        // Only show OTHER ready pools — pools that also have numbers ready
+        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, {credentials:'include'});
+        const readyPools = await res.json();
+        const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
         if (!options.length) {
-            select.innerHTML = '<option disabled>No other pools with numbers available</option>';
+            select.innerHTML = '<option disabled>No other ready pools available</option>';
             return;
         }
-        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)} (${p.number_count} available)</option>`).join('');
+        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
     } catch(e) { select.innerHTML = '<option disabled>Failed to load pools</option>'; }
 }
 
