@@ -2034,7 +2034,7 @@ function parseTimer(t) {
 
 // ── SAVE NUMBERS ──
 async function saveNumbers() {
-    const numbers = document.getElementById('savedNumbersInput').value.split('\\n').map(l=>l.trim()).filter(l=>l);
+    const numbers = document.getElementById('savedNumbersInput').value.split('\n').map(l=>l.trim()).filter(l=>l);
     const timerMinutes = parseTimer(document.getElementById('timerInput').value.trim());
     const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
     if (!numbers.length) { showToast('Enter at least one number'); return; }
