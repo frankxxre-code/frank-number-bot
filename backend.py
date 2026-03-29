@@ -1614,19 +1614,21 @@ FRONTEND_HTML = '''<!DOCTYPE html>
                 <div class="preset-row">
                     <button class="preset-btn" onclick="setTimerPreset('30m')">30m</button>
                     <button class="preset-btn" onclick="setTimerPreset('2h')">2h</button>
+                    <button class="preset-btn" onclick="setTimerPreset('4h')">4h</button>
+                    <button class="preset-btn" onclick="setTimerPreset('8h')">8h</button>
                     <button class="preset-btn" onclick="setTimerPreset('1d')">1d</button>
-                    <button class="preset-btn" onclick="setTimerPreset('2s')">2s</button>
+                    <button class="preset-btn" onclick="setTimerPreset('2s')">Test</button>
                 </div>
             </div>
             <div class="save-row">
-                <input type="text" id="poolNameInput" placeholder="Pool label (e.g. Nigeria)">
+                <input type="text" id="poolNameInput" placeholder="Pool name (e.g. UK, Nigeria)">
                 <button class="btn btn-primary" onclick="saveNumbers()">Save</button>
             </div>
         </div>
 
-        <!-- SAVED POOLS — pool count cards only, NO pool list shown here -->
+        <!-- PENDING POOLS — grouped by pool name with countdown timers -->
         <div id="savedPoolsSection" style="display:none;">
-            <div class="section-title">⏳ WAITING POOLS</div>
+            <div class="section-title">⏳ PENDING POOLS</div>
             <div id="savedList"></div>
         </div>
     </div>
@@ -1649,11 +1651,14 @@ FRONTEND_HTML = '''<!DOCTYPE html>
             <div class="admin-card" onclick="showBroadcast()"><div class="admin-icon">📢</div><div class="admin-label">Broadcast</div></div>
             <div class="admin-card" onclick="showSettings()"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
             <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
+            <div class="admin-card" onclick="loadAdminButtonsMgr()"><div class="admin-icon">🔘</div><div class="admin-label">Buttons</div></div>
+            <div class="admin-card" onclick="loadAdminPools()"><div class="admin-icon">🗂</div><div class="admin-label">Pools</div></div>
         </div>
         <div id="adminStatsDiv" class="card" style="display:none;margin-top:12px;"></div>
         <div id="adminUsersDiv" style="display:none;padding:0 16px;"></div>
         <div id="adminBadDiv" style="display:none;padding:0 16px;"></div>
         <div id="adminReviewsDiv" style="display:none;padding:0 16px;"></div>
+        <div id="adminButtonsDiv" style="display:none;padding:0 16px;margin-top:4px;"></div>
         <div id="adminBroadcastDiv" class="card" style="display:none;margin-top:12px;">
             <textarea id="broadcastMsg" rows="3" placeholder="Message to broadcast…" style="width:100%;padding:12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);background:var(--gray-50);font-size:14px;resize:none;outline:none;"></textarea>
             <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="sendBroadcast()">Send Broadcast</button>
@@ -2050,10 +2055,47 @@ async function loadSavedNumbers() {
     try {
         const res = await fetch(`${API_BASE}/api/saved`, {credentials:'include'});
         const data = await res.json();
-        // Waiting pools (timer still running) are background only — never shown on page
-        // Only ready numbers (moved=true) are shown, handled by loadReadyNumbers below
-        document.getElementById('savedPoolsSection').style.display = 'none';
-        document.getElementById('savedList').innerHTML = '';
+        // Show pending numbers (not yet ready) grouped by pool name
+        const pending = data.filter(item => !item.moved);
+        const section = document.getElementById('savedPoolsSection');
+        const container = document.getElementById('savedList');
+        if (!pending.length) {
+            section.style.display = 'none';
+            container.innerHTML = '';
+        } else {
+            section.style.display = 'block';
+            // Group by pool_name
+            const groups = {};
+            pending.forEach(item => {
+                if (!groups[item.pool_name]) groups[item.pool_name] = [];
+                groups[item.pool_name].push(item);
+            });
+            container.innerHTML = Object.entries(groups).map(([poolName, items]) => {
+                const sorted = items.sort((a, b) => a.seconds_left - b.seconds_left);
+                const rows = sorted.map(item => {
+                    const sl = item.seconds_left;
+                    let timeStr;
+                    if (item.status === 'expired') timeStr = 'Moving to ready...';
+                    else if (sl >= 3600) timeStr = Math.floor(sl/3600) + 'h ' + Math.floor((sl%3600)/60) + 'm';
+                    else if (sl >= 60) timeStr = Math.floor(sl/60) + 'm ' + (sl%60) + 's';
+                    else timeStr = sl + 's';
+                    const cls = item.status==='expired'?'timer-ready':item.status==='red'?'timer-red':item.status==='yellow'?'timer-yellow':'timer-green';
+                    return '<div class="saved-item">' +
+                        '<div>' +
+                        '<div class="saved-num" onclick="copyText('' + escapeHtml(item.number) + '')">' + escapeHtml(item.number) + '</div>' +
+                        '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">' + escapeHtml(poolName) + '</div>' +
+                        '</div>' +
+                        '<div style="display:flex;align-items:center;gap:8px;">' +
+                        '<span class="timer-badge ' + cls + '">' + timeStr + '</span>' +
+                        '<button onclick="deleteSaved(' + item.id + ')" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--gray-400);" title="Remove">🗑</button>' +
+                        '</div>' +
+                        '</div>';
+                }).join('');
+                return '<div style="margin-bottom:8px;">' +
+                    '<div style="font-size:11px;font-weight:700;color:var(--gray-500);padding:4px 16px 6px;text-transform:uppercase;letter-spacing:.8px;">📦 ' + escapeHtml(poolName) + ' (' + items.length + ' pending)</div>' +
+                    rows + '</div>';
+            }).join('');
+        }
     } catch(e) {}
     loadReadyNumbers();
 }
@@ -2274,6 +2316,7 @@ async function uploadNumbers() {
 }
 
 async function loadAdminStats() {
+    hideAllAdminPanels();
     const div = document.getElementById('adminStatsDiv');
     div.style.display = 'block';
     div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
@@ -2333,6 +2376,7 @@ async function resumePool(poolId) {
 }
 
 async function loadBadNumbers() {
+    hideAllAdminPanels();
     const div = document.getElementById('adminBadDiv');
     div.style.display = 'block';
     div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
@@ -2350,6 +2394,7 @@ async function loadBadNumbers() {
 async function removeBadNum(number) { await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`,{method:'DELETE',credentials:'include'}); loadBadNumbers(); }
 
 async function loadReviews() {
+    hideAllAdminPanels();
     const div = document.getElementById('adminReviewsDiv');
     div.style.display = 'block';
     div.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
@@ -2365,6 +2410,12 @@ async function loadReviews() {
     } catch(e) { div.innerHTML = 'Failed'; }
 }
 
+
+function showBroadcast() {
+    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminSettingsDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+    document.getElementById('adminBroadcastDiv').style.display='block';
+}
+
 async function sendBroadcast() {
     const msg = document.getElementById('broadcastMsg').value.trim();
     if (!msg) { showToast('Enter a message'); return; }
@@ -2372,7 +2423,10 @@ async function sendBroadcast() {
     showToast('Broadcast sent'); document.getElementById('broadcastMsg').value='';
 }
 
-function showSettings() { document.getElementById('adminSettingsDiv').style.display='block'; }
+function showSettings() {
+    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminBroadcastDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+    document.getElementById('adminSettingsDiv').style.display='block';
+}
 async function saveSettings() {
     const ap = document.getElementById('approvalMode').value;
     const otp = document.getElementById('otpRedirect').value;
@@ -2445,6 +2499,7 @@ async function toggleAdminOnly(poolId) {
 
 // ── ENHANCED loadAdminPools with all actions ──
 async function loadAdminPools() {
+    hideAllAdminPanels();
     try {
         const res = await fetch(`${API_BASE}/api/pools`, {credentials:'include'});
         const pools = await res.json();
@@ -2481,6 +2536,7 @@ async function loadAdminPools() {
 
 // ── ENHANCED loadUsersList with pending/approved tabs ──
 async function loadUsersList() {
+    hideAllAdminPanels();
     const div = document.getElementById('adminUsersDiv');
     div.style.display = 'block';
     div.innerHTML = `
@@ -2553,6 +2609,62 @@ function openUploadForPool(poolId, poolName) {
         document.getElementById('uploadPoolSelect').innerHTML = pools.map(p=>`<option value="${p.id}" ${p.id===poolId?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
     });
     document.getElementById('uploadModal').classList.add('show');
+}
+
+// ── ADMIN CUSTOM BUTTONS MANAGER ──
+function hideAllAdminPanels() {
+    ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminButtonsDiv','adminBroadcastDiv','adminSettingsDiv'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+}
+
+function loadAdminButtonsMgr() {
+    hideAllAdminPanels();
+    const div = document.getElementById('adminButtonsDiv');
+    div.style.display = 'block';
+    div.innerHTML = '<div class="card" style="margin-bottom:12px;">' +
+        '<div style="font-weight:700;font-size:14px;margin-bottom:12px;">➕ Add Custom Button</div>' +
+        '<div class="fg"><label>Button Label</label><input type="text" id="newBtnLabel" placeholder="e.g. 📢 Join Channel"></div>' +
+        '<div class="fg"><label>URL</label><input type="text" id="newBtnUrl" placeholder="https://t.me/..."></div>' +
+        '<button class="btn btn-primary" style="width:100%;" onclick="addAdminButton()">Add Button</button>' +
+        '</div>' +
+        '<div id="adminBtnList"><div class="loading"><div class="spinner"></div>Loading…</div></div>';
+    refreshAdminBtnList();
+}
+
+async function refreshAdminBtnList() {
+    try {
+        const res = await fetch(`${API_BASE}/api/buttons`, {credentials:'include'});
+        const buttons = await res.json();
+        const div = document.getElementById('adminBtnList');
+        if (!div) return;
+        if (!buttons.length) { div.innerHTML = '<div class="empty-state"><div class="empty-icon">🔘</div><div class="empty-text">No buttons yet</div></div>'; return; }
+        div.innerHTML = buttons.map(b =>
+            '<div class="saved-item">' +
+            '<div><div style="font-weight:700;font-size:14px;">' + escapeHtml(b.label) + '</div>' +
+            '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;word-break:break-all;">' + escapeHtml(b.url) + '</div></div>' +
+            '<button class="btn btn-sm btn-danger" onclick="deleteAdminButton(' + b.id + ')">🗑 Delete</button>' +
+            '</div>'
+        ).join('');
+    } catch(e) {}
+}
+
+async function addAdminButton() {
+    const label = document.getElementById('newBtnLabel').value.trim();
+    const url = document.getElementById('newBtnUrl').value.trim();
+    if (!label || !url) { showToast('Enter label and URL'); return; }
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, {method:'POST',credentials:'include'});
+        if (res.ok) { showToast('✅ Button added'); document.getElementById('newBtnLabel').value=''; document.getElementById('newBtnUrl').value=''; refreshAdminBtnList(); loadCustomButtons(); }
+        else { const d = await res.json(); showToast(d.detail || 'Failed'); }
+    } catch(e) { showToast('Network error'); }
+}
+
+async function deleteAdminButton(id) {
+    if (!confirm('Delete this button?')) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/buttons/${id}`, {method:'DELETE',credentials:'include'});
+        if (res.ok) { showToast('✅ Deleted'); refreshAdminBtnList(); loadCustomButtons(); }
+        else { showToast('Failed to delete'); }
+    } catch(e) { showToast('Network error'); }
 }
 
 checkAuth();
@@ -2878,24 +2990,40 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
             pool = db.query(Pool).filter(Pool.id == pool_id).first()
             if not pool:
                 raise HTTPException(404, "Pool not found")
-            # Delete OTP logs linked to assignments in this pool first
-            assignment_ids = [a.id for a in db.query(Assignment).filter(Assignment.pool_id == pool_id).all()]
-            if assignment_ids:
-                db.query(OTPLog).filter(OTPLog.assignment_id.in_(assignment_ids)).delete(synchronize_session=False)
-            # Delete assignments for this pool
-            db.query(Assignment).filter(Assignment.pool_id == pool_id).delete(synchronize_session=False)
-            # Delete active numbers
-            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete(synchronize_session=False)
-            # Delete pool access entries
-            db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).delete(synchronize_session=False)
-            # Now delete the pool itself
-            db.delete(pool)
-            db.commit()
+            pool_name = pool.name
+            try:
+                # 1. Delete OTP logs linked to assignments in this pool
+                assignment_ids = [a.id for a in db.query(Assignment).filter(Assignment.pool_id == pool_id).all()]
+                if assignment_ids:
+                    db.query(OTPLog).filter(OTPLog.assignment_id.in_(assignment_ids)).delete(synchronize_session=False)
+                    db.flush()
+                # 2. Delete assignments
+                db.query(Assignment).filter(Assignment.pool_id == pool_id).delete(synchronize_session=False)
+                db.flush()
+                # 3. Delete active numbers
+                db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete(synchronize_session=False)
+                db.flush()
+                # 4. Delete pool access entries
+                db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).delete(synchronize_session=False)
+                db.flush()
+                # 5. Delete saved numbers that reference this pool by name
+                db.query(SavedNumber).filter(SavedNumber.pool_name == pool_name).delete(synchronize_session=False)
+                db.flush()
+                # 6. Delete the pool itself
+                db.delete(pool)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                log.error(f"[DeletePool] Error: {e}")
+                raise HTTPException(500, f"Failed to delete pool: {str(e)}")
     else:
         if pool_id not in pools:
             raise HTTPException(404, "Pool not found")
+        pool_name = pools[pool_id].get("name", "")
         del pools[pool_id]
         active_numbers.pop(pool_id, None)
+        global saved_numbers
+        saved_numbers = [s for s in saved_numbers if s.get("pool_name") != pool_name]
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
