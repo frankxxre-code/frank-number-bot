@@ -1,830 +1,1700 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Frank Number Bot</title>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEON GRID NETWORK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#05080f;--surf:#0b1120;--surf2:#111d35;--border:#1e3050;--accent:#00c8ff;--accent2:#ff5e1a;--text:#cde0ff;--muted:#3d5878;--ok:#00e87a;--err:#ff2d55;--warn:#ffb800;--mono:'Share Tech Mono',monospace;--head:'Rajdhani',sans-serif}
-body{background:var(--bg);color:var(--text);font-family:var(--head);min-height:100vh}
-body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,200,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,.025) 1px,transparent 1px);background-size:44px 44px;pointer-events:none}
+:root {
+  --blue-100: #dbeafe;
+  --blue-300: #93c5fd;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-900: #1e3a8a;
+  --white: #ffffff;
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+  --green: #22c55e;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --card-bg: rgba(255,255,255,0.92);
+  --card-border: rgba(59,130,246,0.18);
+  --shadow-blue: 0 4px 24px rgba(37,99,235,0.12);
+}
 
-/* ─── AUTH ─────────────────────────────────────────── */
-#authWrap{position:relative;z-index:10;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-.orb{position:fixed;border-radius:50%;filter:blur(90px);pointer-events:none}
-.o1{width:500px;height:500px;background:var(--accent);opacity:.07;top:-150px;left:-150px}
-.o2{width:400px;height:400px;background:var(--accent2);opacity:.07;bottom:-100px;right:-100px}
-.auth-box{width:100%;max-width:430px}
-.logo{text-align:center;margin-bottom:28px}
-.logo-ico{width:60px;height:60px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:14px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 0 40px rgba(0,200,255,.25)}
-.logo h1{font-size:24px;font-weight:700;letter-spacing:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.logo p{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:3px;margin-top:4px}
-.auth-card{background:var(--surf);border:1px solid var(--border);border-radius:16px;padding:32px;box-shadow:0 0 50px rgba(0,0,0,.5)}
-.tabs{display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:4px;margin-bottom:26px}
-.tab{flex:1;padding:9px;border:none;border-radius:6px;background:transparent;color:var(--muted);font-family:var(--head);font-size:15px;font-weight:600;cursor:pointer;letter-spacing:1px;transition:all .2s}
-.tab.on{background:var(--accent);color:var(--bg)}
-.auth-panel{display:none}.auth-panel.on{display:block}
-.pend-notice{text-align:center;padding:10px 0}
-.pend-notice .pi{font-size:42px;margin-bottom:14px}
-.pend-notice h3{font-size:20px;color:var(--accent);margin-bottom:8px}
-.pend-notice p{font-size:13px;color:var(--muted);line-height:1.7}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-/* ─── APP SHELL ────────────────────────────────────── */
-#appWrap{display:none}
-nav{position:sticky;top:0;z-index:100;background:rgba(5,8,15,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;gap:12px}
-.brand{font-size:17px;font-weight:700;letter-spacing:2px;white-space:nowrap}
-.brand.user{color:var(--accent)}.brand.admin{color:var(--accent2)}
-.nav-mid{display:flex;gap:2px}
-.nl{padding:6px 12px;border-radius:6px;color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.5px;cursor:pointer;border:none;background:none;transition:all .2s;font-family:var(--head)}
-.nl:hover,.nl.on{color:var(--accent);background:rgba(0,200,255,.08)}
-.nav-right{display:flex;align-items:center;gap:10px;font-size:13px}
-.nav-user{color:var(--muted);font-family:var(--mono)}
-.lbtn{padding:5px 12px;border-radius:6px;background:rgba(255,45,85,.1);border:1px solid rgba(255,45,85,.3);color:var(--err);font-size:12px;cursor:pointer;font-family:var(--head);font-weight:600;transition:all .2s}
-.userbtn{padding:5px 12px;border-radius:6px;background:rgba(0,200,255,.1);border:1px solid rgba(0,200,255,.3);color:var(--accent);font-size:12px;cursor:pointer;font-family:var(--head);font-weight:600;text-decoration:none;border:none}
-.admin-badge{background:rgba(255,94,26,.15);border:1px solid rgba(255,94,26,.4);color:var(--accent2);padding:3px 10px;border-radius:20px;font-size:12px;font-family:var(--mono);letter-spacing:1px}
-.layout{display:flex;min-height:calc(100vh - 56px)}
-.sidebar{width:210px;flex-shrink:0;border-right:1px solid var(--border);padding:16px 10px;background:rgba(11,17,32,.7)}
-.si{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;margin-bottom:3px;border:none;background:none;width:100%;text-align:left;letter-spacing:.5px;font-family:var(--head)}
-.si:hover{color:var(--text);background:var(--surf2)}
-.si.on{color:var(--accent);background:rgba(0,200,255,.08);border-left:2px solid var(--accent)}
-.si .ic{font-size:16px;width:22px;text-align:center}
-.main{flex:1;padding:24px;overflow-y:auto}
-.page{display:none}.page.on{display:block}
-.ptitle{font-size:22px;font-weight:700;letter-spacing:1px;margin-bottom:4px}
-.psub{font-size:13px;color:var(--muted);margin-bottom:22px;font-family:var(--mono)}
+body {
+  font-family: 'Space Grotesk', sans-serif;
+  background: linear-gradient(155deg, #eff6ff 0%, #dbeafe 30%, #bfdbfe 60%, #e0f2fe 100%);
+  min-height: 100vh;
+  color: var(--slate-800);
+  overflow-x: hidden;
+}
 
-/* ─── SHARED COMPONENTS ────────────────────────────── */
-.card{background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 2px 20px rgba(0,0,0,.3);margin-bottom:16px}
-.ctitle{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:2px;margin-bottom:16px}
-.fg{margin-bottom:14px}
-label{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:2px;margin-bottom:6px}
-input[type=text],input[type=email],input[type=password],input[type=number],select,textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:var(--head);font-size:14px;outline:none;transition:border-color .2s}
-input:focus,select:focus,textarea:focus{border-color:var(--accent)}
-textarea{resize:vertical}
-.btn{padding:9px 18px;border:none;border-radius:8px;font-family:var(--head);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.5px}
-.btn-p{background:linear-gradient(135deg,var(--accent),#0090bb);color:var(--bg)}
-.btn-p:hover{box-shadow:0 4px 16px rgba(0,200,255,.3);transform:translateY(-1px)}
-.btn-d{background:rgba(255,45,85,.12);border:1px solid rgba(255,45,85,.35);color:var(--err)}
-.btn-d:hover{background:rgba(255,45,85,.22)}
-.btn-g{background:var(--surf2);border:1px solid var(--border);color:var(--text)}
-.btn-g:hover{border-color:var(--accent);color:var(--accent)}
-.btn-ok{background:rgba(0,232,122,.12);border:1px solid rgba(0,232,122,.35);color:var(--ok)}
-.btn-ok:hover{background:rgba(0,232,122,.22)}
-.btn-sm{padding:5px 12px;font-size:12px}
-.brow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.msg{padding:10px 14px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
-.msg.show{display:block}
-.msg-err{background:rgba(255,45,85,.1);border:1px solid rgba(255,45,85,.3);color:var(--err)}
-.msg-ok{background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.3);color:var(--ok)}
-#toastContainer{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
-.toast{padding:11px 16px;border-radius:8px;font-size:13px;font-weight:600;background:var(--surf);border:1px solid var(--border);animation:tIn .3s ease;min-width:200px}
-.t-ok{border-color:rgba(0,232,122,.5);color:var(--ok)}
-.t-err{border-color:rgba(255,45,85,.5);color:var(--err)}
-.t-info{border-color:rgba(0,200,255,.5);color:var(--accent)}
-@keyframes tIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
-.modal-ov{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.75);align-items:center;justify-content:center}
-.modal-ov.on{display:flex}
-.modal{background:var(--surf);border:1px solid var(--border);border-radius:16px;padding:26px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto}
-.modal h3{font-size:18px;font-weight:700;margin-bottom:16px;letter-spacing:.5px}
-.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-family:var(--mono);font-weight:700}
-.b-ok{background:rgba(0,232,122,.1);color:var(--ok);border:1px solid rgba(0,232,122,.3)}
-.b-err{background:rgba(255,45,85,.1);color:var(--err);border:1px solid rgba(255,45,85,.3)}
-.b-warn{background:rgba(255,184,0,.1);color:var(--warn);border:1px solid rgba(255,184,0,.3)}
-.b-info{background:rgba(0,200,255,.1);color:var(--accent);border:1px solid rgba(0,200,255,.3)}
+/* ─── DECORATIVE BLOBS ─── */
+body::before {
+  content: '';
+  position: fixed;
+  top: -120px; right: -80px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(59,130,246,0.18), transparent 70%);
+  border-radius: 50%;
+  pointer-events: none; z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  bottom: 80px; left: -80px;
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(14,165,233,0.12), transparent 70%);
+  border-radius: 50%;
+  pointer-events: none; z-index: 0;
+}
 
-/* ─── USER DASHBOARD ───────────────────────────────── */
-.pool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
-.pcard{background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
-.pcard::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));transform:scaleX(0);transition:transform .2s;transform-origin:left}
-.pcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,200,255,.1)}
-.pcard:hover::after{transform:scaleX(1)}
-.pcard.paused{opacity:.5;cursor:not-allowed}
-.pname{font-size:15px;font-weight:700;margin-bottom:4px;letter-spacing:.5px}
-.pcode{font-family:var(--mono);font-size:12px;color:var(--accent);margin-bottom:10px}
-.pcnt{font-size:12px;color:var(--muted)}.pcnt span{color:var(--ok);font-weight:700}
-.nbig{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--accent);letter-spacing:4px;text-shadow:0 0 20px rgba(0,200,255,.4);display:inline-flex;align-items:center;gap:10px}
-.num-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:18px 20px;text-align:center;margin:14px 0}
-.num-lbl{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:2px}
-.copy-btn{background:none;border:none;cursor:pointer;font-size:16px;padding:4px;border-radius:6px;color:var(--muted);transition:all .2s}
-.copy-btn:hover{color:var(--accent);background:rgba(0,200,255,.1)}
-.otp-box{background:rgba(0,232,122,.06);border:1px solid rgba(0,232,122,.25);border-radius:10px;padding:20px;text-align:center;animation:otpPop .4s ease}
-@keyframes otpPop{0%{transform:scale(.95);opacity:0}100%{transform:scale(1);opacity:1}}
-.otp-code{font-family:var(--mono);font-size:36px;font-weight:700;color:var(--ok);letter-spacing:6px;display:inline-flex;align-items:center;gap:10px;cursor:pointer}
-.otp-timer{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:8px}
-.otp-raw{font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
-.wait{display:flex;flex-direction:column;align-items:center;padding:28px;gap:12px;color:var(--muted)}
-.spin{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.wait-txt{font-family:var(--mono);font-size:13px;letter-spacing:1px}
-.trick{background:rgba(255,184,0,.07);border:1px solid rgba(255,184,0,.2);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--warn);margin-bottom:12px}
-.pfx-row{display:flex;gap:8px;margin-bottom:16px;align-items:center}
-.pfx-inp{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none}
-.pfx-inp:focus{border-color:var(--accent)}
-.pfx-badge{background:rgba(0,200,255,.1);border:1px solid rgba(0,200,255,.3);color:var(--accent);padding:4px 10px;border-radius:20px;font-family:var(--mono);font-size:12px;display:none}
-.pfx-badge.on{display:inline-block}
-.feed-row{padding:10px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center}
-.feed-num{font-family:var(--mono);color:var(--muted);font-size:12px}
-.feed-otp{font-family:var(--mono);color:var(--ok);font-size:20px;font-weight:700;letter-spacing:4px;cursor:pointer}
-.feed-time{font-size:11px;color:var(--muted);text-align:right;font-family:var(--mono)}
-.fb-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-.fb-btn{padding:10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border);color:var(--text);font-family:var(--head);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;text-align:center}
-.fb-btn:hover{border-color:var(--accent);color:var(--accent)}
-.fb-btn.bad:hover{background:rgba(255,45,85,.1);border-color:rgba(255,45,85,.4);color:var(--err)}
-.timer-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-family:var(--mono);font-size:12px;font-weight:700}
-.t-green{background:rgba(0,232,122,.1);color:var(--ok);border:1px solid rgba(0,232,122,.3)}
-.t-yellow{background:rgba(255,184,0,.1);color:var(--warn);border:1px solid rgba(255,184,0,.3)}
-.t-red{background:rgba(255,45,85,.1);color:var(--err);border:1px solid rgba(255,45,85,.3)}
-.t-ready{background:rgba(0,200,255,.1);color:var(--accent);border:1px solid rgba(0,200,255,.3)}
-.saved-card{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.snum{font-family:var(--mono);font-size:14px;color:var(--accent)}
-.smeta{font-size:12px;color:var(--muted);margin-top:3px}
-.rdy-card{background:var(--surf);border:1px solid rgba(0,200,255,.3);border-radius:10px;padding:16px;margin-bottom:8px;cursor:pointer;transition:all .2s}
-.rdy-card:hover{border-color:var(--accent);background:rgba(0,200,255,.04)}
-.rdy-num{font-family:var(--mono);font-size:18px;color:var(--accent);font-weight:700}
-.rdy-meta{font-size:12px;color:var(--muted);margin-top:4px}
-.step-ind{display:flex;gap:8px;margin-bottom:20px;align-items:center}
-.step{width:28px;height:28px;border-radius:50%;background:var(--surf2);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--muted);transition:all .3s;flex-shrink:0}
-.step.on{border-color:var(--accent);color:var(--accent);background:rgba(0,200,255,.1)}
-.step.done{border-color:var(--ok);color:var(--ok);background:rgba(0,232,122,.1)}
-.divider{flex:1;height:2px;background:var(--border)}
-.hist-row{padding:10px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:160px 1fr 100px;gap:10px;align-items:center}
+/* ─── AUTH ─── */
+.auth-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(155deg, #1e3a8a 0%, #1d4ed8 40%, #2563eb 70%, #3b82f6 100%);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.auth-card {
+  background: rgba(255,255,255,0.97);
+  border-radius: 32px;
+  padding: 40px 32px;
+  width: 100%; max-width: 360px;
+  box-shadow: 0 32px 64px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.2);
+}
+.auth-logo { text-align:center; font-size:52px; margin-bottom:8px; }
+.auth-title {
+  text-align:center; font-size:22px; font-weight:800;
+  color: var(--blue-700); margin-bottom:6px;
+}
+.auth-sub { text-align:center; font-size:13px; color:var(--slate-500); margin-bottom:28px; }
+.auth-input {
+  width:100%; padding:14px 18px;
+  border: 2px solid var(--slate-200);
+  border-radius: 16px; font-size:15px;
+  margin-bottom:14px; outline:none;
+  font-family: 'Space Grotesk', sans-serif;
+  background: var(--slate-50);
+  color: var(--slate-800);
+  transition: border-color 0.2s;
+}
+.auth-input:focus { border-color: var(--blue-500); background: #fff; }
+.auth-btn {
+  width:100%; background: linear-gradient(135deg, var(--blue-600), var(--blue-700));
+  color:white; border:none; padding:16px;
+  border-radius:16px; font-size:16px; font-weight:700;
+  cursor:pointer; margin-top:4px;
+  font-family:'Space Grotesk',sans-serif;
+  box-shadow: 0 8px 24px rgba(37,99,235,0.35);
+  transition: all 0.2s;
+}
+.auth-btn:active { transform:scale(0.97); }
+.auth-toggle { text-align:center; margin-top:20px; font-size:13px; color:var(--slate-500); }
+.auth-toggle span { color:var(--blue-600); cursor:pointer; font-weight:600; }
+.auth-error { color:var(--red); font-size:12px; margin-top:6px; text-align:center; }
 
-/* ─── ADMIN ─────────────────────────────────────────── */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-.stat{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
-.stat-val{font-size:28px;font-weight:700;color:var(--accent);font-family:var(--mono)}
-.stat-lbl{font-size:12px;color:var(--muted);margin-top:4px;font-family:var(--mono);letter-spacing:1px}
-table{width:100%;border-collapse:collapse}
-th{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:2px;padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
-td{padding:10px;font-size:13px;border-bottom:1px solid rgba(30,48,80,.5)}
-tr:hover td{background:rgba(0,200,255,.02)}
-.pool-row{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.pool-actions{display:flex;gap:6px;flex-shrink:0}
-.upload-area{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px}
-.upload-area:hover{border-color:var(--accent)}
-.pending-dot{width:8px;height:8px;background:var(--warn);border-radius:50%;display:inline-block;animation:blink 1s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+/* ─── HEADER ─── */
+.header {
+  position: sticky; top: 0; z-index: 200;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--card-border);
+  padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.header-brand { font-size:17px; font-weight:800; color:var(--blue-700); letter-spacing:-0.5px; }
+.header-user { display:flex; align-items:center; gap:8px; }
+.header-badge {
+  background: linear-gradient(135deg, var(--blue-600), var(--blue-700));
+  color:white; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;
+}
+.admin-chip {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color:white; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700;
+}
+.logout-btn {
+  background:none; border:2px solid var(--slate-200); color:var(--slate-500);
+  padding:4px 12px; border-radius:20px; font-size:12px; cursor:pointer;
+  font-family:'Space Grotesk',sans-serif; font-weight:600;
+}
+
+/* ─── BOTTOM NAV ─── */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--card-border);
+  display: flex; justify-content: space-around;
+  padding: 8px 4px 20px;
+}
+.nav-item {
+  display:flex; flex-direction:column; align-items:center;
+  gap:3px; padding:6px 12px; border-radius:16px; cursor:pointer;
+  transition:all 0.2s; min-width:54px;
+}
+.nav-item.active { background: rgba(59,130,246,0.1); }
+.nav-icon { font-size:22px; }
+.nav-label { font-size:10px; font-weight:600; color:var(--slate-400); letter-spacing:0.3px; }
+.nav-item.active .nav-label { color:var(--blue-600); }
+
+/* ─── PAGES ─── */
+.page { display:none; padding:16px 16px 100px; position:relative; z-index:1; }
+.page.active { display:block; }
+
+/* ─── CARDS ─── */
+.card {
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  padding: 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-blue);
+}
+.card-sm {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 8px rgba(37,99,235,0.07);
+}
+
+/* ─── HERO CARD ─── */
+.hero-card {
+  background: linear-gradient(135deg, var(--blue-600) 0%, var(--blue-700) 50%, #1e40af 100%);
+  border-radius: 28px; padding: 28px 24px; margin-bottom: 16px;
+  color: white; position:relative; overflow:hidden;
+  box-shadow: 0 16px 40px rgba(37,99,235,0.35);
+}
+.hero-card::before {
+  content:''; position:absolute; top:-40px; right:-40px;
+  width:160px; height:160px;
+  background: rgba(255,255,255,0.08); border-radius:50%;
+}
+.hero-card::after {
+  content:''; position:absolute; bottom:-30px; left:-20px;
+  width:120px; height:120px;
+  background: rgba(255,255,255,0.05); border-radius:50%;
+}
+.hero-label { font-size:11px; font-weight:600; opacity:0.75; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
+.hero-number {
+  font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:700;
+  letter-spacing:1px; margin-bottom:10px; word-break:break-all;
+  cursor:pointer;
+}
+.hero-pool { font-size:13px; opacity:0.8; font-weight:500; }
+.copy-hint { font-size:11px; opacity:0.6; margin-top:4px; }
+
+/* ─── OTP CARD ─── */
+.otp-card {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  border-radius: 24px; padding: 24px; margin-bottom: 14px;
+  color:white; animation: slideUp 0.3s ease;
+  box-shadow: 0 12px 30px rgba(22,163,74,0.3);
+}
+@keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+.otp-code-label { font-size:11px; font-weight:600; opacity:0.7; letter-spacing:1.5px; text-transform:uppercase; }
+.otp-code {
+  font-family:'JetBrains Mono',monospace; font-size:46px; font-weight:700;
+  letter-spacing:8px; text-align:center; margin:12px 0; cursor:pointer;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.otp-msg { font-size:12px; opacity:0.75; text-align:center; word-break:break-all; margin-top:4px; }
+.otp-timer-bar { height:3px; background:rgba(255,255,255,0.3); border-radius:2px; margin-top:14px; overflow:hidden; }
+.otp-timer-fill { height:100%; background:white; border-radius:2px; transition:width 1s linear; }
+
+/* ─── BUTTONS ─── */
+.btn {
+  padding: 11px 20px; border-radius: 50px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: all 0.15s;
+  font-family: 'Space Grotesk', sans-serif; display:inline-flex; align-items:center; gap:6px;
+}
+.btn-primary { background: linear-gradient(135deg, var(--blue-600), var(--blue-700)); color:white; box-shadow:0 4px 14px rgba(37,99,235,0.3); }
+.btn-primary:active { transform:scale(0.96); }
+.btn-secondary { background: var(--slate-100); color:var(--slate-700); border:1px solid var(--slate-200); }
+.btn-secondary:active { background:var(--slate-200); transform:scale(0.96); }
+.btn-danger { background: rgba(239,68,68,0.1); color:var(--red); border:1px solid rgba(239,68,68,0.3); }
+.btn-danger:active { background: rgba(239,68,68,0.2); }
+.btn-success { background: rgba(34,197,94,0.1); color:#16a34a; border:1px solid rgba(34,197,94,0.3); }
+.btn-sm { padding:7px 14px; font-size:12px; }
+.btn-xs { padding:4px 10px; font-size:11px; }
+.btn-full { width:100%; justify-content:center; }
+
+/* ─── SECTION HEADER ─── */
+.sec-header { font-size:11px; font-weight:700; color:var(--slate-400); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:10px; padding-left:2px; }
+.page-title { font-size:20px; font-weight:800; color:var(--slate-800); margin-bottom:4px; }
+.page-sub { font-size:13px; color:var(--slate-500); margin-bottom:16px; }
+
+/* ─── POOL LIST (home) ─── */
+.pool-item {
+  background: var(--card-bg); border:1px solid var(--card-border); border-radius:18px;
+  padding:14px 16px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;
+  cursor:pointer; transition:all 0.15s; box-shadow:0 2px 8px rgba(37,99,235,0.06);
+}
+.pool-item:active { transform:scale(0.98); background:var(--blue-100); }
+.pool-name { font-weight:700; color:var(--slate-800); font-size:15px; }
+.pool-code { font-size:12px; color:var(--slate-500); margin-top:2px; }
+.pool-count {
+  background:rgba(59,130,246,0.12); color:var(--blue-600);
+  padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;
+}
+.pool-paused { background:rgba(239,68,68,0.1); color:var(--red); }
+
+/* ─── SAVED / READY ─── */
+.ready-card {
+  background: var(--card-bg); border:2px solid rgba(59,130,246,0.25);
+  border-radius:24px; padding:20px; margin-bottom:14px;
+  box-shadow: 0 8px 24px rgba(37,99,235,0.1);
+}
+.ready-pool-name { font-size:11px; font-weight:700; color:var(--blue-600); letter-spacing:1px; text-transform:uppercase; margin-bottom:10px; }
+.ready-number {
+  font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:700;
+  color:var(--slate-800); margin-bottom:4px; cursor:pointer; word-break:break-all;
+}
+.ready-badge {
+  display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;
+}
+.badge-ready { background:rgba(59,130,246,0.15); color:var(--blue-600); }
+.badge-green { background:rgba(34,197,94,0.15); color:#16a34a; }
+.badge-amber { background:rgba(245,158,11,0.15); color:#b45309; }
+.badge-red { background:rgba(239,68,68,0.15); color:var(--red); }
+.ready-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+.pending-item {
+  background: var(--card-bg); border:1px solid var(--card-border);
+  border-radius:18px; padding:14px 16px; margin-bottom:10px;
+  display:flex; align-items:center; justify-content:space-between;
+  box-shadow:0 2px 8px rgba(37,99,235,0.06);
+}
+.pending-info {}
+.pending-pool { font-size:11px; font-weight:700; color:var(--blue-500); letter-spacing:0.5px; }
+.pending-count { font-size:14px; font-weight:700; color:var(--slate-700); margin-top:2px; }
+.pending-timer { font-size:12px; color:var(--slate-500); }
+
+/* ─── INPUTS ─── */
+.fg { margin-bottom:16px; }
+.fg label { display:block; font-size:12px; font-weight:700; color:var(--slate-500); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
+.fg input, .fg select, .fg textarea {
+  width:100%; padding:13px 16px; border:2px solid var(--slate-200); border-radius:14px;
+  font-size:14px; outline:none; background:var(--white);
+  font-family:'Space Grotesk',sans-serif; color:var(--slate-800);
+  transition:border-color 0.2s;
+}
+.fg input:focus, .fg select:focus, .fg textarea:focus { border-color:var(--blue-500); }
+.fg textarea { resize:vertical; min-height:80px; }
+
+/* ─── ADMIN GRID ─── */
+.admin-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+.admin-tile {
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:18px;
+  padding:16px 10px; text-align:center; cursor:pointer; transition:all 0.15s;
+  box-shadow:0 2px 8px rgba(37,99,235,0.07);
+}
+.admin-tile:active { transform:scale(0.95); background:var(--blue-100); }
+.admin-tile-icon { font-size:24px; margin-bottom:6px; }
+.admin-tile-label { font-size:11px; font-weight:700; color:var(--slate-600); }
+
+.stat-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px; }
+.stat-box {
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:18px;
+  padding:16px; box-shadow:0 2px 8px rgba(37,99,246,0.07);
+}
+.stat-val { font-size:26px; font-weight:800; color:var(--blue-700); }
+.stat-lbl { font-size:11px; color:var(--slate-500); font-weight:600; margin-top:2px; }
+
+/* ─── MODAL ─── */
+.modal-overlay {
+  display:none; position:fixed; inset:0; z-index:500;
+  background:rgba(15,23,42,0.6); backdrop-filter:blur(6px);
+  align-items:flex-end; justify-content:center;
+}
+.modal-overlay.show { display:flex; }
+.modal-sheet {
+  background:var(--white); border-radius:32px 32px 0 0;
+  padding:28px 20px 40px; width:100%; max-width:520px;
+  max-height:88vh; overflow-y:auto;
+  animation: sheetUp 0.28s ease;
+}
+@keyframes sheetUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+.modal-handle { width:40px; height:4px; background:var(--slate-200); border-radius:2px; margin:0 auto 20px; }
+.modal-title { font-size:18px; font-weight:800; color:var(--slate-800); margin-bottom:20px; }
+.modal-row { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+/* ─── HISTORY ─── */
+.history-item {
+  background:var(--card-bg); border:1px solid var(--card-border);
+  border-radius:18px; padding:14px 16px; margin-bottom:10px;
+  box-shadow:0 2px 8px rgba(37,99,235,0.06);
+}
+.history-otp { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700; color:#16a34a; cursor:pointer; }
+.history-number { font-size:12px; color:var(--slate-500); margin-top:2px; font-family:'JetBrains Mono',monospace; }
+.history-time { font-size:11px; color:var(--slate-400); margin-top:4px; }
+
+/* ─── TOAST ─── */
+.toast {
+  position:fixed; bottom:90px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:rgba(15,23,42,0.9); color:white; padding:11px 22px;
+  border-radius:50px; font-size:13px; font-weight:600; z-index:9000;
+  max-width:90%; text-align:center; opacity:0;
+  transition:all 0.3s; pointer-events:none; backdrop-filter:blur(10px);
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* ─── LOADING ─── */
+.loading-state { text-align:center; padding:40px; color:var(--slate-400); }
+.spinner {
+  width:36px; height:36px; border:3px solid rgba(59,130,246,0.2);
+  border-top-color:var(--blue-500); border-radius:50%;
+  animation:spin 0.8s linear infinite; margin:0 auto 12px;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ─── FILTER ROW ─── */
+.search-row {
+  display:flex; align-items:center; gap:10px;
+  background:var(--card-bg); border:1px solid var(--card-border);
+  border-radius:50px; padding:10px 16px; margin-bottom:14px;
+  box-shadow:0 2px 8px rgba(37,99,235,0.07);
+}
+.search-input { flex:1; border:none; outline:none; font-size:14px; background:transparent; font-family:'Space Grotesk',sans-serif; color:var(--slate-800); }
+.search-input::placeholder { color:var(--slate-400); }
+
+/* ─── USER ROW ─── */
+.user-row {
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:16px;
+  padding:12px 14px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;
+}
+.user-name-lbl { font-weight:700; color:var(--slate-800); font-size:14px; }
+.user-status { font-size:11px; color:var(--slate-500); margin-top:2px; }
+.user-actions { display:flex; gap:6px; }
+
+/* ─── DIVIDER ─── */
+.divider { height:1px; background:var(--slate-200); margin:16px 0; }
+
+/* ─── SWITCH POOL POOL LIST ─── */
+.pool-choice {
+  background:var(--slate-50); border:2px solid var(--slate-200);
+  border-radius:14px; padding:12px 14px; margin-bottom:8px; cursor:pointer; transition:all 0.15s;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.pool-choice:active { background:var(--blue-100); border-color:var(--blue-400); }
+.pool-choice.selected { background:var(--blue-100); border-color:var(--blue-500); }
+
+/* Responsive tweaks for larger screens */
+@media (min-width:500px) {
+  .page { max-width:500px; margin:0 auto; }
+  .bottom-nav { max-width:500px; left:50%; transform:translateX(-50%); }
+  .header { max-width:500px; margin:0 auto; left:50%; transform:translateX(-50%); width:100%; }
+}
+
+.pool-trick { font-size:11px; color:#b45309; margin-top:3px; }
+.paused-banner {
+  background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);
+  border-radius:12px; padding:10px 14px; font-size:12px; color:var(--red); margin-bottom:10px;
+}
+.ws-status { width:8px; height:8px; border-radius:50%; background:var(--slate-300); display:inline-block; margin-right:4px; }
+.ws-status.connected { background:var(--green); }
+
+.tab-row { display:flex; gap:8px; margin-bottom:16px; }
+.tab-btn {
+  flex:1; padding:9px; border-radius:12px; border:none; cursor:pointer;
+  font-size:13px; font-weight:700; font-family:'Space Grotesk',sans-serif;
+  background:var(--slate-100); color:var(--slate-500); transition:all 0.15s;
+}
+.tab-btn.active { background:var(--blue-600); color:white; box-shadow:0 4px 12px rgba(37,99,235,0.25); }
+
+.empty-state { text-align:center; padding:36px 20px; color:var(--slate-400); }
+.empty-icon { font-size:40px; margin-bottom:10px; }
+.empty-text { font-size:14px; font-weight:600; }
+.empty-sub { font-size:12px; margin-top:4px; }
+
+/* Notification dot */
+.notif-dot {
+  width:8px; height:8px; background:var(--red); border-radius:50%;
+  position:absolute; top:2px; right:2px;
+}
 </style>
 </head>
 <body>
 
-<!-- ═══════════ AUTH ═══════════ -->
-<div id="authWrap">
-  <div class="orb o1"></div><div class="orb o2"></div>
-  <div class="auth-box">
-    <div class="logo">
-      <div class="logo-ico">📱</div>
-      <h1>FRANK NUMBER BOT</h1>
-      <p>SECURE • FAST • RELIABLE</p>
+<!-- ═══════════════════════════════════════════════
+     AUTH OVERLAY
+═══════════════════════════════════════════════ -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-logo">📡</div>
+    <div class="auth-title">NEON GRID</div>
+    <div class="auth-sub" id="authSubTitle">Sign in to your account</div>
+    <div id="authForm">
+      <input class="auth-input" id="authUsername" type="text" placeholder="Username" autocomplete="username">
+      <input class="auth-input" id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
+      <button class="auth-btn" id="authSubmit" onclick="doAuth()">Sign In</button>
+      <div class="auth-error" id="authError"></div>
     </div>
-    <div class="auth-card">
-      <div class="tabs">
-        <button class="tab on" id="at1" onclick="aTab('login')">LOGIN</button>
-        <button class="tab" id="at2" onclick="aTab('register')">REGISTER</button>
-      </div>
-      <div class="auth-panel on" id="apLogin">
-        <div class="fg"><label>USERNAME</label><input type="text" id="lu" placeholder="your_username" autocomplete="username"></div>
-        <div class="fg"><label>PASSWORD</label><input type="password" id="lp" placeholder="••••••••" autocomplete="current-password"></div>
-        <button class="btn btn-p" style="width:100%;margin-top:6px" id="lBtn" onclick="doLogin()">LOGIN</button>
-        <div class="msg msg-err" id="lMsg"></div>
-      </div>
-      <div class="auth-panel" id="apReg">
-        <div class="fg"><label>USERNAME</label><input type="text" id="ru" placeholder="choose_username"></div>
-        <div class="fg"><label>EMAIL</label><input type="email" id="re" placeholder="you@example.com"></div>
-        <div class="fg"><label>PASSWORD</label><input type="password" id="rp" placeholder="min 6 characters"></div>
-        <button class="btn btn-p" style="width:100%;margin-top:6px" id="rBtn" onclick="doReg()">CREATE ACCOUNT</button>
-        <div class="msg msg-err" id="rMsg"></div>
-      </div>
-      <div class="auth-panel" id="apPend">
-        <div class="pend-notice">
-          <div class="pi">⏳</div>
-          <h3>Awaiting Approval</h3>
-          <p>Your account is pending admin review.<br>You'll be notified once approved.</p>
-        </div>
-      </div>
+    <div class="auth-toggle">
+      <span id="authToggle" onclick="toggleAuthMode()">Don't have an account? Register</span>
     </div>
   </div>
 </div>
 
-<!-- ═══════════ APP SHELL ═══════════ -->
-<div id="appWrap">
-  <nav>
-    <div class="brand" id="navBrand">📱 FRANK NUMBER BOT</div>
-    <div class="nav-mid" id="navMid"></div>
-    <div class="nav-right">
-      <span class="nav-user" id="navUser">—</span>
-      <button class="userbtn" id="modeBtn" style="display:none" onclick="switchMode()"></button>
-      <button class="lbtn" onclick="doLogout()">Logout</button>
-    </div>
-  </nav>
-  <div class="layout">
-    <div class="sidebar" id="sidebar"></div>
-    <div class="main" id="mainContent"></div>
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════
+     MAIN APP
+═══════════════════════════════════════════════ -->
+<div id="app" style="display:none;">
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-brand">📡 NEON GRID</div>
+  <div class="header-user">
+    <span class="ws-status" id="wsStatus"></span>
+    <span class="header-badge" id="headerUsername">User</span>
+    <span class="admin-chip" id="adminChip" style="display:none;">ADMIN</span>
+    <button class="logout-btn" onclick="doLogout()">Exit</button>
   </div>
 </div>
 
-<!-- ═══════════ MODALS ═══════════ -->
-<!-- Feedback -->
-<div class="modal-ov" id="fbModal">
-  <div class="modal">
-    <h3>How did it go?</h3>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Rate <b id="fbNum"></b></p>
-    <div class="fb-opts">
-      <div class="fb-btn" onclick="submitFb('worked')">✅ It Worked</div>
-      <div class="fb-btn bad" onclick="submitFb('bad')">❌ Not Available</div>
-      <div class="fb-btn" onclick="submitFb('email')">📧 Email Only</div>
-      <div class="fb-btn" onclick="submitFb('other_devices')">📱 Other Devices</div>
-      <div class="fb-btn" onclick="submitFb('try_later')">⏳ Try Later</div>
-      <div class="fb-btn" onclick="showOtherFb()">📝 Other Issue</div>
+<!-- PAGES -->
+
+<!-- ─── HOME ─── -->
+<div class="page active" id="pageHome">
+  <div class="page-title">Dashboard</div>
+  <div class="page-sub" id="homeSubtitle">Welcome back</div>
+
+  <!-- Custom Buttons -->
+  <div id="customBtnsRow" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
+
+  <!-- Current Assignment -->
+  <div id="assignmentSection" style="display:none;">
+    <div class="sec-header">Active Number</div>
+    <div class="hero-card" id="currentAssignment">
+      <div class="hero-label">Current Number</div>
+      <div class="hero-number" id="assignedNumber" onclick="copyAssigned()">—</div>
+      <div class="hero-pool" id="assignedPool"></div>
+      <div class="copy-hint">Tap to copy</div>
     </div>
-    <div id="otherFbArea" style="display:none;margin-top:8px">
-      <textarea id="otherFbTxt" rows="3" placeholder="Describe the issue..."></textarea>
-      <div class="brow"><button class="btn btn-p btn-sm" onclick="submitFb('other')">Submit</button></div>
+    <div id="otpDisplay" style="display:none;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn btn-secondary btn-sm" onclick="getNewNumber()">🔄 Change Number</button>
+      <button class="btn btn-secondary btn-sm" onclick="openSearchOtp()">🔍 Search OTP</button>
+      <button class="btn btn-secondary btn-sm" onclick="openFeedbackModal()">💬 Feedback</button>
     </div>
-    <div class="brow" style="margin-top:10px"><button class="btn btn-g btn-sm" onclick="closeFb()">Cancel</button></div>
+    <div id="trickText" style="display:none;" class="paused-banner"></div>
+  </div>
+
+  <!-- Pool Selection -->
+  <div id="poolSection">
+    <div class="sec-header">Select Region</div>
+    <div class="search-row">
+      <span>🔍</span>
+      <input class="search-input" id="poolSearch" placeholder="Search regions..." oninput="filterPools()">
+    </div>
+    <div id="poolsList">
+      <div class="loading-state"><div class="spinner"></div>Loading regions...</div>
+    </div>
   </div>
 </div>
-<!-- Ready confirm -->
-<div class="modal-ov" id="rdyModal">
-  <div class="modal">
-    <h3>📱 Ready Number</h3>
-    <div class="num-box" style="margin:14px 0">
-      <div class="nbig"><span id="rdyNumTxt">—</span><button class="copy-btn" onclick="copyT(document.getElementById('rdyNumTxt').textContent)">📋</button></div>
-      <div class="num-lbl">POOL: <span id="rdyPool">—</span></div>
+
+<!-- ─── SAVE NUMBER ─── -->
+<div class="page" id="pageSave">
+  <div class="page-title">Save Numbers</div>
+  <div class="page-sub">Manage pending & ready pools</div>
+
+  <!-- ADD NUMBER FORM -->
+  <div class="card" id="addNumberCard">
+    <div class="sec-header">Add Number to Pending</div>
+    <div class="fg">
+      <label>Phone Number</label>
+      <input id="saveNumberInput" type="tel" placeholder="e.g. 2349157338416">
     </div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Assign this number and start monitoring?</p>
-    <div class="brow">
-      <button class="btn btn-g btn-sm" onclick="closeRdy()">Cancel</button>
-      <button class="btn btn-p" onclick="confirmRdyAssign()">Assign & Monitor</button>
+    <div class="fg">
+      <label>Timer</label>
+      <select id="saveTimerSelect">
+        <option value="30">30 minutes</option>
+        <option value="60">1 hour</option>
+        <option value="120">2 hours</option>
+        <option value="240">4 hours</option>
+        <option value="480" selected>8 hours</option>
+        <option value="720">12 hours</option>
+        <option value="1440">24 hours</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>Pool Name</label>
+      <input id="savePoolInput" placeholder="e.g. UK, Nigeria, USA">
+    </div>
+    <button class="btn btn-primary btn-full" onclick="addNumberToPending()">Add to Pending</button>
+  </div>
+
+  <!-- PENDING POOLS -->
+  <div id="pendingSection">
+    <div class="sec-header">Pending Pools</div>
+    <div id="pendingList">
+      <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-text">No pending numbers</div></div>
+    </div>
+  </div>
+
+  <!-- READY POOLS — Only show ONE active pool at a time -->
+  <div id="readySection" style="display:none;">
+    <div class="sec-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Ready Pool</span>
+      <button class="btn btn-secondary btn-xs" onclick="openChangePoolModal()">🌐 Change Pool</button>
+    </div>
+    <div id="readyList"></div>
+  </div>
+</div>
+
+<!-- ─── OTP HISTORY ─── -->
+<div class="page" id="pageHistory">
+  <div class="page-title">OTP History</div>
+  <div class="page-sub">Your received verification codes</div>
+  <div id="historyList">
+    <div class="loading-state"><div class="spinner"></div>Loading...</div>
+  </div>
+</div>
+
+<!-- ─── ADMIN ─── -->
+<div class="page" id="pageAdmin">
+  <div class="page-title">Admin Panel <span class="admin-chip">ADMIN</span></div>
+  <div class="page-sub">Platform management</div>
+
+  <div class="admin-grid">
+    <div class="admin-tile" onclick="adminTab('stats')">
+      <div class="admin-tile-icon">📊</div>
+      <div class="admin-tile-label">Stats</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('users')">
+      <div class="admin-tile-icon">👥</div>
+      <div class="admin-tile-label">Users</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('pools')">
+      <div class="admin-tile-icon">🌍</div>
+      <div class="admin-tile-label">Pools</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('bad')">
+      <div class="admin-tile-icon">🚫</div>
+      <div class="admin-tile-label">Bad Nums</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('reviews')">
+      <div class="admin-tile-icon">⭐</div>
+      <div class="admin-tile-label">Reviews</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('broadcast')">
+      <div class="admin-tile-icon">📢</div>
+      <div class="admin-tile-label">Broadcast</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('settings')">
+      <div class="admin-tile-icon">⚙️</div>
+      <div class="admin-tile-label">Settings</div>
+    </div>
+    <div class="admin-tile" onclick="adminTab('buttons')">
+      <div class="admin-tile-icon">🔗</div>
+      <div class="admin-tile-label">Buttons</div>
+    </div>
+    <div class="admin-tile" onclick="openUploadModal()">
+      <div class="admin-tile-icon">📤</div>
+      <div class="admin-tile-label">Upload</div>
+    </div>
+  </div>
+
+  <!-- ADMIN CONTENT AREA -->
+  <div id="adminContent" style="display:none;"></div>
+</div>
+
+<!-- ─── BOTTOM NAV ─── -->
+<div class="bottom-nav">
+  <div class="nav-item active" id="navHome" onclick="switchPage('home')">
+    <div class="nav-icon">🏠</div>
+    <div class="nav-label">Home</div>
+  </div>
+  <div class="nav-item" id="navSave" onclick="switchPage('save')">
+    <div class="nav-icon">💾</div>
+    <div class="nav-label">Numbers</div>
+  </div>
+  <div class="nav-item" id="navHistory" onclick="switchPage('history')">
+    <div class="nav-icon">🔑</div>
+    <div class="nav-label">OTP</div>
+  </div>
+  <div class="nav-item" id="navAdmin" onclick="switchPage('admin')" style="display:none;">
+    <div class="nav-icon">⚙️</div>
+    <div class="nav-label">Admin</div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<!-- ══════════ MODALS ══════════ -->
+
+<!-- Feedback Modal -->
+<div class="modal-overlay" id="feedbackModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rate this number</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <button class="btn btn-success btn-full" onclick="submitFeedback('good')">✅ Good Number</button>
+      <button class="btn btn-danger btn-full" onclick="submitFeedback('bad')">❌ Bad Number</button>
+      <button class="btn btn-secondary btn-full" onclick="submitFeedback('not_received')">📭 Not Received</button>
+      <button class="btn btn-secondary btn-full" onclick="submitFeedback('wrong_otp')">🔢 Wrong OTP</button>
+    </div>
+    <div class="modal-row"><button class="btn btn-secondary" onclick="closeModal('feedbackModal')">Cancel</button></div>
+  </div>
+</div>
+
+<!-- Add Pool Modal (Admin) -->
+<div class="modal-overlay" id="addPoolModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="addPoolTitle">Add New Pool</div>
+    <div class="fg"><label>Pool Name</label><input id="poolName" placeholder="e.g. United Kingdom"></div>
+    <div class="fg"><label>Country Code</label><input id="poolCode" placeholder="e.g. 44" type="number"></div>
+    <div class="fg"><label>OTP Group ID (Telegram)</label><input id="poolOtpGroupId" placeholder="-1001234567890"></div>
+    <div class="fg"><label>OTP Link</label><input id="poolOtpLink" placeholder="https://t.me/..."></div>
+    <div class="fg"><label>Match Format</label><input id="poolMatchFormat" value="5+4" placeholder="5+4"></div>
+    <div class="fg"><label>Telegram Match Format (optional)</label><input id="poolTgMatchFormat" placeholder="leave blank to use above"></div>
+    <div class="fg"><label>Monitoring Mode</label>
+      <select id="poolUsesPlatform">
+        <option value="0">0 — Telegram Only</option>
+        <option value="1">1 — Platform Only</option>
+        <option value="2">2 — Both</option>
+      </select>
+    </div>
+    <div class="fg"><label>Trick Text (optional)</label><input id="poolTrickText" placeholder="e.g. Best for WhatsApp"></div>
+    <div class="modal-row">
+      <button class="btn btn-secondary" onclick="closeModal('addPoolModal')">Cancel</button>
+      <button class="btn btn-primary" id="addPoolSubmit" onclick="submitAddPool()">Add Pool</button>
     </div>
   </div>
 </div>
-<!-- Pool modal -->
-<div class="modal-ov" id="poolModal">
-  <div class="modal">
-    <h3 id="poolModalTitle">New Pool</h3>
-    <div class="fg"><label>NAME</label><input type="text" id="pName"></div>
-    <div class="fg"><label>COUNTRY CODE (digits, e.g. 234)</label><input type="text" id="pCode"></div>
-    <div class="fg"><label>OTP GROUP ID (Telegram)</label><input type="number" id="pGroup"></div>
-    <div class="fg"><label>OTP LINK</label><input type="text" id="pLink" placeholder="https://t.me/..."></div>
-    <div class="fg"><label>MATCH FORMAT (e.g. 5+4)</label><input type="text" id="pFmt" value="5+4"></div>
-    <div class="fg"><label>TELEGRAM MATCH FORMAT (optional)</label><input type="text" id="pTgFmt" placeholder="Leave blank to use above"></div>
-    <div class="fg"><label>MONITORING MODE</label>
-      <select id="pMode"><option value="0">0 — Telegram Only</option><option value="1">1 — Platform Only</option><option value="2">2 — Both</option></select></div>
-    <div class="fg"><label>TRICK TEXT</label><input type="text" id="pTrick" placeholder="Tip shown to users..."></div>
-    <div style="display:flex;gap:16px;margin-bottom:14px">
-      <label style="text-transform:none;letter-spacing:0;display:flex;gap:6px;align-items:center;cursor:pointer;font-family:var(--head)"><input type="checkbox" id="pAdmin" style="width:16px;height:16px;accent-color:var(--accent)"> Admin only</label>
-      <label style="text-transform:none;letter-spacing:0;display:flex;gap:6px;align-items:center;cursor:pointer;font-family:var(--head)"><input type="checkbox" id="pPaused" onchange="document.getElementById('pPRF').style.display=this.checked?'block':'none'" style="width:16px;height:16px;accent-color:var(--accent)"> Paused</label>
+
+<!-- Upload Numbers Modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Upload Numbers</div>
+    <div class="fg"><label>Select Pool</label>
+      <select id="uploadPoolSelect"><option value="">— Select Pool —</option></select>
     </div>
-    <div class="fg" id="pPRF" style="display:none"><label>PAUSE REASON</label><input type="text" id="pPauseR"></div>
-    <div class="brow">
-      <button class="btn btn-g" onclick="closePoolModal()">Cancel</button>
-      <button class="btn btn-p" onclick="savePool()">Save Pool</button>
+    <div class="fg"><label>Numbers File (.txt / .csv)</label>
+      <input type="file" id="uploadFile" accept=".txt,.csv" style="border:none;padding:0;background:none;color:var(--slate-600);">
     </div>
-    <div id="accessSection" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
-      <div class="ctitle">ACCESS CONTROL</div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Empty = open to all. Add users to restrict.</p>
-      <div id="accessList" style="margin-bottom:10px"></div>
-      <div style="display:flex;gap:8px">
-        <select id="accessUserSel" style="flex:1"><option value="">Select user...</option></select>
-        <button class="btn btn-ok btn-sm" onclick="grantAccess()">Grant</button>
+    <div id="uploadResult"></div>
+    <div class="modal-row">
+      <button class="btn btn-secondary" onclick="closeModal('uploadModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="doUpload()">Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- Switch Pool Modal (for ready numbers) -->
+<div class="modal-overlay" id="switchPoolModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Switch Pool</div>
+    <div class="page-sub">Choose a pool with ready numbers</div>
+    <div id="switchPoolList"></div>
+    <div class="modal-row"><button class="btn btn-secondary" onclick="closeModal('switchPoolModal')">Cancel</button></div>
+  </div>
+</div>
+
+<!-- Edit Pool Modal -->
+<div class="modal-overlay" id="editPoolModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Edit Pool</div>
+    <input type="hidden" id="editPoolId">
+    <div class="fg"><label>Pool Name</label><input id="editPoolName"></div>
+    <div class="fg"><label>Country Code</label><input id="editPoolCode"></div>
+    <div class="fg"><label>OTP Group ID</label><input id="editPoolOtpGroupId"></div>
+    <div class="fg"><label>OTP Link</label><input id="editPoolOtpLink"></div>
+    <div class="fg"><label>Match Format</label><input id="editPoolMatchFormat"></div>
+    <div class="fg"><label>Telegram Match Format</label><input id="editPoolTgMatchFormat"></div>
+    <div class="fg"><label>Monitoring Mode</label>
+      <select id="editPoolUsesPlatform">
+        <option value="0">0 — Telegram Only</option>
+        <option value="1">1 — Platform Only</option>
+        <option value="2">2 — Both</option>
+      </select>
+    </div>
+    <div class="fg"><label>Trick Text</label><input id="editPoolTrickText"></div>
+    <div class="modal-row">
+      <button class="btn btn-secondary" onclick="closeModal('editPoolModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditPool()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pool Access Modal -->
+<div class="modal-overlay" id="accessModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Pool Access Control</div>
+    <div id="accessPoolName" style="font-size:13px;color:var(--slate-500);margin-bottom:12px;"></div>
+    <div class="fg"><label>Grant access to User ID</label>
+      <div style="display:flex;gap:8px;">
+        <input id="accessUserId" type="number" placeholder="User ID" style="flex:1;">
+        <button class="btn btn-primary" onclick="grantAccess()">Grant</button>
       </div>
     </div>
+    <div id="accessList"></div>
+    <div class="modal-row"><button class="btn btn-secondary" onclick="closeModal('accessModal')">Close</button></div>
   </div>
 </div>
-
-<div id="toastContainer"></div>
 
 <script>
-// ══════════════════════════════════════════════════════
-//  GLOBALS
-// ══════════════════════════════════════════════════════
-let ME=null, activeAssign=null, userWs=null, feedWs=null;
-let activePrefix=null, fbPendingPoolId=null, fbPendingNumber=null;
-let rdyData=null, editPoolId=null, uploadFile=null;
-let otpClearTimer=null, wdData={numbers:[],timerMin:0,poolName:''};
-let allPools=[];
+// ══════════════════════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════════════════════
+const API_BASE = '';
+let currentUser = null;
+let allPools = [];
+let wsConnection = null;
+let pendingTimerInterval = null;
+let activeOtpTimer = null;
+let currentReadyPoolName = null; // the one pool shown in ready section
+let currentReadySavedId = null;  // id of the current ready slot being shown
+let editPoolIdGlobal = null;
+let accessPoolIdGlobal = null;
 
-// ══════════════════════════════════════════════════════
-//  INIT
-// ══════════════════════════════════════════════════════
-(async()=>{
-  const r=await fetch('/api/auth/me',{credentials:'include'});
-  if(!r.ok){showAuth();return;}
-  ME=await r.json();
-  showApp();
-})();
+// ══════════════════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════════════════
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showToast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+async function apiGet(path) {
+  const r = await fetch(API_BASE + path, { credentials:'include' });
+  if (r.status === 401) { handleLoggedOut(); return null; }
+  return r;
+}
+async function apiPost(path, body={}, method='POST') {
+  const isFormData = body instanceof FormData;
+  const opts = { method, credentials:'include' };
+  if (!isFormData) { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+  else opts.body = body;
+  const r = await fetch(API_BASE + path, opts);
+  if (r.status === 401) { handleLoggedOut(); return null; }
+  return r;
+}
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('📋 Copied!');
+  } catch { showToast('📋 Copy: ' + text); }
+}
+function fmtTime(sec) {
+  if (sec <= 0) return 'Expired';
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function openModal(id) { document.getElementById(id).classList.add('show'); }
 
-function showAuth(){document.getElementById('authWrap').style.display='flex';}
-function showApp(){
-  document.getElementById('authWrap').style.display='none';
-  document.getElementById('appWrap').style.display='block';
-  document.getElementById('navUser').textContent=ME.username;
-  if(ME.is_admin){
-    buildAdminShell();
-    loadStats();
-  } else {
-    buildUserShell();
-    loadPools();
-    connectUserWS();
-    checkMyAssignment();
+// ══════════════════════════════════════════════════════════════════
+//  AUTH
+// ══════════════════════════════════════════════════════════════════
+let isRegisterMode = false;
+function toggleAuthMode() {
+  isRegisterMode = !isRegisterMode;
+  document.getElementById('authSubTitle').textContent = isRegisterMode ? 'Create your account' : 'Sign in to your account';
+  document.getElementById('authSubmit').textContent = isRegisterMode ? 'Register' : 'Sign In';
+  document.getElementById('authToggle').textContent = isRegisterMode ? 'Already have an account? Sign in' : "Don't have an account? Register";
+  document.getElementById('authError').textContent = '';
+}
+async function doAuth() {
+  const u = document.getElementById('authUsername').value.trim();
+  const p = document.getElementById('authPassword').value.trim();
+  if (!u||!p) { document.getElementById('authError').textContent = 'Please fill all fields'; return; }
+  const path = isRegisterMode ? '/api/register' : '/api/login';
+  try {
+    const r = await fetch(API_BASE + path, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      credentials:'include', body:JSON.stringify({username:u, password:p})
+    });
+    const d = await r.json();
+    if (!r.ok) { document.getElementById('authError').textContent = d.detail || 'Error'; return; }
+    currentUser = d;
+    onLoggedIn();
+  } catch(e) { document.getElementById('authError').textContent = 'Network error'; }
+}
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter' && document.getElementById('authOverlay').style.display!=='none') doAuth();
+});
+function handleLoggedOut() {
+  currentUser = null;
+  document.getElementById('authOverlay').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  if (wsConnection) { wsConnection.close(); wsConnection = null; }
+}
+async function doLogout() {
+  await fetch(API_BASE+'/api/logout', {method:'POST', credentials:'include'});
+  handleLoggedOut();
+}
+async function onLoggedIn() {
+  document.getElementById('authOverlay').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('headerUsername').textContent = currentUser.username;
+  if (currentUser.is_admin) {
+    document.getElementById('adminChip').style.display = 'inline-block';
+    document.getElementById('navAdmin').style.display = 'flex';
+  }
+  connectWS();
+  loadCustomButtons();
+  loadHomePools();
+  loadSaveNumberPage();
+}
+
+async function checkSession() {
+  try {
+    const r = await fetch(API_BASE+'/api/me', {credentials:'include'});
+    if (r.ok) { currentUser = await r.json(); onLoggedIn(); }
+    else { document.getElementById('authOverlay').style.display = 'flex'; }
+  } catch { document.getElementById('authOverlay').style.display = 'flex'; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  WEBSOCKET
+// ══════════════════════════════════════════════════════════════════
+function connectWS() {
+  if (!currentUser) return;
+  const proto = location.protocol==='https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/user/${currentUser.id}`);
+  wsConnection = ws;
+  ws.onopen = () => document.getElementById('wsStatus').className = 'ws-status connected';
+  ws.onclose = () => { document.getElementById('wsStatus').className = 'ws-status'; setTimeout(connectWS, 3000); }
+  ws.onmessage = e => {
+    try { handleWsMsg(JSON.parse(e.data)); } catch {}
   }
 }
-
-// ══════════════════════════════════════════════════════
-//  AUTH
-// ══════════════════════════════════════════════════════
-function aTab(t){
-  document.getElementById('at1').classList.toggle('on',t==='login');
-  document.getElementById('at2').classList.toggle('on',t==='register');
-  document.getElementById('apLogin').classList.toggle('on',t==='login');
-  document.getElementById('apReg').classList.toggle('on',t==='register');
-  document.getElementById('apPend').classList.remove('on');
+function handleWsMsg(msg) {
+  if (msg.type === 'otp') showOtpOnHome(msg);
+  else if (msg.type === 'saved_otp') showOtpOnSavedPage(msg);
+  else if (msg.type === 'notification') showToast(msg.message, 4000);
+  else if (msg.type === 'broadcast') showToast('📢 ' + msg.message, 5000);
 }
-function showMsg(id,txt,type){const e=document.getElementById(id);e.textContent=txt;e.className='msg show msg-'+(type==='err'?'err':'ok');}
-async function doLogin(){
-  const u=document.getElementById('lu').value.trim(),p=document.getElementById('lp').value;
-  if(!u||!p)return showMsg('lMsg','Fill all fields','err');
-  const b=document.getElementById('lBtn');b.disabled=true;b.textContent='LOGGING IN...';
-  try{
-    const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username:u,password:p})});
-    const d=await r.json();
-    if(!r.ok)return showMsg('lMsg',d.detail||'Login failed','err');
-    ME=d.user;showApp();
-  }catch{showMsg('lMsg','Connection error','err');}
-  finally{b.disabled=false;b.textContent='LOGIN';}
-}
-async function doReg(){
-  const u=document.getElementById('ru').value.trim(),e=document.getElementById('re').value.trim(),p=document.getElementById('rp').value;
-  if(!u||!e||!p)return showMsg('rMsg','Fill all fields','err');
-  const b=document.getElementById('rBtn');b.disabled=true;b.textContent='CREATING...';
-  try{
-    const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username:u,email:e,password:p})});
-    const d=await r.json();
-    if(!r.ok)return showMsg('rMsg',d.detail||'Registration failed','err');
-    if(d.approved){ME=d;showApp();}
-    else{document.getElementById('apReg').classList.remove('on');document.getElementById('apPend').classList.add('on');}
-  }catch{showMsg('rMsg','Connection error','err');}
-  finally{b.disabled=false;b.textContent='CREATE ACCOUNT';}
-}
-document.addEventListener('keydown',e=>{if(e.key!=='Enter')return;const ap=document.getElementById('apLogin');if(ap?.classList.contains('on'))doLogin();else doReg();});
-async function doLogout(){await fetch('/api/auth/logout',{method:'POST',credentials:'include'});ME=null;location.reload();}
 
-// ══════════════════════════════════════════════════════
-//  TOAST + COPY
-// ══════════════════════════════════════════════════════
-function toast(msg,type='info'){const t=document.createElement('div');t.className=`toast t-${type==='success'?'ok':type==='error'?'err':'info'}`;t.textContent=msg;document.getElementById('toastContainer').appendChild(t);setTimeout(()=>t.remove(),3500);}
-function copyT(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied!','success')).catch(()=>{});}
+// ══════════════════════════════════════════════════════════════════
+//  PAGE SWITCHING
+// ══════════════════════════════════════════════════════════════════
+function switchPage(name) {
+  ['home','save','history','admin'].forEach(p => {
+    document.getElementById('page'+p.charAt(0).toUpperCase()+p.slice(1)).classList.remove('active');
+    document.getElementById('nav'+p.charAt(0).toUpperCase()+p.slice(1))?.classList.remove('active');
+  });
+  document.getElementById('page'+name.charAt(0).toUpperCase()+name.slice(1)).classList.add('active');
+  document.getElementById('nav'+name.charAt(0).toUpperCase()+name.slice(1))?.classList.add('active');
+  if (name==='history') loadHistory();
+  if (name==='save') loadSaveNumberPage();
+}
 
-// ══════════════════════════════════════════════════════
-//  USER SHELL
-// ══════════════════════════════════════════════════════
-function buildUserShell(){
-  document.getElementById('navBrand').textContent='📱 FRANK NUMBER BOT';
-  document.getElementById('navBrand').className='brand user';
-  document.getElementById('navMid').innerHTML=`
-    <button class="nl on" onclick="upg('pools')">Numbers</button>
-    <button class="nl" onclick="upg('feed')">OTP Feed</button>
-    <button class="nl" onclick="upg('save')">Save Numbers</button>
-    <button class="nl" onclick="upg('history')">History</button>`;
-  document.getElementById('sidebar').innerHTML=`
-    <button class="si on" onclick="upg('pools')"><span class="ic">🌍</span>Get Number</button>
-    <button class="si" onclick="upg('active')"><span class="ic">📱</span>My Number</button>
-    <button class="si" onclick="upg('feed')"><span class="ic">📡</span>OTP Feed</button>
-    <button class="si" onclick="upg('save')"><span class="ic">💾</span>Save Numbers</button>
-    <button class="si" onclick="upg('ready')"><span class="ic">✅</span>Ready Numbers</button>
-    <button class="si" onclick="upg('history')"><span class="ic">📋</span>History</button>`;
-  document.getElementById('mainContent').innerHTML=`
-    <div class="page on" id="page-pools">
-      <div class="ptitle">Get a Number</div><div class="psub">Select a region to get a WhatsApp number</div>
-      <div class="pfx-row">
-        <input class="pfx-inp" id="prefixInput" placeholder="Prefix filter (e.g. 8101)" maxlength="10">
-        <button class="btn btn-p btn-sm" onclick="applyPfx()">Filter</button>
-        <button class="btn btn-g btn-sm" onclick="clearPfx()">Clear</button>
-        <span class="pfx-badge" id="pfxBadge"></span>
+// ══════════════════════════════════════════════════════════════════
+//  CUSTOM BUTTONS
+// ══════════════════════════════════════════════════════════════════
+async function loadCustomButtons() {
+  try {
+    const r = await apiGet('/api/buttons');
+    if (!r||!r.ok) return;
+    const btns = await r.json();
+    document.getElementById('customBtnsRow').innerHTML = btns.map(b =>
+      `<a href="${escHtml(b.url)}" target="_blank" class="btn btn-secondary btn-sm">${escHtml(b.label)}</a>`
+    ).join('');
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  HOME — POOLS & ASSIGNMENT
+// ══════════════════════════════════════════════════════════════════
+async function loadHomePools() {
+  try {
+    const r = await apiGet('/api/pools');
+    if (!r||!r.ok) return;
+    allPools = await r.json();
+    // Check current assignment
+    const ar = await apiGet('/api/assignment/current');
+    if (ar && ar.ok) {
+      const a = await ar.json();
+      if (a && a.number) {
+        showAssignment(a);
+        document.getElementById('poolSection').style.display = 'none';
+        document.getElementById('assignmentSection').style.display = 'block';
+        return;
+      }
+    }
+    renderPools(allPools);
+    document.getElementById('homeSubtitle').textContent = `${allPools.filter(p=>!p.is_paused).length} regions available`;
+  } catch(e) {}
+}
+
+function renderPools(pools) {
+  const el = document.getElementById('poolsList');
+  const q = document.getElementById('poolSearch').value.toLowerCase();
+  const filtered = pools.filter(p => p.name.toLowerCase().includes(q) || p.country_code.includes(q));
+  if (!filtered.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🌍</div><div class="empty-text">No regions found</div></div>'; return; }
+  el.innerHTML = filtered.map(p => `
+    <div class="pool-item" onclick="selectPool(${p.id},'${escHtml(p.name)}')">
+      <div>
+        <div class="pool-name">${escHtml(p.name)} ${p.is_paused?'<span style="color:var(--red);font-size:12px;">⏸ Paused</span>':''}</div>
+        <div class="pool-code">+${p.country_code}${p.trick_text ? ' · <span style="color:#b45309;">'+escHtml(p.trick_text)+'</span>' : ''}</div>
       </div>
-      <div class="pool-grid" id="poolGrid"><div style="color:var(--muted)">Loading pools...</div></div>
-    </div>
-    <div class="page" id="page-active">
-      <div class="ptitle">My Number</div><div class="psub">Your assigned number and live OTP delivery</div>
-      <div id="activeContent"><div style="color:var(--muted)">No active number. Go to <b>Get Number</b>.</div></div>
-    </div>
-    <div class="page" id="page-feed">
-      <div class="ptitle">Live OTP Feed</div><div class="psub">All OTPs delivered in real time</div>
-      <div class="card"><div class="ctitle">LIVE FEED</div>
-        <div id="feedList" style="max-height:580px;overflow-y:auto"><div style="color:var(--muted);font-size:13px;font-family:var(--mono)">Connecting...</div></div>
-      </div>
-    </div>
-    <div class="page" id="page-save">
-      <div class="ptitle">Save Numbers</div><div class="psub">Save numbers with a timer — auto-move to pool on expiry</div>
-      <div class="step-ind"><div class="step on" id="ws1">1</div><div class="divider"></div><div class="step" id="ws2">2</div><div class="divider"></div><div class="step" id="ws3">3</div></div>
-      <div id="wStep1"><div class="card"><div class="ctitle">STEP 1 — ENTER NUMBERS</div>
-        <textarea id="numsInput" rows="7" placeholder="Enter numbers, one per line:&#10;+2348012345678&#10;+2348098765432"></textarea>
-        <div class="brow"><button class="btn btn-p" onclick="wz1()">Next →</button></div>
-      </div></div>
-      <div id="wStep2" style="display:none"><div class="card"><div class="ctitle">STEP 2 — SET TIMER</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-          <div><label>HOURS</label><input type="number" id="tH" min="0" max="720" value="0"></div>
-          <div><label>MINUTES</label><input type="number" id="tM" min="0" max="59" value="30"></div>
-        </div>
-        <div style="font-family:var(--mono);font-size:13px;color:var(--accent)">⏰ <span id="timerPrev">30m 0s</span></div>
-        <div class="brow"><button class="btn btn-g" onclick="wShow(1)">← Back</button><button class="btn btn-p" onclick="wz2()">Next →</button></div>
-      </div></div>
-      <div id="wStep3" style="display:none"><div class="card"><div class="ctitle">STEP 3 — SELECT POOL</div>
-        <div class="fg"><label>EXISTING POOL</label><select id="poolSel"><option value="">-- Select pool --</option></select></div>
-        <div style="text-align:center;color:var(--muted);font-size:13px;margin:10px 0">— or create new —</div>
-        <div class="fg"><label>NEW POOL NAME</label><input type="text" id="newPool" placeholder="e.g. Nigeria Batch 3"></div>
-        <div class="brow"><button class="btn btn-g" onclick="wShow(2)">← Back</button><button class="btn btn-p" onclick="wz3()">💾 Save Numbers</button></div>
-      </div></div>
-      <div style="margin-top:28px"><div class="ptitle" style="font-size:17px;margin-bottom:14px">Your Saved Numbers</div>
-        <div id="savedList"><div style="color:var(--muted);font-size:13px">No saved numbers yet.</div></div>
-      </div>
-    </div>
-    <div class="page" id="page-ready">
-      <div class="ptitle">Ready Numbers</div><div class="psub">Timer expired — click to assign</div>
-      <div id="readyList"><div style="color:var(--muted)">Loading...</div></div>
-    </div>
-    <div class="page" id="page-history">
-      <div class="ptitle">OTP History</div><div class="psub">Your recent OTP deliveries</div>
-      <div id="histList"><div style="color:var(--muted)">Loading...</div></div>
-    </div>`;
-  setInterval(()=>{const h=document.getElementById('tH');if(h){const tv=parseInt(h.value||0)*60+parseInt(document.getElementById('tM').value||0);const el=document.getElementById('timerPrev');if(el)el.textContent=fmtT(tv*60);}},1000);
-}
-
-const uPageSide={pools:'Get Number',active:'My Number',feed:'OTP Feed',save:'Save Numbers',ready:'Ready Numbers',history:'History'};
-function upg(name){
-  document.querySelectorAll('.page,.si,.nl').forEach(e=>e.classList.remove('on'));
-  const p=document.getElementById('page-'+name);if(p)p.classList.add('on');
-  document.querySelectorAll('.si').forEach(b=>{if(b.textContent.trim()===uPageSide[name])b.classList.add('on');});
-  if(name==='feed')connFeedWS();
-  if(name==='history')loadHistory();
-  if(name==='save'){loadSaved();loadPoolsForSave();}
-  if(name==='ready')loadReady();
-  if(name==='active')renderActive();
-}
-
-// ── Pools ─────────────────────────────────────────────
-async function loadPools(){
-  const r=await fetch('/api/pools',{credentials:'include'});
-  if(!r.ok)return;
-  allPools=await r.json();renderPools();
-}
-function renderPools(){
-  const g=document.getElementById('poolGrid');if(!g)return;
-  if(!allPools.length){g.innerHTML='<div style="color:var(--muted)">No pools available.</div>';return;}
-  g.innerHTML=allPools.map(p=>`
-    <div class="pcard${p.is_paused?' paused':''}" onclick="${p.is_paused?`toast('Paused: ${(p.pause_reason||'No reason').replace(/'/g,"\\'")}','error')`:`assignPool(${p.id})`}">
-      <div class="pname">${p.name}</div><div class="pcode">+${p.country_code}</div>
-      <div class="pcnt">Numbers: <span>${p.number_count}</span>${p.number_count>0&&p.number_count<50?' ⚡':''}</div>
-      ${p.is_paused?'<div style="font-size:11px;color:var(--err);margin-top:6px">⏸ PAUSED</div>':''}
-      ${p.trick_text?`<div style="font-size:11px;color:var(--warn);margin-top:6px">${p.trick_text}</div>`:''}
-      ${p.restricted?'<div style="font-size:11px;color:var(--muted);margin-top:4px">🔐 Restricted</div>':''}
+      <div class="pool-count ${p.is_paused?'pool-paused':''}">${p.number_count}</div>
     </div>`).join('');
 }
-function applyPfx(){const v=document.getElementById('prefixInput').value.trim();activePrefix=v||null;const b=document.getElementById('pfxBadge');if(v){b.textContent='Filter: '+v;b.classList.add('on');}else b.classList.remove('on');toast(v?`Filter: ${v}`:'Filter cleared','info');}
-function clearPfx(){document.getElementById('prefixInput').value='';activePrefix=null;document.getElementById('pfxBadge').classList.remove('on');}
 
-async function assignPool(poolId){
-  const r=await fetch('/api/pools/assign',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({pool_id:poolId,prefix:activePrefix||null})});
-  const d=await r.json();
-  if(!r.ok){toast(d.detail||'Error','error');return;}
-  activeAssign=d;renderActive();upg('active');toast('Number assigned!','success');
-  triggerMonitor(d);
+function filterPools() { renderPools(allPools); }
+
+async function selectPool(poolId, poolName) {
+  try {
+    const pool = allPools.find(p=>p.id===poolId);
+    if (pool && pool.is_paused) { showToast(`⏸ ${poolName} is paused: ${pool.pause_reason||''}`); return; }
+    const r = await apiPost(`/api/assignment?pool_id=${poolId}`, {});
+    if (!r||!r.ok) { const d=await r.json(); showToast(d.detail||'Failed'); return; }
+    const a = await r.json();
+    showAssignment(a);
+    document.getElementById('poolSection').style.display = 'none';
+    document.getElementById('assignmentSection').style.display = 'block';
+  } catch(e) { showToast('Network error'); }
 }
-async function checkMyAssignment(){
-  const r=await fetch('/api/pools/my-assignment',{credentials:'include'});
-  if(!r.ok)return;
-  const d=await r.json();
-  if(d.assignment){activeAssign=d.assignment;renderActive();}
-}
-async function triggerMonitor(a){
-  if(a.uses_platform===0||a.uses_platform===2){
-    if(!a.otp_group_id)return;
-    await fetch('/api/otp/request-monitor',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:a.number,group_id:a.otp_group_id,match_format:a.telegram_match_format||a.match_format,user_id:ME.id})});
+
+function showAssignment(a) {
+  document.getElementById('assignedNumber').textContent = a.number;
+  document.getElementById('assignedPool').textContent = `📍 ${a.pool_name}`;
+  if (a.trick_text) {
+    document.getElementById('trickText').textContent = '💡 ' + a.trick_text;
+    document.getElementById('trickText').style.display = 'block';
   }
 }
 
-// ── Active number ─────────────────────────────────────
-function renderActive(){
-  const el=document.getElementById('activeContent');if(!el)return;
-  if(!activeAssign){el.innerHTML='<div style="color:var(--muted);padding:20px 0">No active number. Go to <b>Get Number</b>.</div>';return;}
-  el.innerHTML=`<div class="card">
-    <div class="ctitle">ACTIVE — ${activeAssign.pool_name}</div>
-    ${activeAssign.trick_text?`<div class="trick">💡 ${activeAssign.trick_text}</div>`:''}
-    <div class="num-box">
-      <div class="nbig"><span>${activeAssign.number}</span><button class="copy-btn" onclick="copyT('${activeAssign.number}')">📋</button></div>
-      <div class="num-lbl">YOUR NUMBER</div>
-    </div>
-    <div id="otpArea"><div class="wait"><div class="spin"></div><div class="wait-txt">WAITING FOR OTP...</div></div></div>
-    <div class="brow">
-      <button class="btn btn-g btn-sm" onclick="copyT('${activeAssign.number}')">📋 Copy</button>
-      <button class="btn btn-g btn-sm" onclick="doSearchOtp()">🔍 Search OTP</button>
-      <button class="btn btn-d btn-sm" onclick="openFb()">🔄 Change Number</button>
-    </div>
-  </div>`;
-}
-function showOTP(d){
-  const area=document.getElementById('otpArea');if(!area)return;
-  if(otpClearTimer)clearInterval(otpClearTimer);
-  area.innerHTML=`<div class="otp-box">
-    <div class="otp-code" onclick="copyT('${d.otp}')"><span>${d.otp}</span><button class="copy-btn">📋</button></div>
-    <div class="otp-timer" id="otpTick">Auto-clearing in 30s</div>
-    <div class="otp-raw">${d.raw_message||''}</div>
-  </div>`;
-  let s=30;
-  otpClearTimer=setInterval(()=>{s--;const el=document.getElementById('otpTick');if(el)el.textContent=`Auto-clearing in ${s}s`;if(s<=0){clearInterval(otpClearTimer);if(area)area.innerHTML='<div class="wait"><div class="spin"></div><div class="wait-txt">WAITING FOR OTP...</div></div>';}},1000);
-}
-async function doSearchOtp(){
-  if(!activeAssign?.otp_group_id){toast('No OTP group configured','error');return;}
-  await fetch('/api/otp/search-otp',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:activeAssign.number,group_id:activeAssign.otp_group_id,match_format:activeAssign.telegram_match_format||activeAssign.match_format,user_id:ME.id})});
-  toast('Searching OTP history...','info');
+async function getNewNumber() {
+  const a = await (await apiGet('/api/assignment/current')).json();
+  if (!a||!a.pool_id) return;
+  try {
+    const r = await apiPost(`/api/assignment?pool_id=${a.pool_id}`, {});
+    if (!r.ok) { const d=await r.json(); showToast(d.detail||'No numbers'); return; }
+    const na = await r.json();
+    showAssignment(na);
+    document.getElementById('otpDisplay').style.display='none';
+    showToast('🔄 New number assigned');
+  } catch { showToast('Network error'); }
 }
 
-// ── Feedback ──────────────────────────────────────────
-function openFb(){if(!activeAssign)return;fbPendingNumber=activeAssign.number;fbPendingPoolId=activeAssign.pool_id;document.getElementById('fbNum').textContent=activeAssign.number;document.getElementById('fbModal').classList.add('on');}
-function closeFb(){document.getElementById('fbModal').classList.remove('on');document.getElementById('otherFbArea').style.display='none';}
-function showOtherFb(){document.getElementById('otherFbArea').style.display='block';}
-async function submitFb(type){
-  const bad=type==='bad',comment=type==='other'?document.getElementById('otherFbTxt').value:type;
-  if(fbPendingNumber){
-    await fetch('/api/reviews',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:fbPendingNumber,rating:bad?1:4,comment,mark_as_bad:bad})});
-    if(activeAssign)await fetch(`/api/pools/release/${activeAssign.assignment_id}`,{method:'POST',credentials:'include'});
-  }
-  closeFb();activeAssign=null;
-  if(fbPendingPoolId)await assignPool(fbPendingPoolId);
-  else renderActive();
+async function copyAssigned() {
+  const num = document.getElementById('assignedNumber').textContent;
+  if (num && num!=='—') copyText(num);
 }
 
-// ── WebSocket user ────────────────────────────────────
-function connUserWS(){
-  if(!ME)return;
-  const token=document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('token='))?.split('=')[1]||'';
-  const proto=location.protocol==='https:'?'wss':'ws';
-  userWs=new WebSocket(`${proto}://${location.host}/ws/user/${ME.id}?token=${token}`);
-  userWs.onmessage=e=>{const d=JSON.parse(e.data);if(d.type==='otp'){showOTP(d);if(!document.getElementById('page-active')?.classList.contains('on'))toast(`OTP: ${d.otp}`,'success');}if(d.type==='broadcast')toast('📢 '+d.message,'info');};
-  userWs.onclose=()=>setTimeout(connUserWS,3000);
-}
-function connectUserWS(){connUserWS();}
-function connFeedWS(){
-  if(feedWs&&feedWs.readyState===1)return;
-  const token=document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('token='))?.split('=')[1]||'';
-  const proto=location.protocol==='https:'?'wss':'ws';
-  feedWs=new WebSocket(`${proto}://${location.host}/ws/feed?token=${token}`);
-  feedWs.onopen=()=>{const fl=document.getElementById('feedList');if(fl)fl.innerHTML='<div style="color:var(--muted);font-size:13px;font-family:var(--mono)">■ Connected — waiting for OTPs...</div>';};
-  feedWs.onmessage=e=>{const d=JSON.parse(e.data);if(d.type==='feed_otp')addFeedRow(d);};
-  feedWs.onclose=()=>setTimeout(()=>{if(document.getElementById('page-feed')?.classList.contains('on'))connFeedWS();},3000);
-}
-function addFeedRow(d){
-  const l=document.getElementById('feedList');if(!l)return;
-  if(l.children[0]?.style?.fontFamily?.includes('mono')&&l.children[0].textContent.includes('Connected'))l.innerHTML='';
-  const row=document.createElement('div');row.className='feed-row';
-  const masked=d.number.slice(0,-4).replace(/\d/g,'•')+d.number.slice(-4);
-  row.innerHTML=`<span class="feed-num">${masked}</span><span class="feed-otp" onclick="copyT('${d.otp}')">${d.otp} 📋</span><span class="feed-time">${new Date(d.delivered_at).toLocaleTimeString()}</span>`;
-  l.prepend(row);while(l.children.length>100)l.lastChild.remove();
-}
-
-// ── Save Numbers Wizard ───────────────────────────────
-function wShow(n){
-  [1,2,3].forEach(i=>{document.getElementById('wStep'+i).style.display=i===n?'block':'none';const s=document.getElementById('ws'+i);s.classList.toggle('on',i===n);s.classList.toggle('done',i<n);});
-}
-function wz1(){const nums=document.getElementById('numsInput').value.split('\n').map(l=>l.trim()).filter(Boolean);if(!nums.length){toast('Enter at least one number','error');return;}wdData.numbers=nums;wShow(2);}
-function wz2(){const h=parseInt(document.getElementById('tH').value||0),m=parseInt(document.getElementById('tM').value||0),total=h*60+m;if(total<1){toast('Set at least 1 minute','error');return;}wdData.timerMin=total;wShow(3);}
-async function wz3(){
-  const existing=document.getElementById('poolSel').value,newP=document.getElementById('newPool').value.trim(),pool=existing||newP;
-  if(!pool){toast('Select or create a pool','error');return;}
-  wdData.poolName=pool;
-  const r=await fetch('/api/saved',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({numbers:wdData.numbers,timer_minutes:wdData.timerMin,pool_name:wdData.poolName})});
-  const d=await r.json();
-  if(!r.ok){toast(d.detail||'Error saving','error');return;}
-  toast(`Saved ${d.saved} numbers!`,'success');
-  document.getElementById('numsInput').value='';wShow(1);loadSaved();
-}
-async function loadPoolsForSave(){
-  const r=await fetch('/api/pools',{credentials:'include'});if(!r.ok)return;
-  const pools=await r.json();
-  const sel=document.getElementById('poolSel');if(!sel)return;
-  sel.innerHTML='<option value="">-- Select existing pool --</option>'+pools.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
-}
-async function loadSaved(){
-  const r=await fetch('/api/saved',{credentials:'include'});if(!r.ok)return;
-  const rows=await r.json();
-  const el=document.getElementById('savedList');if(!el)return;
-  if(!rows.length){el.innerHTML='<div style="color:var(--muted);font-size:13px">No saved numbers yet.</div>';return;}
-  el.innerHTML=rows.map(r=>`<div class="saved-card">
-    <div><div class="snum">${r.number} <button class="copy-btn btn-sm" onclick="copyT('${r.number}')">📋</button></div>
-    <div class="smeta">Pool: ${r.pool_name} • <span class="timer-badge t-${r.status}" id="st_${r.id}">${r.status==='ready'?'READY':fmtT(r.seconds_left)}</span></div></div>
-    <div style="display:flex;gap:6px">
-      <button class="btn btn-g btn-sm" onclick="editSaved(${r.id})">✏️</button>
-      <button class="btn btn-d btn-sm" onclick="delSaved(${r.id})">🗑</button>
-    </div>
-  </div>`).join('');
-  rows.forEach(r=>{if(r.moved)return;let s=r.seconds_left;
-    const iv=setInterval(()=>{s--;const el=document.getElementById('st_'+r.id);if(!el){clearInterval(iv);return;}
-    if(s<=0){el.textContent='READY';el.className='timer-badge t-ready';clearInterval(iv);loadSaved();return;}
-    el.textContent=fmtT(s);el.className='timer-badge t-'+(s<600?'red':s<3600?'yellow':'green');},1000);
-  });
-}
-function editSaved(id){const mins=parseInt(prompt('New timer from now (minutes):'));if(!mins||mins<1)return;fetch(`/api/saved/${id}`,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({timer_minutes:mins})}).then(()=>{toast('Timer updated','success');loadSaved();});}
-async function delSaved(id){await fetch(`/api/saved/${id}`,{method:'DELETE',credentials:'include'});loadSaved();}
-async function loadReady(){
-  const r=await fetch('/api/saved/ready',{credentials:'include'});if(!r.ok)return;
-  const rows=await r.json();
-  const el=document.getElementById('readyList');if(!el)return;
-  if(!rows.length){el.innerHTML='<div style="color:var(--muted);font-size:13px">No ready numbers yet. They appear here once timers expire.</div>';return;}
-  el.innerHTML=rows.map(r=>`<div class="rdy-card" onclick='openRdy(${JSON.stringify(r)})'>
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <div class="rdy-num">${r.number} <button class="copy-btn" onclick="event.stopPropagation();copyT('${r.number}')">📋</button></div>
-      <span class="timer-badge t-ready">READY</span>
-    </div>
-    <div class="rdy-meta">Pool: ${r.pool_name}${r.in_pool?' • In pool ✅':' • Not in pool ⚠️'}</div>
-  </div>`).join('');
-}
-function openRdy(r){rdyData=r;document.getElementById('rdyNumTxt').textContent=r.number;document.getElementById('rdyPool').textContent=r.pool_name;document.getElementById('rdyModal').classList.add('on');}
-function closeRdy(){document.getElementById('rdyModal').classList.remove('on');}
-async function confirmRdyAssign(){if(!rdyData?.pool_id){toast('Pool not found','error');return;}closeRdy();await assignPool(rdyData.pool_id);}
-
-// ── History ───────────────────────────────────────────
-async function loadHistory(){
-  const r=await fetch('/api/otp/my',{credentials:'include'});if(!r.ok)return;
-  const logs=await r.json();
-  const el=document.getElementById('histList');if(!el)return;
-  if(!logs.length){el.innerHTML='<div style="color:var(--muted);font-size:13px">No OTP history yet.</div>';return;}
-  el.innerHTML=`<div class="card">${logs.map(l=>`<div class="hist-row">
-    <span style="font-family:var(--mono);color:var(--muted);font-size:12px">${l.number}</span>
-    <span style="font-family:var(--mono);color:var(--ok);font-size:20px;font-weight:700;letter-spacing:3px;cursor:pointer" onclick="copyT('${l.otp_code}')">${l.otp_code} <span style="font-size:14px">📋</span></span>
-    <span style="font-size:11px;color:var(--muted);text-align:right;font-family:var(--mono)">${tAgo(l.delivered_at)}</span>
-  </div>`).join('')}</div>`;
-}
-
-// ══════════════════════════════════════════════════════
-//  ADMIN SHELL
-// ══════════════════════════════════════════════════════
-function buildAdminShell(){
-  document.getElementById('navBrand').textContent='⚡ FRANK NUMBER BOT';
-  document.getElementById('navBrand').className='brand admin';
-  const mb=document.getElementById('modeBtn');mb.textContent='User Mode';mb.style.display='block';
-  document.getElementById('navMid').innerHTML='<span class="admin-badge">ADMIN PANEL</span>';
-  document.getElementById('sidebar').innerHTML=`
-    <button class="si on" onclick="apg('dash')"><span class="ic">📊</span>Dashboard</button>
-    <button class="si" onclick="apg('users')"><span class="ic">👥</span>Users <span id="pendBadge" style="display:none;margin-left:auto"><span class="pending-dot"></span></span></button>
-    <button class="si" onclick="apg('pools')"><span class="ic">🌍</span>Pools</button>
-    <button class="si" onclick="apg('upload')"><span class="ic">📤</span>Upload Numbers</button>
-    <button class="si" onclick="apg('otps')"><span class="ic">🔑</span>OTP Logs</button>
-    <button class="si" onclick="apg('bad')"><span class="ic">🚫</span>Bad Numbers</button>
-    <button class="si" onclick="apg('reviews')"><span class="ic">📝</span>Reviews</button>
-    <button class="si" onclick="apg('broadcast')"><span class="ic">📢</span>Broadcast</button>`;
-  document.getElementById('mainContent').innerHTML=`
-    <div class="page on" id="apage-dash">
-      <div class="ptitle">Admin Dashboard</div><div class="psub">Platform overview</div>
-      <div class="stats-grid" id="statsGrid"><div style="color:var(--muted)">Loading...</div></div>
-    </div>
-    <div class="page" id="apage-users">
-      <div class="ptitle">Users</div><div class="psub">Approve, block and manage users</div>
-      <div class="card"><table><thead><tr><th>USERNAME</th><th>EMAIL</th><th>STATUS</th><th>JOINED</th><th>ACTIONS</th></tr></thead>
-      <tbody id="usersBody"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table></div>
-    </div>
-    <div class="page" id="apage-pools">
-      <div class="ptitle">Pools</div><div class="psub">Create and manage number pools</div>
-      <div class="brow" style="margin-bottom:16px"><button class="btn btn-p" onclick="openCreatePool()">+ New Pool</button></div>
-      <div id="poolsList"><div style="color:var(--muted)">Loading...</div></div>
-    </div>
-    <div class="page" id="apage-upload">
-      <div class="ptitle">Upload Numbers</div><div class="psub">Upload .txt file to a pool</div>
-      <div class="card">
-        <div class="fg"><label>SELECT POOL</label><select id="uploadPool"></select></div>
-        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-          <input type="file" id="fileInput" accept=".txt" style="display:none" onchange="handleFile(this)">
-          <div style="font-size:32px;margin-bottom:8px">📂</div>
-          <div style="font-size:15px;font-weight:600">Click to select .txt file</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px" id="fileName">No file selected</div>
-        </div>
-        <button class="btn btn-p" onclick="doUpload()">📤 Upload</button>
-        <div id="uploadResult" style="margin-top:14px"></div>
-      </div>
-    </div>
-    <div class="page" id="apage-otps">
-      <div class="ptitle">OTP Logs</div><div class="psub">All OTP deliveries</div>
-      <div class="card"><table><thead><tr><th>TIME</th><th>USER</th><th>NUMBER</th><th>OTP</th><th>RAW</th></tr></thead>
-      <tbody id="otpBody"></tbody></table></div>
-    </div>
-    <div class="page" id="apage-bad">
-      <div class="ptitle">Bad Numbers</div><div class="psub">Flagged numbers — skipped on upload</div>
-      <div class="card">
-        <div style="display:flex;gap:10px;margin-bottom:14px">
-          <input type="text" id="badNumIn" placeholder="+2348012345678" style="flex:1">
-          <button class="btn btn-d" onclick="addBadNum()">+ Add</button>
-        </div>
-        <table><thead><tr><th>NUMBER</th><th>REASON</th><th>DATE</th><th>ACTION</th></tr></thead>
-        <tbody id="badBody"></tbody></table>
-      </div>
-    </div>
-    <div class="page" id="apage-reviews">
-      <div class="ptitle">Reviews</div><div class="psub">User feedback on numbers</div>
-      <div class="card"><table><thead><tr><th>USER</th><th>NUMBER</th><th>RATING</th><th>COMMENT</th><th>DATE</th></tr></thead>
-      <tbody id="revBody"></tbody></table></div>
-    </div>
-    <div class="page" id="apage-broadcast">
-      <div class="ptitle">Broadcast</div><div class="psub">Send message to all connected users</div>
-      <div class="card">
-        <div class="fg"><label>MESSAGE</label><textarea id="bcMsg" rows="5" placeholder="Type broadcast message..."></textarea></div>
-        <button class="btn btn-p" onclick="sendBc()">📢 Send</button>
-      </div>
+function showOtpOnHome(msg) {
+  clearTimeout(activeOtpTimer);
+  const el = document.getElementById('otpDisplay');
+  const secs = msg.auto_delete_seconds || 30;
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="otp-card" onclick="copyText('${escHtml(msg.otp)}')">
+      <div class="otp-code-label">🔑 OTP CODE</div>
+      <div class="otp-code" id="homeOtpCode">${escHtml(msg.otp)}</div>
+      ${msg.raw_message ? `<div class="otp-msg">${escHtml(msg.raw_message)}</div>` : ''}
+      <div class="otp-timer-bar"><div class="otp-timer-fill" id="homeOtpBar" style="width:100%"></div></div>
+      <div style="text-align:center;font-size:12px;margin-top:6px;opacity:0.7;" id="homeOtpCountdown">Disappears in ${secs}s</div>
     </div>`;
+  // Also save to history in DOM
+  addToHistoryLocal(msg);
+  let remaining = secs;
+  const interval = setInterval(() => {
+    remaining--;
+    const pct = (remaining/secs)*100;
+    const bar = document.getElementById('homeOtpBar');
+    const cd = document.getElementById('homeOtpCountdown');
+    if (bar) bar.style.width = pct+'%';
+    if (cd) cd.textContent = `Disappears in ${remaining}s`;
+    if (remaining <= 0) { clearInterval(interval); el.style.display='none'; }
+  }, 1000);
+  activeOtpTimer = interval;
+  switchPage('home');
 }
-function switchMode(){window.location.href='/';/* reload to user mode — just re-render */buildUserShell();loadPools();connectUserWS();checkMyAssignment();document.getElementById('modeBtn').style.display='none';}
-function apg(name){
-  document.querySelectorAll('.page,.si').forEach(e=>e.classList.remove('on'));
-  const p=document.getElementById('apage-'+name);if(p)p.classList.add('on');
-  document.querySelectorAll('.si').forEach(b=>{const t=b.textContent.trim().toLowerCase();if(t.startsWith(name.slice(0,4)))b.classList.add('on');});
-  if(name==='users')loadUsers();
-  if(name==='pools')loadAdminPools();
-  if(name==='upload')loadPoolsForUpload();
-  if(name==='otps')loadOtps();
-  if(name==='bad')loadBad();
-  if(name==='reviews')loadReviews();
-}
-async function loadStats(){
-  const r=await fetch('/api/admin/stats',{credentials:'include'});if(!r.ok)return;
-  const d=await r.json();
-  if(d.pending_approval>0){const pb=document.getElementById('pendBadge');if(pb)pb.style.display='inline';}
-  const g=document.getElementById('statsGrid');if(!g)return;
-  const items=[['Total Users',d.total_users],['Pending',d.pending_approval,'warn'],['Pools',d.total_pools],['Active Numbers',d.total_numbers,'ok'],['OTPs Delivered',d.total_otps,'ok'],['Bad Numbers',d.bad_numbers,'err'],['Saved Numbers',d.saved_numbers,'info'],['Online Now',d.online_users,'ok']];
-  g.innerHTML=items.map(([l,v,c])=>`<div class="stat"><div class="stat-val" style="${c?`color:var(--${c==='ok'?'ok':c==='err'?'err':c==='warn'?'warn':'accent'})`:''}">${v}</div><div class="stat-lbl">${l}</div></div>`).join('');
-}
-async function loadUsers(){
-  const r=await fetch('/api/admin/users',{credentials:'include'});const users=await r.json();
-  document.getElementById('usersBody').innerHTML=users.map(u=>`<tr>
-    <td><b>${u.username}</b>${u.is_admin?' <span class="badge b-warn">ADMIN</span>':''}</td>
-    <td style="color:var(--muted);font-size:12px">${u.email}</td>
-    <td>${u.is_blocked?'<span class="badge b-err">BLOCKED</span>':u.is_approved?'<span class="badge b-ok">APPROVED</span>':'<span class="badge b-warn">PENDING</span>'}</td>
-    <td style="color:var(--muted);font-size:12px">${new Date(u.created_at).toLocaleDateString()}</td>
-    <td style="display:flex;gap:4px;flex-wrap:wrap">
-      ${!u.is_approved&&!u.is_blocked?`<button class="btn btn-ok btn-sm" onclick="uAct(${u.id},'approve')">✅</button><button class="btn btn-d btn-sm" onclick="uAct(${u.id},'reject')">❌</button>`:''}
-      ${u.is_approved&&!u.is_blocked?`<button class="btn btn-d btn-sm" onclick="uAct(${u.id},'block')">🚫</button>`:''}
-      ${u.is_blocked?`<button class="btn btn-ok btn-sm" onclick="uAct(${u.id},'unblock')">✅ Unblock</button>`:''}
-      ${!u.is_admin?`<button class="btn btn-g btn-sm" onclick="uAct(${u.id},'make-admin')">⚡</button>`:''}
-    </td>
-  </tr>`).join('');
-}
-async function uAct(id,action){await fetch(`/api/admin/users/${id}/${action}`,{method:'POST',credentials:'include'});toast(action+' done','success');loadUsers();loadStats();}
-async function loadAdminPools(){
-  const r=await fetch('/api/pools',{credentials:'include'});const pools=await r.json();
-  const el=document.getElementById('poolsList');if(!el)return;
-  if(!pools.length){el.innerHTML='<div style="color:var(--muted)">No pools yet.</div>';return;}
-  el.innerHTML=pools.map(p=>`<div class="pool-row">
-    <div><div style="font-size:15px;font-weight:700">${p.name}${p.is_paused?' <span class="badge b-err">PAUSED</span>':''}${p.is_admin_only?' <span class="badge b-warn">ADMIN ONLY</span>':''}${p.restricted?' <span class="badge b-info">RESTRICTED</span>':''}</div>
-    <div style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:3px">+${p.country_code} • ${p.number_count} numbers • mode:${p.uses_platform} • ${p.match_format}</div></div>
-    <div class="pool-actions">
-      <button class="btn btn-g btn-sm" onclick="openEditPool(${p.id})">✏️ Edit</button>
-      <button class="btn btn-g btn-sm" onclick="window.open('/api/pools/${p.id}/export')">📥</button>
-      <button class="btn btn-d btn-sm" onclick="delPool(${p.id})">🗑</button>
-    </div>
-  </div>`).join('');
-}
-function openCreatePool(){editPoolId=null;document.getElementById('poolModalTitle').textContent='New Pool';document.getElementById('accessSection').style.display='none';['pName','pCode','pLink','pTrick','pPauseR'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});document.getElementById('pFmt').value='5+4';document.getElementById('pTgFmt').value='';document.getElementById('pMode').value='0';document.getElementById('pAdmin').checked=false;document.getElementById('pPaused').checked=false;document.getElementById('pPRF').style.display='none';document.getElementById('pGroup').value='';document.getElementById('poolModal').classList.add('on');}
-async function openEditPool(id){
-  editPoolId=id;
-  const r=await fetch('/api/pools',{credentials:'include'});const pools=await r.json();const p=pools.find(x=>x.id===id);if(!p)return;
-  document.getElementById('poolModalTitle').textContent='Edit: '+p.name;
-  document.getElementById('pName').value=p.name;document.getElementById('pCode').value=p.country_code;
-  document.getElementById('pGroup').value=p.otp_group_id||'';document.getElementById('pLink').value=p.otp_link||'';
-  document.getElementById('pFmt').value=p.match_format||'5+4';document.getElementById('pTgFmt').value=p.telegram_match_format||'';
-  document.getElementById('pMode').value=String(p.uses_platform||0);document.getElementById('pTrick').value=p.trick_text||'';
-  document.getElementById('pAdmin').checked=p.is_admin_only;document.getElementById('pPaused').checked=p.is_paused;
-  document.getElementById('pPauseR').value=p.pause_reason||'';document.getElementById('pPRF').style.display=p.is_paused?'block':'none';
-  document.getElementById('accessSection').style.display='block';
-  loadAccessList(id);loadUsersForAccess();
-  document.getElementById('poolModal').classList.add('on');
-}
-async function savePool(){
-  const body={name:document.getElementById('pName').value.trim(),country_code:document.getElementById('pCode').value.trim(),otp_group_id:parseInt(document.getElementById('pGroup').value)||null,otp_link:document.getElementById('pLink').value.trim(),match_format:document.getElementById('pFmt').value.trim(),telegram_match_format:document.getElementById('pTgFmt').value.trim(),uses_platform:parseInt(document.getElementById('pMode').value),trick_text:document.getElementById('pTrick').value.trim(),is_admin_only:document.getElementById('pAdmin').checked,is_paused:document.getElementById('pPaused').checked,pause_reason:document.getElementById('pPauseR').value.trim()};
-  const url=editPoolId?`/api/pools/${editPoolId}`:'/api/pools';
-  const r=await fetch(url,{method:editPoolId?'PUT':'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!r.ok){const d=await r.json();toast(d.detail||'Error','error');return;}
-  toast(editPoolId?'Pool updated':'Pool created','success');closePoolModal();loadAdminPools();
-}
-async function delPool(id){if(!confirm('Delete this pool and all numbers?'))return;await fetch(`/api/pools/${id}`,{method:'DELETE',credentials:'include'});toast('Deleted','success');loadAdminPools();}
-function closePoolModal(){document.getElementById('poolModal').classList.remove('on');editPoolId=null;}
-async function loadAccessList(pid){const r=await fetch(`/api/pools/${pid}/access`,{credentials:'include'});const rows=await r.json();const el=document.getElementById('accessList');if(!el)return;if(!rows.length){el.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Open to all.</div>';return;}el.innerHTML=rows.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span style="font-size:13px">${r.username}</span><button class="btn btn-d btn-sm" onclick="revokeAcc(${pid},${r.user_id})">Remove</button></div>`).join('');}
-async function loadUsersForAccess(){const r=await fetch('/api/admin/users',{credentials:'include'});const users=await r.json();const sel=document.getElementById('accessUserSel');if(!sel)return;sel.innerHTML='<option value="">Select user...</option>'+users.filter(u=>!u.is_admin).map(u=>`<option value="${u.id}">${u.username}</option>`).join('');}
-async function grantAccess(){const uid=document.getElementById('accessUserSel').value;if(!uid||!editPoolId)return;await fetch(`/api/pools/${editPoolId}/access/${uid}`,{method:'POST',credentials:'include'});toast('Access granted','success');loadAccessList(editPoolId);}
-async function revokeAcc(pid,uid){await fetch(`/api/pools/${pid}/access/${uid}`,{method:'DELETE',credentials:'include'});toast('Revoked','success');loadAccessList(pid);}
-async function loadPoolsForUpload(){const r=await fetch('/api/pools',{credentials:'include'});const pools=await r.json();const sel=document.getElementById('uploadPool');if(!sel)return;sel.innerHTML='<option value="">-- Select pool --</option>'+pools.map(p=>`<option value="${p.id}">${p.name} (${p.number_count})</option>`).join('');}
-function handleFile(input){uploadFile=input.files[0];const fn=document.getElementById('fileName');if(fn)fn.textContent=uploadFile?uploadFile.name:'No file selected';}
-async function doUpload(){const pid=document.getElementById('uploadPool').value;if(!pid){toast('Select a pool','error');return;}if(!uploadFile){toast('Select a file','error');return;}const fd=new FormData();fd.append('file',uploadFile);const r=await fetch(`/api/pools/${pid}/upload`,{method:'POST',credentials:'include',body:fd});const d=await r.json();if(!r.ok){toast(d.detail||'Upload failed','error');return;}const ur=document.getElementById('uploadResult');if(ur)ur.innerHTML=`<div style="background:rgba(0,232,122,.08);border:1px solid rgba(0,232,122,.25);border-radius:8px;padding:14px;font-family:var(--mono);font-size:13px">✅ Added: <b style="color:var(--ok)">${d.added}</b><br>🚫 Bad skipped: <b style="color:var(--err)">${d.skipped_bad}</b><br>💾 Saved skipped: <b style="color:var(--warn)">${d.skipped_saved}</b><br>🔁 Duplicate: ${d.skipped_duplicate}</div>`;toast(`${d.added} numbers added`,'success');uploadFile=null;loadStats();}
-async function loadOtps(){const r=await fetch('/api/otp/logs',{credentials:'include'});const logs=await r.json();const tb=document.getElementById('otpBody');if(!tb)return;tb.innerHTML=logs.map(l=>`<tr><td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${new Date(l.delivered_at).toLocaleString()}</td><td style="font-family:var(--mono);font-size:12px">${l.user_id}</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${l.number}</td><td style="font-family:var(--mono);font-size:18px;color:var(--ok);font-weight:700;letter-spacing:3px">${l.otp_code}</td><td style="font-size:11px;color:var(--muted)">${l.raw_message||'—'}</td></tr>`).join('');}
-async function loadBad(){const r=await fetch('/api/admin/bad-numbers',{credentials:'include'});const rows=await r.json();const tb=document.getElementById('badBody');if(!tb)return;tb.innerHTML=rows.length?rows.map(b=>`<tr><td style="font-family:var(--mono)">${b.number}</td><td style="color:var(--muted);font-size:12px">${b.reason}</td><td style="color:var(--muted);font-size:12px">${new Date(b.created_at).toLocaleDateString()}</td><td><button class="btn btn-ok btn-sm" onclick="removeBad(${b.id})">✅ Remove</button></td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--muted)">No bad numbers.</td></tr>';}
-async function addBadNum(){const num=document.getElementById('badNumIn').value.trim();if(!num)return;await fetch('/api/admin/bad-numbers',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:num})});document.getElementById('badNumIn').value='';toast('Added','success');loadBad();}
-async function removeBad(id){await fetch(`/api/admin/bad-numbers/${id}`,{method:'DELETE',credentials:'include'});toast('Removed','success');loadBad();}
-async function loadReviews(){const r=await fetch('/api/admin/reviews',{credentials:'include'});const rows=await r.json();const tb=document.getElementById('revBody');if(!tb)return;tb.innerHTML=rows.length?rows.map(r=>`<tr><td style="font-size:12px">${r.user_id}</td><td style="font-family:var(--mono);font-size:12px">${r.number}</td><td>${'⭐'.repeat(r.rating)}</td><td style="color:var(--muted);font-size:12px">${r.comment||'—'}</td><td style="color:var(--muted);font-size:11px">${new Date(r.created_at).toLocaleDateString()}</td></tr>`).join(''):'<tr><td colspan="5" style="color:var(--muted)">No reviews yet.</td></tr>';}
-async function sendBc(){const msg=document.getElementById('bcMsg').value.trim();if(!msg){toast('Enter a message','error');return;}await fetch('/api/admin/broadcast',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});document.getElementById('bcMsg').value='';toast('Broadcast sent!','success');}
 
-// ══════════════════════════════════════════════════════
-//  HELPERS
-// ══════════════════════════════════════════════════════
-function fmtT(s){if(s<=0)return'EXPIRED';const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;if(h>0)return`${h}h ${m}m`;if(m>0)return`${m}m ${sec}s`;return`${sec}s`;}
-function tAgo(iso){const d=(Date.now()-new Date(iso))/1000;if(d<60)return`${Math.floor(d)}s ago`;if(d<3600)return`${Math.floor(d/60)}m ago`;if(d<86400)return`${Math.floor(d/3600)}h ago`;return new Date(iso).toLocaleDateString();}
+// Search OTP
+async function openSearchOtp() {
+  const a = document.getElementById('assignedNumber').textContent;
+  if (!a||a==='—') return;
+  try {
+    const r = await apiPost(`/api/otp/search?number=${encodeURIComponent(a)}`, {});
+    const d = await r.json();
+    showToast(r.ok ? '🔍 Searching OTP...' : (d.detail||'Error'));
+  } catch { showToast('Network error'); }
+}
+
+// Feedback
+async function openFeedbackModal() { openModal('feedbackModal'); }
+async function submitFeedback(fb) {
+  const num = document.getElementById('assignedNumber').textContent;
+  if (!num||num==='—') return;
+  const feedbackMap = { good:'Number works great!', bad:'Number not working', not_received:'OTP not received', wrong_otp:'Wrong OTP received' };
+  try {
+    if (fb==='bad') {
+      await apiPost(`/api/numbers/bad?number=${encodeURIComponent(num)}&reason=${encodeURIComponent('Marked bad by user')}`, {});
+    }
+    await apiPost(`/api/feedback?number=${encodeURIComponent(num)}&feedback=${encodeURIComponent(feedbackMap[fb]||fb)}`, {});
+    showToast('✅ Feedback submitted');
+    closeModal('feedbackModal');
+  } catch { showToast('Network error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SAVE NUMBER PAGE
+// ══════════════════════════════════════════════════════════════════
+let pendingTimers = {};
+
+async function addNumberToPending() {
+  const num = document.getElementById('saveNumberInput').value.trim();
+  const timerMin = parseInt(document.getElementById('saveTimerSelect').value);
+  const poolName = document.getElementById('savePoolInput').value.trim();
+  if (!num) { showToast('Enter a phone number'); return; }
+  if (!poolName) { showToast('Enter a pool name'); return; }
+  try {
+    const r = await apiPost('/api/saved', {numbers:[num], timer_minutes:timerMin, pool_name:poolName});
+    if (!r||!r.ok) { const d=await r.json(); showToast(d.detail||'Error'); return; }
+    showToast(`✅ Added to ${poolName} pending`);
+    document.getElementById('saveNumberInput').value = '';
+    loadSaveNumberPage();
+  } catch { showToast('Network error'); }
+}
+
+async function loadSaveNumberPage() {
+  await loadPendingList();
+  await loadReadySection();
+}
+
+async function loadPendingList() {
+  try {
+    const r = await apiGet('/api/saved');
+    if (!r||!r.ok) return;
+    const data = await r.json();
+    const pending = data.filter(s => !s.moved);
+    // Group by pool_name
+    const grouped = {};
+    pending.forEach(s => {
+      if (!grouped[s.pool_name]) grouped[s.pool_name] = {items:[], minSec:Infinity, status:'green'};
+      grouped[s.pool_name].items.push(s);
+      if (s.seconds_left < grouped[s.pool_name].minSec) {
+        grouped[s.pool_name].minSec = s.seconds_left;
+        grouped[s.pool_name].status = s.status;
+      }
+    });
+    const el = document.getElementById('pendingList');
+    if (!Object.keys(grouped).length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-text">No pending numbers</div><div class="empty-sub">Add numbers above to get started</div></div>';
+      return;
+    }
+    el.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
+      const badgeClass = {green:'badge-green',yellow:'badge-amber',red:'badge-red',expired:'badge-red'}[g.status]||'badge-green';
+      const ids = g.items.map(i=>i.id);
+      return `<div class="pending-item">
+        <div>
+          <div class="pending-pool">📦 ${escHtml(poolName)}</div>
+          <div class="pending-count">${g.items.length} number${g.items.length!==1?'s':''} pending</div>
+          <div class="pending-timer" id="ptimer_${poolName.replace(/\s/g,'_')}">${fmtTime(g.minSec)} until ready</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+          <span class="ready-badge ${badgeClass}">${g.status==='expired'?'Moving...':fmtTime(g.minSec)}</span>
+          <button class="btn btn-danger btn-xs" onclick="deletePendingPool(${JSON.stringify(ids)})">🗑️</button>
+        </div>
+      </div>`;
+    }).join('');
+    startPendingTimers(grouped);
+  } catch {}
+}
+
+function startPendingTimers(grouped) {
+  if (pendingTimerInterval) clearInterval(pendingTimerInterval);
+  const state = {};
+  Object.entries(grouped).forEach(([name, g]) => { state[name] = g.minSec; });
+  pendingTimerInterval = setInterval(() => {
+    let needsReload = false;
+    Object.entries(state).forEach(([name, sec]) => {
+      state[name] = sec - 1;
+      const el = document.getElementById(`ptimer_${name.replace(/\s/g,'_')}`);
+      if (el) el.textContent = fmtTime(state[name]) + ' until ready';
+      if (state[name] <= 0) needsReload = true;
+    });
+    if (needsReload) { clearInterval(pendingTimerInterval); loadSaveNumberPage(); }
+  }, 1000);
+}
+
+async function deletePendingPool(ids) {
+  if (!confirm(`Delete ${ids.length} number(s)?`)) return;
+  for (const id of ids) {
+    await apiPost(`/api/saved/${id}`, {}, 'DELETE');
+  }
+  loadSaveNumberPage();
+}
+
+// ─── READY SECTION ─── 
+// Only shows ONE pool at a time. currentReadyPoolName tracks which pool is shown.
+async function loadReadySection() {
+  try {
+    const r = await apiGet('/api/saved/ready');
+    if (!r||!r.ok) { document.getElementById('readySection').style.display='none'; return; }
+    const data = await r.json();
+    if (!data.length) { document.getElementById('readySection').style.display='none'; currentReadyPoolName=null; currentReadySavedId=null; return; }
+
+    // Group by pool
+    const grouped = {};
+    data.forEach(s => { if(!grouped[s.pool_name]) grouped[s.pool_name]=[]; grouped[s.pool_name].push(s); });
+    const poolNames = Object.keys(grouped);
+
+    // If current pool is gone, switch to first available
+    if (!currentReadyPoolName || !grouped[currentReadyPoolName]) {
+      currentReadyPoolName = poolNames[0];
+    }
+    const items = grouped[currentReadyPoolName];
+    const active = items[0]; // front of queue
+    currentReadySavedId = active.id;
+
+    document.getElementById('readySection').style.display = 'block';
+    const otpInfo = savedOtpStore[active.number];
+    const otpHtml = otpInfo ? `
+      <div class="otp-card" style="margin-top:12px;" onclick="copyText('${escHtml(otpInfo.otp)}')">
+        <div class="otp-code-label">🔑 OTP CODE</div>
+        <div class="otp-code">${escHtml(otpInfo.otp)}</div>
+        ${otpInfo.raw_message ? `<div class="otp-msg">${escHtml(otpInfo.raw_message)}</div>` : ''}
+      </div>` : '';
+
+    document.getElementById('readyList').innerHTML = `
+      <div class="ready-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div class="ready-pool-name">📦 ${escHtml(currentReadyPoolName)}</div>
+          <span class="ready-badge badge-ready">READY · ${items.length} in queue</span>
+        </div>
+        <div class="ready-number" onclick="copyText('${escHtml(active.number)}')" title="Tap to copy">
+          ${escHtml(active.number)} 📋
+        </div>
+        <div style="font-size:11px;color:var(--slate-500);margin-bottom:10px;">Slot 1 of ${items.length} — tap number to copy</div>
+        <div class="ready-actions">
+          <button class="btn btn-secondary btn-sm" onclick="doChangeNumber()">🔄 Change Number</button>
+          <button class="btn btn-secondary btn-sm" onclick="openChangePoolModal()">🌐 Change Pool</button>
+        </div>
+        ${otpHtml}
+      </div>`;
+    // Trigger monitor for active number
+    triggerSavedMonitor(active.number);
+  } catch(e) {}
+}
+
+const savedOtpStore = {};
+function showOtpOnSavedPage(msg) {
+  savedOtpStore[msg.number] = { otp: msg.otp, raw_message: msg.raw_message };
+  addToHistoryLocal(msg);
+  loadReadySection();
+  showToast('🔑 OTP received: ' + msg.otp, 4000);
+}
+
+async function triggerSavedMonitor(number) {
+  try {
+    await apiPost('/api/saved/trigger-monitor', {number});
+  } catch {}
+}
+
+async function doChangeNumber() {
+  if (!currentReadySavedId) return;
+  try {
+    const r = await apiPost(`/api/saved/${currentReadySavedId}/next-number`, {});
+    if (!r.ok) { const d=await r.json(); showToast(d.detail||'No more numbers'); return; }
+    const d = await r.json();
+    showToast('🔄 New number: ' + d.number);
+    await triggerSavedMonitor(d.number);
+    await loadReadySection();
+  } catch { showToast('Network error'); }
+}
+
+async function openChangePoolModal() {
+  try {
+    const r = await apiGet('/api/saved/ready-pools');
+    if (!r||!r.ok) return;
+    const pools = await r.json();
+    if (!pools.length) { showToast('No other ready pools'); return; }
+    const el = document.getElementById('switchPoolList');
+    el.innerHTML = pools.map(p => `
+      <div class="pool-choice ${p.pool_name===currentReadyPoolName?'selected':''}" onclick="doSwitchPool('${escHtml(p.pool_name)}')">
+        <div>
+          <div style="font-weight:700;color:var(--slate-800);">${escHtml(p.pool_name)}</div>
+          <div style="font-size:12px;color:var(--slate-500);">${p.count} numbers ready</div>
+        </div>
+        ${p.pool_name===currentReadyPoolName?'<span class="ready-badge badge-ready">Current</span>':''}
+      </div>`).join('');
+    openModal('switchPoolModal');
+  } catch { showToast('Network error'); }
+}
+
+async function doSwitchPool(poolName) {
+  if (!currentReadySavedId) return;
+  try {
+    const r = await apiPost(`/api/saved/${currentReadySavedId}/switch-pool?new_pool_name=${encodeURIComponent(poolName)}`, {});
+    if (!r.ok) { const d=await r.json(); showToast(d.detail||'Error'); return; }
+    const d = await r.json();
+    currentReadyPoolName = poolName;
+    showToast(`🌐 Switched to ${poolName}: ${d.number}`);
+    closeModal('switchPoolModal');
+    await triggerSavedMonitor(d.number);
+    await loadReadySection();
+  } catch { showToast('Network error'); }
+}
+
+// Background timer to move pending->ready (check every 30s)
+setInterval(async () => {
+  const page = document.getElementById('pageSave');
+  if (!page.classList.contains('active')) return; // only if on save page
+  loadSaveNumberPage();
+}, 30000);
+
+// ══════════════════════════════════════════════════════════════════
+//  OTP HISTORY
+// ══════════════════════════════════════════════════════════════════
+let historyLocal = [];
+function addToHistoryLocal(msg) {
+  historyLocal.unshift({number:msg.number, otp_code:msg.otp, raw_message:msg.raw_message, delivered_at:msg.delivered_at});
+  if (historyLocal.length>100) historyLocal.pop();
+  // refresh if on history page
+  if (document.getElementById('pageHistory').classList.contains('active')) renderHistoryList(historyLocal);
+}
+async function loadHistory() {
+  const el = document.getElementById('historyList');
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await apiGet('/api/otp/my');
+    if (!r||!r.ok) return;
+    const data = await r.json();
+    renderHistoryList(data);
+  } catch { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔑</div><div class="empty-text">Failed to load</div></div>'; }
+}
+function renderHistoryList(data) {
+  const el = document.getElementById('historyList');
+  if (!data.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔑</div><div class="empty-text">No OTPs yet</div><div class="empty-sub">OTP codes will appear here</div></div>'; return; }
+  el.innerHTML = data.map(o => `
+    <div class="history-item">
+      <div class="history-otp" onclick="copyText('${escHtml(o.otp_code)}')">${escHtml(o.otp_code)} 📋</div>
+      <div class="history-number">${escHtml(o.number)}</div>
+      ${o.raw_message ? `<div style="font-size:11px;color:var(--slate-400);margin-top:4px;word-break:break-all;">${escHtml(o.raw_message)}</div>` : ''}
+      <div class="history-time">${new Date(o.delivered_at).toLocaleString()}</div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  ADMIN PANEL
+// ══════════════════════════════════════════════════════════════════
+function adminTab(tab) {
+  const el = document.getElementById('adminContent');
+  el.style.display = 'block';
+  if (tab==='stats') loadAdminStats(el);
+  else if (tab==='users') loadAdminUsers(el);
+  else if (tab==='pools') loadAdminPools(el);
+  else if (tab==='bad') loadAdminBad(el);
+  else if (tab==='reviews') loadAdminReviews(el);
+  else if (tab==='broadcast') showBroadcast(el);
+  else if (tab==='settings') loadAdminSettings(el);
+  else if (tab==='buttons') loadAdminButtons(el);
+}
+
+async function loadAdminStats(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await apiGet('/api/admin/stats');
+    const s = await r.json();
+    el.innerHTML = `
+      <div class="sec-header">System Statistics</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-val">${s.total_users}</div><div class="stat-lbl">👥 Total Users</div></div>
+        <div class="stat-box"><div class="stat-val" style="color:#b45309;">${s.pending_approval}</div><div class="stat-lbl">⏳ Pending</div></div>
+        <div class="stat-box"><div class="stat-val">${s.total_pools}</div><div class="stat-lbl">🌍 Pools</div></div>
+        <div class="stat-box"><div class="stat-val" style="color:#16a34a;">${s.total_numbers}</div><div class="stat-lbl">📞 Numbers</div></div>
+        <div class="stat-box"><div class="stat-val" style="color:#16a34a;">${s.total_otps}</div><div class="stat-lbl">🔑 OTPs Sent</div></div>
+        <div class="stat-box"><div class="stat-val" style="color:var(--red);">${s.bad_numbers}</div><div class="stat-lbl">🚫 Bad Numbers</div></div>
+        <div class="stat-box"><div class="stat-val">${s.saved_numbers}</div><div class="stat-lbl">💾 Saved</div></div>
+        <div class="stat-box"><div class="stat-val" style="color:#16a34a;">${s.online_users}</div><div class="stat-lbl">🟢 Online</div></div>
+      </div>`;
+  } catch { el.innerHTML = '<div class="empty-state">Failed to load stats</div>'; }
+}
+
+async function loadAdminUsers(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading users...</div>';
+  try {
+    const r = await apiGet('/api/admin/users');
+    const users = await r.json();
+    if (!users.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">No users</div></div>'; return; }
+    el.innerHTML = `<div class="sec-header">All Users (${users.length})</div>` + users.map(u => {
+      const status = u.is_admin ? '👑 Admin' : (u.is_blocked ? '🚫 Blocked' : (u.is_approved ? '✅ Approved' : '⏳ Pending'));
+      const statusColor = u.is_admin ? '#f59e0b' : (u.is_blocked ? 'var(--red)' : (u.is_approved ? '#16a34a' : 'var(--slate-500)'));
+      const approveBtn = (!u.is_approved && !u.is_blocked && !u.is_admin) ? `<button class="btn btn-success btn-xs" onclick="adminApprove(${u.id})">✅</button>` : '';
+      const blockBtn = u.is_admin ? '' : (u.is_blocked ? `<button class="btn btn-secondary btn-xs" onclick="adminUnblock(${u.id})">Unblock</button>` : `<button class="btn btn-danger btn-xs" onclick="adminBlock(${u.id})">Block</button>`);
+      return `<div class="user-row">
+        <div><div class="user-name-lbl">${escHtml(u.username)}</div><div class="user-status" style="color:${statusColor};">${status} · ID:${u.id}</div></div>
+        <div class="user-actions">${approveBtn}${blockBtn}</div>
+      </div>`;
+    }).join('');
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+
+async function adminApprove(uid) {
+  const r = await apiPost(`/api/admin/users/${uid}/approve`, {});
+  if (r&&r.ok) { showToast('✅ User approved'); adminTab('users'); }
+}
+async function adminBlock(uid) {
+  if (!confirm('Block this user?')) return;
+  const r = await apiPost(`/api/admin/users/${uid}/block`, {});
+  if (r&&r.ok) { showToast('🚫 User blocked'); adminTab('users'); }
+}
+async function adminUnblock(uid) {
+  const r = await apiPost(`/api/admin/users/${uid}/unblock`, {});
+  if (r&&r.ok) { showToast('✅ User unblocked'); adminTab('users'); }
+}
+
+async function loadAdminPools(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading pools...</div>';
+  try {
+    const r = await apiGet('/api/admin/pools');
+    const pools = await r.json();
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="sec-header" style="margin-bottom:0;">Pools (${pools.length})</div>
+        <button class="btn btn-primary btn-sm" onclick="openAddPoolModal()">+ Add Pool</button>
+      </div>` +
+      (pools.length ? pools.map(p => `
+        <div class="card-sm">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+            <div>
+              <div style="font-weight:700;font-size:14px;">${escHtml(p.name)} ${p.is_paused?'<span style="color:var(--red);font-size:11px;">⏸</span>':''} ${p.is_admin_only?'<span style="font-size:11px;color:#f59e0b;">🔒</span>':''}</div>
+              <div style="font-size:12px;color:var(--slate-500);">+${p.country_code} · ${p.number_count} numbers · Mode: ${p.uses_platform}</div>
+              ${p.trick_text?`<div class="pool-trick">💡 ${escHtml(p.trick_text)}</div>`:''}
+              ${p.is_paused&&p.pause_reason?`<div style="font-size:11px;color:var(--red);">Reason: ${escHtml(p.pause_reason)}</div>`:''}
+            </div>
+            <div style="display:flex;gap:4px;">
+              <button class="btn btn-secondary btn-xs" onclick="openEditPool(${p.id})">✏️</button>
+              <button class="btn btn-danger btn-xs" onclick="deletePool(${p.id},'${escHtml(p.name)}')">🗑️</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-xs" onclick="${p.is_paused?`resumePool(${p.id})`:`pausePool(${p.id})`}">${p.is_paused?'▶ Resume':'⏸ Pause'}</button>
+            <button class="btn btn-secondary btn-xs" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Make Public':'🔒 Admin Only'}</button>
+            <button class="btn btn-secondary btn-xs" onclick="openUploadForPool(${p.id})">📤 Upload</button>
+            <button class="btn btn-secondary btn-xs" onclick="exportPool(${p.id})">⬇️ Export</button>
+            <button class="btn btn-secondary btn-xs" onclick="cutPool(${p.id})">✂️ Cut</button>
+            <button class="btn btn-danger btn-xs" onclick="clearPool(${p.id},'${escHtml(p.name)}')">🧹 Clear</button>
+            <button class="btn btn-secondary btn-xs" onclick="openAccessModal(${p.id},'${escHtml(p.name)}')">🔐 Access</button>
+          </div>
+        </div>`).join('') : '<div class="empty-state"><div class="empty-icon">🌍</div><div class="empty-text">No pools</div></div>');
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+
+function openAddPoolModal() {
+  document.getElementById('addPoolTitle').textContent = 'Add New Pool';
+  ['poolName','poolCode','poolOtpGroupId','poolOtpLink','poolTrickText','poolTgMatchFormat'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('poolMatchFormat').value='5+4';
+  document.getElementById('poolUsesPlatform').value='0';
+  editPoolIdGlobal = null;
+  openModal('addPoolModal');
+}
+
+async function submitAddPool() {
+  const body = {
+    name: document.getElementById('poolName').value.trim(),
+    country_code: document.getElementById('poolCode').value.trim(),
+    otp_group_id: document.getElementById('poolOtpGroupId').value ? parseInt(document.getElementById('poolOtpGroupId').value) : null,
+    otp_link: document.getElementById('poolOtpLink').value.trim(),
+    match_format: document.getElementById('poolMatchFormat').value.trim()||'5+4',
+    telegram_match_format: document.getElementById('poolTgMatchFormat').value.trim(),
+    uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
+    trick_text: document.getElementById('poolTrickText').value.trim()
+  };
+  if (!body.name||!body.country_code) { showToast('Name and country code required'); return; }
+  try {
+    const r = await apiPost('/api/admin/pools', body);
+    if (r&&r.ok) { showToast('✅ Pool added'); closeModal('addPoolModal'); adminTab('pools'); loadHomePools(); }
+    else { const d=await r.json(); showToast(d.detail||'Error'); }
+  } catch { showToast('Network error'); }
+}
+
+async function openEditPool(poolId) {
+  try {
+    const r = await apiGet(`/api/admin/pools/${poolId}`);
+    if (!r||!r.ok) { showToast('Failed to load pool'); return; }
+    const p = await r.json();
+    document.getElementById('editPoolId').value = p.id;
+    document.getElementById('editPoolName').value = p.name;
+    document.getElementById('editPoolCode').value = p.country_code;
+    document.getElementById('editPoolOtpGroupId').value = p.otp_group_id||'';
+    document.getElementById('editPoolOtpLink').value = p.otp_link||'';
+    document.getElementById('editPoolMatchFormat').value = p.match_format||'5+4';
+    document.getElementById('editPoolTgMatchFormat').value = p.telegram_match_format||'';
+    document.getElementById('editPoolUsesPlatform').value = p.uses_platform||0;
+    document.getElementById('editPoolTrickText').value = p.trick_text||'';
+    openModal('editPoolModal');
+  } catch { showToast('Network error'); }
+}
+
+async function submitEditPool() {
+  const poolId = document.getElementById('editPoolId').value;
+  const body = {
+    name: document.getElementById('editPoolName').value.trim(),
+    country_code: document.getElementById('editPoolCode').value.trim(),
+    otp_group_id: document.getElementById('editPoolOtpGroupId').value ? parseInt(document.getElementById('editPoolOtpGroupId').value) : null,
+    otp_link: document.getElementById('editPoolOtpLink').value.trim(),
+    match_format: document.getElementById('editPoolMatchFormat').value.trim()||'5+4',
+    telegram_match_format: document.getElementById('editPoolTgMatchFormat').value.trim(),
+    uses_platform: parseInt(document.getElementById('editPoolUsesPlatform').value),
+    trick_text: document.getElementById('editPoolTrickText').value.trim()
+  };
+  try {
+    const r = await apiPost(`/api/admin/pools/${poolId}`, body, 'PUT');
+    if (r&&r.ok) { showToast('✅ Pool updated'); closeModal('editPoolModal'); adminTab('pools'); loadHomePools(); }
+    else { const d=await r.json(); showToast(d.detail||'Error'); }
+  } catch { showToast('Network error'); }
+}
+
+async function deletePool(poolId, name) {
+  if (!confirm(`Delete pool "${name}" and all its numbers? This cannot be undone!`)) return;
+  const r = await apiPost(`/api/admin/pools/${poolId}`, {}, 'DELETE');
+  if (r&&r.ok) { showToast('Pool deleted'); adminTab('pools'); loadHomePools(); }
+  else showToast('Failed');
+}
+async function pausePool(poolId) {
+  const reason = prompt('Pause reason (optional):') || '';
+  const r = await apiPost(`/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, {});
+  if (r&&r.ok) { showToast('⏸ Pool paused'); adminTab('pools'); }
+}
+async function resumePool(poolId) {
+  const r = await apiPost(`/api/admin/pools/${poolId}/resume`, {});
+  if (r&&r.ok) { showToast('▶ Pool resumed'); adminTab('pools'); }
+}
+async function toggleAdminOnly(poolId) {
+  const r = await apiPost(`/api/admin/pools/${poolId}/toggle-admin-only`, {});
+  if (r&&r.ok) { const d=await r.json(); showToast(d.is_admin_only?'🔒 Admin Only':'🔓 Public'); adminTab('pools'); }
+}
+function exportPool(poolId) { window.open(`${API_BASE}/api/admin/pools/${poolId}/export`, '_blank'); }
+async function cutPool(poolId) {
+  const count = prompt('How many numbers to remove from top?');
+  if (!count||isNaN(parseInt(count))) return;
+  const r = await apiPost(`/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, {});
+  if (r&&r.ok) { const d=await r.json(); showToast(`✂️ Removed ${d.removed} numbers`); adminTab('pools'); }
+}
+async function clearPool(poolId, name) {
+  if (!confirm(`Clear ALL numbers from "${name}"?`)) return;
+  const r = await apiPost(`/api/admin/pools/${poolId}/clear`, {});
+  if (r&&r.ok) { const d=await r.json(); showToast(`🧹 Cleared ${d.deleted} numbers`); adminTab('pools'); }
+}
+
+// Pool Access
+async function openAccessModal(poolId, poolName) {
+  accessPoolIdGlobal = poolId;
+  document.getElementById('accessPoolName').textContent = `Pool: ${poolName}`;
+  await loadAccessList(poolId);
+  openModal('accessModal');
+}
+async function loadAccessList(poolId) {
+  try {
+    const r = await apiGet(`/api/admin/pools/${poolId}/access`);
+    if (!r||!r.ok) return;
+    const users = await r.json();
+    document.getElementById('accessList').innerHTML = users.length ? users.map(u => `
+      <div class="user-row" style="margin-top:6px;">
+        <div><div class="user-name-lbl">${escHtml(u.username||u.first_name)}</div><div class="user-status">ID: ${u.user_id}</div></div>
+        <button class="btn btn-danger btn-xs" onclick="revokeAccess(${u.user_id})">Remove</button>
+      </div>`).join('') : '<div style="font-size:13px;color:var(--slate-500);margin-top:8px;">No restrictions — all users can access</div>';
+  } catch {}
+}
+async function grantAccess() {
+  const uid = parseInt(document.getElementById('accessUserId').value);
+  if (!uid) return;
+  const r = await apiPost(`/api/admin/pools/${accessPoolIdGlobal}/access/${uid}`, {});
+  if (r&&r.ok) { showToast('✅ Access granted'); loadAccessList(accessPoolIdGlobal); document.getElementById('accessUserId').value=''; }
+  else showToast('Failed');
+}
+async function revokeAccess(uid) {
+  const r = await apiPost(`/api/admin/pools/${accessPoolIdGlobal}/access/${uid}`, {}, 'DELETE');
+  if (r&&r.ok) { showToast('Removed'); loadAccessList(accessPoolIdGlobal); }
+}
+
+// Bad Numbers
+async function loadAdminBad(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await apiGet('/api/admin/bad-numbers');
+    const bad = await r.json();
+    if (!bad.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🚫</div><div class="empty-text">No bad numbers</div></div>'; return; }
+    el.innerHTML = `<div class="sec-header">Bad Numbers (${bad.length})</div>` + bad.map(b => `
+      <div class="card-sm" style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;">${escHtml(b.number)}</div>
+          <div style="font-size:11px;color:var(--slate-500);">${escHtml(b.reason)}</div>
+        </div>
+        <button class="btn btn-secondary btn-xs" onclick="removeBad('${escHtml(b.number)}')">Remove</button>
+      </div>`).join('');
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+async function removeBad(number) {
+  const r = await apiPost(`/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, {}, 'DELETE');
+  if (r&&r.ok) { showToast('Removed'); adminTab('bad'); }
+}
+
+// Reviews
+async function loadAdminReviews(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await apiGet('/api/admin/reviews');
+    const revs = await r.json();
+    if (!revs.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">⭐</div><div class="empty-text">No reviews</div></div>'; return; }
+    el.innerHTML = `<div class="sec-header">Reviews (${revs.length})</div>` + revs.map(rv => `
+      <div class="card-sm">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--slate-500);">${escHtml(rv.number)}</div>
+        <div style="font-size:14px;font-weight:600;margin:4px 0;">${'⭐'.repeat(rv.rating||1)} ${escHtml(rv.comment||'')}</div>
+        <div style="font-size:11px;color:var(--slate-400);">User ${rv.user_id} · ${new Date(rv.created_at).toLocaleString()}</div>
+      </div>`).join('');
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+
+// Broadcast
+function showBroadcast(el) {
+  el.innerHTML = `
+    <div class="sec-header">Send Broadcast</div>
+    <div class="fg"><label>Message</label><textarea id="broadcastMsg" placeholder="Enter message to broadcast to all users..." rows="4"></textarea></div>
+    <button class="btn btn-primary btn-full" onclick="sendBroadcast()">📢 Send to All Users</button>`;
+}
+async function sendBroadcast() {
+  const msg = document.getElementById('broadcastMsg').value.trim();
+  if (!msg) return;
+  const r = await apiPost(`/api/admin/broadcast?message=${encodeURIComponent(msg)}`, {});
+  if (r&&r.ok) { showToast('📢 Broadcast sent!'); document.getElementById('broadcastMsg').value=''; }
+  else showToast('Failed');
+}
+
+// Settings
+async function loadAdminSettings(el) {
+  try {
+    const r = await apiGet('/api/admin/stats');
+    el.innerHTML = `
+      <div class="sec-header">Platform Settings</div>
+      <div class="card-sm" style="margin-bottom:10px;">
+        <div style="font-weight:700;margin-bottom:8px;">Approval Mode</div>
+        <div style="font-size:13px;color:var(--slate-500);margin-bottom:12px;">When ON, new users must be approved before using the platform.</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="setApproval(true)">🔒 Approval ON</button>
+          <button class="btn btn-secondary btn-sm" onclick="setApproval(false)">🔓 Approval OFF</button>
+        </div>
+      </div>
+      <div class="card-sm">
+        <div style="font-weight:700;margin-bottom:8px;">OTP Redirect Mode</div>
+        <div style="font-size:13px;color:var(--slate-500);margin-bottom:12px;">Controls where OTP links redirect users.</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="setOtpMode('pool')">🎯 Per Pool</button>
+          <button class="btn btn-secondary btn-sm" onclick="setOtpMode('hardcoded')">🔗 Hardcoded</button>
+        </div>
+      </div>`;
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+async function setApproval(enabled) {
+  const r = await apiPost(`/api/admin/settings/approval?enabled=${enabled}`, {});
+  if (r&&r.ok) showToast(enabled ? '🔒 Approval mode ON' : '🔓 Approval mode OFF');
+}
+async function setOtpMode(mode) {
+  const r = await apiPost(`/api/admin/settings/otp-redirect?mode=${mode}`, {});
+  if (r&&r.ok) showToast('Mode set: ' + mode);
+}
+
+// Buttons
+async function loadAdminButtons(el) {
+  el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await apiGet('/api/buttons');
+    const btns = await r.json();
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="sec-header" style="margin-bottom:0;">Custom Buttons</div>
+      </div>
+      <div class="fg"><label>Button Label</label><input id="btnLabel" placeholder="e.g. Join Channel"></div>
+      <div class="fg"><label>URL</label><input id="btnUrl" type="url" placeholder="https://..."></div>
+      <button class="btn btn-primary btn-full" onclick="addButton()" style="margin-bottom:16px;">+ Add Button</button>
+      <div class="sec-header">Existing Buttons</div>` +
+      (btns.length ? btns.map(b => `
+        <div class="card-sm" style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-weight:700;">${escHtml(b.label)}</div>
+            <div style="font-size:12px;color:var(--slate-500);">${escHtml(b.url)}</div>
+          </div>
+          <button class="btn btn-danger btn-xs" onclick="deleteButton(${b.id})">🗑️</button>
+        </div>`).join('') : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No buttons</div></div>');
+  } catch { el.innerHTML = '<div class="empty-state">Failed</div>'; }
+}
+async function addButton() {
+  const label = document.getElementById('btnLabel').value.trim();
+  const url = document.getElementById('btnUrl').value.trim();
+  if (!label||!url) { showToast('Label and URL required'); return; }
+  const r = await apiPost(`/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, {});
+  if (r&&r.ok) { showToast('✅ Button added'); adminTab('buttons'); loadCustomButtons(); }
+  else showToast('Failed');
+}
+async function deleteButton(id) {
+  const r = await apiPost(`/api/admin/buttons/${id}`, {}, 'DELETE');
+  if (r&&r.ok) { showToast('Deleted'); adminTab('buttons'); loadCustomButtons(); }
+}
+
+// ── Upload Numbers ──
+async function openUploadModal() {
+  await populateUploadPoolSelect();
+  openModal('uploadModal');
+}
+async function openUploadForPool(poolId) {
+  await populateUploadPoolSelect(poolId);
+  openModal('uploadModal');
+}
+async function populateUploadPoolSelect(selectedId=null) {
+  const r = await apiGet('/api/pools');
+  if (!r||!r.ok) return;
+  const pools = await r.json();
+  const sel = document.getElementById('uploadPoolSelect');
+  sel.innerHTML = '<option value="">— Select Pool —</option>' + pools.map(p => `<option value="${p.id}" ${p.id===selectedId?'selected':''}>${escHtml(p.name)} (+${p.country_code}) — ${p.number_count} numbers</option>`).join('');
+  document.getElementById('uploadResult').innerHTML = '';
+}
+async function doUpload() {
+  const poolId = document.getElementById('uploadPoolSelect').value;
+  const fileInput = document.getElementById('uploadFile');
+  if (!poolId) { showToast('Select a pool'); return; }
+  if (!fileInput.files||!fileInput.files[0]) { showToast('Select a file'); return; }
+  const fd = new FormData(); fd.append('file', fileInput.files[0]);
+  try {
+    const r = await fetch(`${API_BASE}/api/admin/pools/${poolId}/upload`, {method:'POST', credentials:'include', body:fd});
+    const d = await r.json();
+    if (r.ok) {
+      document.getElementById('uploadResult').innerHTML = `<div style="background:rgba(34,197,94,0.1);padding:12px;border-radius:12px;margin-top:12px;font-size:13px;">✅ Added: <b>${d.added}</b> · Skipped bad: ${d.skipped_bad} · Cooldown: ${d.skipped_cooldown} · Dupes: ${d.duplicates}</div>`;
+      showToast(`${d.added} numbers uploaded!`);
+      if (document.getElementById('adminContent').style.display!=='none') adminTab('pools');
+      loadHomePools();
+    } else showToast(d.detail||'Upload failed');
+  } catch { showToast('Network error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════
+checkSession();
 </script>
 </body>
 </html>
