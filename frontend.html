@@ -872,34 +872,44 @@ async function loadSaved() {
 }
 
 async function changeReadyNum(id, poolName) {
+  // Visually disable all Change Number buttons immediately to prevent double-tap
+  document.querySelectorAll('.btn-row button').forEach(b => {
+    if (b.textContent.includes('Change Number')) { b.disabled = true; b.textContent = '⏳…'; }
+  });
   try {
     const r = await af(API + '/api/saved/' + id + '/next-number', {method: 'POST'});
     const d = await r.json();
     if (r.ok) {
-      toast('🔄 New: ' + d.number);
-      // Trigger monitor for new number
-      try {
-        await af(API + '/api/saved/trigger-monitor', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({number: d.number})
-        });
-        toast('👁️ Monitoring started…');
-      } catch (ex) {}
-      loadSaved();
-    } else toast(d.detail || 'No more numbers in this pool');
-  } catch (ex) { toast('Network error'); }
+      // Fire monitor request but don't block on it
+      af(API + '/api/saved/trigger-monitor', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({number: d.number})
+      }).then(mr => { if (mr && mr.ok) toast('👁️ Monitoring: ' + d.number); }).catch(() => {});
+      // AWAIT loadSaved so the DOM actually updates before user sees result
+      await loadSaved();
+      toast('🔄 Changed to: ' + d.number);
+    } else {
+      await loadSaved();
+      toast(d.detail || 'No more numbers in this pool');
+    }
+  } catch (ex) {
+    await loadSaved();
+    toast('Network error');
+  }
 }
 
 async function delReady(id) {
   if (!confirm('Remove this ready number?')) return;
-  await af(API + '/api/saved/' + id, {method: 'DELETE'});
-  loadSaved();
+  const r = await af(API + '/api/saved/' + id, {method: 'DELETE'});
+  await loadSaved();
+  if (r.ok) toast('✅ Removed');
 }
 
 async function delPendingPool(ids) {
   if (!confirm('Delete all ' + ids.length + ' number(s) in this pool?')) return;
   for (const id of ids) await af(API + '/api/saved/' + id, {method: 'DELETE'});
-  loadSaved();
+  await loadSaved();
+  toast('✅ Deleted ' + ids.length + ' numbers');
 }
 
 async function openSwitchPool(id, number, currentPool) {
@@ -924,15 +934,14 @@ async function submitSwitchPool() {
     const r = await af(API + '/api/saved/' + spTargetId + '/switch-pool?new_pool_name=' + encodeURIComponent(newPool), {method: 'POST'});
     const d = await r.json();
     if (r.ok) {
-      toast('✅ Switched to ' + newPool + ': ' + d.number);
       closeM('mSwitchPool');
-      try {
-        await af(API + '/api/saved/trigger-monitor', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({number: d.number})
-        });
-      } catch (ex) {}
-      loadSaved();
+      // Fire monitor but don't block
+      af(API + '/api/saved/trigger-monitor', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({number: d.number})
+      }).then(mr => { if (mr && mr.ok) toast('👁️ Monitoring: ' + d.number); }).catch(() => {});
+      await loadSaved();
+      toast('✅ Switched to ' + newPool + ': ' + d.number);
     } else toast(d.detail || 'Switch failed');
   } catch (ex) { toast('Network error'); }
 }
@@ -1087,10 +1096,13 @@ async function revokeAcc(poolId, userId) { await af(API + '/api/admin/pools/' + 
 
 // ADMIN POOLS
 async function loadAdminPools() {
+  // Immediately clear to prevent tapping stale delete buttons on old pool list
+  document.getElementById('poolsList').innerHTML = '<div class="empty"><div class="spin" style="margin:16px auto;"></div></div>';
   try {
     const r = await af(API + '/api/pools');
     const pools = await r.json();
     document.getElementById('poolsTitle').style.display = 'block';
+    if (!pools.length) { document.getElementById('poolsList').innerHTML = '<div class="empty">No pools — create one above</div>'; return; }
     document.getElementById('poolsList').innerHTML = pools.map(p =>
       '<div class="pool-tile">' +
       '<div class="pool-tile-name">' + eh(p.name) + ' (+' + p.country_code + ')' +
@@ -1177,11 +1189,23 @@ async function savePool() {
 
 async function delPool(id, name) {
   if (!confirm('Delete pool "' + name + '" and ALL its data?')) return;
+  // Immediately remove card from DOM to prevent double-tap
+  document.querySelectorAll('.pool-tile').forEach(el => {
+    if (el.querySelector('.pool-tile-name') && el.querySelector('.pool-tile-name').textContent.includes(name)) {
+      el.style.opacity = '0.4';
+      el.style.pointerEvents = 'none';
+    }
+  });
   try {
     const r = await af(API + '/api/admin/pools/' + id, {method: 'DELETE'});
-    if (r.ok) { toast('✅ Pool deleted'); loadAdminPools(); }
-    else { const d = await r.json(); toast(d.detail || 'Failed to delete'); }
-  } catch (ex) { toast('Network error'); }
+    if (r.ok) { toast('✅ Pool "' + name + '" deleted'); await loadAdminPools(); }
+    else {
+      const d = await r.json();
+      // If 404 it was already deleted — still refresh
+      if (r.status === 404) { await loadAdminPools(); toast('Pool already deleted'); }
+      else toast(d.detail || 'Failed to delete');
+    }
+  } catch (ex) { toast('Network error'); await loadAdminPools(); }
 }
 
 async function cutPool(id) { const n = prompt('How many numbers to cut?'); if (!n || isNaN(parseInt(n))) return; const r = await af(API + '/api/admin/pools/' + id + '/cut?count=' + parseInt(n), {method: 'POST'}); const d = await r.json(); if (r.ok) toast('✂️ Removed ' + d.removed); loadAdminPools(); }
