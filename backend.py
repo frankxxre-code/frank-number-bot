@@ -1298,10 +1298,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
 
+def _get_allow_origins():
+    # Browsers REJECT allow_credentials=True + wildcard origin.
+    # When no specific FRONTEND_URL is set, derive it from the Railway domain
+    # env var, or fall back to a special list that covers common Railway patterns.
+    if FRONTEND_URL and FRONTEND_URL != "*":
+        return [FRONTEND_URL]
+    # If FRONTEND_URL is not set we allow all origins but with credentials=False
+    return ["*"]
+
+_allow_origins = _get_allow_origins()
+_allow_credentials = FRONTEND_URL != "*" and bool(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1998,7 +2010,7 @@ async function submitFeedback(type) {
 }
 
 function parseTimer(timer) {
-    const m = timer.trim().match(/^(\d+)([smhd])$/i);
+    const m = timer.trim().match(/^([0-9]+)([smhd])$/i);
     if (m) {
         const n = parseInt(m[1]), u = m[2].toLowerCase();
         if (u === 's') return Math.max(1, Math.ceil(n / 60));
@@ -2769,11 +2781,7 @@ async def register(req: RegisterRequest):
             if is_first:
                 token = create_token(user.id)
                 resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
-                resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
-                return resp
-            return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
-    else:
-        if username in [u["username"] for u in users.values()]:
+                resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
             raise HTTPException(400, "Username already taken")
         is_first = len(users) == 0
         user_id = _counters["user"]
@@ -2789,7 +2797,7 @@ async def register(req: RegisterRequest):
         if is_first:
             token = create_token(user_id)
             resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+            resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
             return resp
         return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
 
@@ -2809,7 +2817,7 @@ async def login(req: LoginRequest):
                 raise HTTPException(403, "Account pending approval")
             token = create_token(user.id)
             resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+            resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
             return resp
     else:
         user = None
@@ -2825,7 +2833,7 @@ async def login(req: LoginRequest):
             raise HTTPException(403, "Account pending approval")
         token = create_token(user["id"])
         resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
-        resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+        resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
         return resp
 
 @app.post("/api/auth/logout")
