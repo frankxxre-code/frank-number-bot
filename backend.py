@@ -1289,7 +1289,7 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FRONTEND - EMBEDDED HTML (Complete)
+#  FRONTEND - EMBEDDED HTML (Complete - White/Blue Theme, Full Feature Parity)
 # ══════════════════════════════════════════════════════════════════════════════
 
 FRONTEND_HTML = '''<!DOCTYPE html>
@@ -1300,132 +1300,183 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     <title>NEON GRID NETWORK</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: radial-gradient(circle at 10% 20%, #0a0f1a, #03060c); min-height: 100vh; padding-bottom: 70px; color: #eef2ff; }
-        .status-bar { background: rgba(10,132,255,0.95); backdrop-filter: blur(10px); padding: 12px 16px 8px; color: white; font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-        .header { background: rgba(15,25,35,0.8); backdrop-filter: blur(10px); padding: 16px; border-bottom: 1px solid rgba(10,132,255,0.2); }
+        :root {
+            --primary: #0a84ff;
+            --primary-dark: #0060d0;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg: #f0f4f8;
+            --surface: #ffffff;
+            --surface2: #f7fafc;
+            --border: #e2e8f0;
+            --text: #1a202c;
+            --text-muted: #64748b;
+            --text-light: #94a3b8;
+            --shadow: 0 2px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 32px rgba(10,132,255,0.12);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); min-height: 100vh; padding-bottom: 75px; color: var(--text); }
+        /* STATUS BAR */
+        .status-bar { background: var(--primary); padding: 10px 16px 8px; color: white; font-size: 13px; font-weight: 500; display: flex; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(10,132,255,0.3); }
+        /* HEADER */
+        .header { background: var(--surface); padding: 14px 16px; border-bottom: 1px solid var(--border); box-shadow: var(--shadow); }
         .user-info { display: flex; justify-content: space-between; align-items: center; }
-        .user-name { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, #0a84ff, #5e2aff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .user-id { font-size: 12px; color: #7e8a9a; background: rgba(30,41,59,0.6); padding: 4px 10px; border-radius: 20px; }
-        .balance-card { background: linear-gradient(135deg, #0a84ff, #5e2aff); border-radius: 28px; padding: 24px; margin: 16px; color: white; box-shadow: 0 20px 35px -10px rgba(10,132,255,0.3); }
-        .balance-label { font-size: 14px; opacity: 0.8; letter-spacing: 1px; margin-bottom: 8px; }
-        .balance-amount { font-size: 48px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
-        .balance-sub { font-size: 12px; opacity: 0.7; }
-        .withdraw-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 12px 24px; border-radius: 40px; color: white; font-weight: 600; font-size: 14px; margin-top: 16px; display: inline-block; cursor: pointer; transition: all 0.2s; }
-        .withdraw-btn:active { transform: scale(0.96); background: rgba(255,255,255,0.3); }
-        .section-title { font-size: 16px; font-weight: 600; color: #7e8a9a; padding: 20px 16px 12px; letter-spacing: 0.5px; text-transform: uppercase; }
-        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 8px 16px; }
-        .menu-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 20px 16px; text-align: center; cursor: pointer; border: 1px solid rgba(10,132,255,0.2); transition: all 0.2s; }
-        .menu-card:active { transform: scale(0.97); background: rgba(30,45,65,0.8); border-color: rgba(10,132,255,0.5); }
-        .menu-icon { font-size: 36px; margin-bottom: 8px; }
-        .menu-label { font-size: 14px; font-weight: 600; color: #eef2ff; }
-        .menu-desc { font-size: 11px; color: #7e8a9a; margin-top: 4px; }
-        .number-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); margin: 16px; border-radius: 28px; padding: 24px; border: 1px solid rgba(10,132,255,0.2); }
-        .number-label { font-size: 12px; color: #7e8a9a; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-        .number-value { font-size: 28px; font-weight: 700; font-family: monospace; color: #0a84ff; word-break: break-all; margin-bottom: 16px; }
-        .region-badge { display: inline-block; background: rgba(30,41,59,0.8); padding: 6px 14px; border-radius: 30px; font-size: 12px; color: #9ca3af; }
-        .otp-card { background: linear-gradient(135deg, #10b981, #059669); margin: 16px; border-radius: 28px; padding: 24px; color: white; animation: slideIn 0.3s ease; box-shadow: 0 10px 25px -5px rgba(16,185,129,0.3); }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .otp-code { font-size: 52px; font-weight: 800; font-family: monospace; letter-spacing: 8px; text-align: center; margin: 16px 0; cursor: pointer; }
-        .otp-timer { text-align: center; font-size: 13px; opacity: 0.9; }
-        .otp-message { font-size: 11px; opacity: 0.8; text-align: center; margin-top: 8px; word-break: break-all; }
-        .region-list { padding: 8px 16px; }
-        .region-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); cursor: pointer; transition: all 0.2s; }
-        .region-item:active { background: rgba(30,45,65,0.8); transform: scale(0.98); }
-        .region-name { font-weight: 600; color: #eef2ff; }
-        .region-code { font-size: 12px; color: #7e8a9a; margin-top: 4px; }
-        .region-count { background: rgba(10,132,255,0.2); padding: 4px 12px; border-radius: 30px; font-size: 12px; font-weight: 600; color: #0a84ff; }
-        .filter-row { display: flex; gap: 12px; padding: 12px 16px; background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); margin: 8px 16px; border-radius: 50px; border: 1px solid rgba(10,132,255,0.2); }
-        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: #eef2ff; }
-        .filter-input::placeholder { color: #5a6a7a; }
-        .filter-btn { background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; border: none; padding: 8px 20px; border-radius: 40px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .filter-btn:active { transform: scale(0.96); }
-        .saved-list { padding: 8px 16px; }
-        .saved-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(10,132,255,0.2); }
-        .saved-number { font-family: monospace; font-weight: 600; color: #0a84ff; }
-        .saved-timer { font-size: 12px; color: #7e8a9a; margin-top: 4px; }
-        .timer-badge { padding: 4px 12px; border-radius: 30px; font-size: 11px; font-weight: 600; }
-        .timer-green { background: rgba(16,185,129,0.2); color: #10b981; }
-        .timer-yellow { background: rgba(245,158,11,0.2); color: #f59e0b; }
-        .timer-red { background: rgba(239,68,68,0.2); color: #ef4444; }
-        .timer-ready { background: rgba(10,132,255,0.2); color: #0a84ff; }
-        .history-item { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; margin-bottom: 10px; border: 1px solid rgba(10,132,255,0.2); }
-        .history-number { font-family: monospace; font-size: 12px; color: #7e8a9a; }
-        .history-otp { font-size: 24px; font-weight: 700; font-family: monospace; color: #10b981; margin: 8px 0; cursor: pointer; }
-        .history-time { font-size: 11px; color: #5a6a7a; margin-top: 4px; }
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(10,15,25,0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 8px 16px 20px; border-top: 1px solid rgba(10,132,255,0.2); z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 16px; border-radius: 40px; transition: all 0.2s; }
-        .nav-item:active { background: rgba(10,132,255,0.1); }
-        .nav-icon { font-size: 24px; }
-        .nav-label { font-size: 11px; font-weight: 500; color: #7e8a9a; }
-        .nav-item.active .nav-label { color: #0a84ff; }
+        .user-name { font-size: 18px; font-weight: 700; color: var(--primary); }
+        .user-id { font-size: 11px; color: var(--text-muted); background: var(--surface2); padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
+        /* CARDS */
+        .card { background: var(--surface); border-radius: 20px; padding: 20px; margin: 12px 16px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+        .card-blue { background: linear-gradient(135deg, var(--primary), #5e2aff); color: white; box-shadow: var(--shadow-lg); border: none; }
+        .card-blue .label { color: rgba(255,255,255,0.8); }
+        .card-green { background: linear-gradient(135deg, var(--success), #059669); color: white; border: none; }
+        /* NUMBER CARD */
+        .number-card { background: var(--surface); border-radius: 20px; margin: 12px 16px; padding: 20px; border: 2px solid var(--primary); box-shadow: var(--shadow-lg); }
+        .number-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; }
+        .number-value { font-size: 26px; font-weight: 800; font-family: monospace; color: var(--primary); word-break: break-all; margin-bottom: 14px; cursor: pointer; }
+        .region-badge { display: inline-block; background: #e0f0ff; color: var(--primary); padding: 4px 12px; border-radius: 30px; font-size: 12px; font-weight: 600; }
+        /* OTP CARD */
+        .otp-card { background: linear-gradient(135deg, #10b981, #059669); border-radius: 20px; padding: 20px; margin: 12px 16px; color: white; animation: slideIn 0.3s ease; box-shadow: 0 6px 20px rgba(16,185,129,0.3); }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .otp-code { font-size: 48px; font-weight: 900; font-family: monospace; letter-spacing: 6px; text-align: center; margin: 12px 0; cursor: pointer; }
+        .otp-timer { text-align: center; font-size: 12px; opacity: 0.85; }
+        .otp-message { font-size: 11px; opacity: 0.8; text-align: center; margin-top: 6px; word-break: break-all; }
+        /* REGION LIST */
+        .region-list { padding: 4px 16px; }
+        .region-item { background: var(--surface); border-radius: 16px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); cursor: pointer; transition: all 0.15s; box-shadow: var(--shadow); }
+        .region-item:active { background: #e8f4ff; border-color: var(--primary); transform: scale(0.99); }
+        .region-name { font-weight: 600; color: var(--text); font-size: 15px; }
+        .region-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .region-count { background: #e0f0ff; color: var(--primary); padding: 4px 12px; border-radius: 30px; font-size: 12px; font-weight: 700; }
+        .region-count.low { background: #fff3cd; color: #d97706; }
+        .region-count.paused { background: #fde8e8; color: var(--danger); }
+        /* FILTER ROW */
+        .filter-row { display: flex; gap: 10px; padding: 10px 16px; background: var(--surface); margin: 6px 16px; border-radius: 50px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        .filter-input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; color: var(--text); }
+        .filter-input::placeholder { color: var(--text-light); }
+        .filter-btn { background: var(--primary); color: white; border: none; padding: 8px 18px; border-radius: 40px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+        .filter-btn:active { background: var(--primary-dark); transform: scale(0.97); }
+        .filter-btn.secondary { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+        /* SAVED / HISTORY ITEMS */
+        .list-item { background: var(--surface); border-radius: 16px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        .list-item.column { flex-direction: column; align-items: stretch; gap: 10px; }
+        .item-number { font-family: monospace; font-weight: 700; color: var(--primary); font-size: 15px; }
+        .item-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .timer-badge { padding: 4px 10px; border-radius: 30px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .badge-green { background: #dcfce7; color: #16a34a; }
+        .badge-yellow { background: #fef9c3; color: #a16207; }
+        .badge-red { background: #fde8e8; color: var(--danger); }
+        .badge-blue { background: #e0f0ff; color: var(--primary); }
+        .badge-gray { background: var(--surface2); color: var(--text-muted); }
+        /* HISTORY */
+        .history-otp { font-size: 28px; font-weight: 800; font-family: monospace; color: var(--success); margin: 6px 0; cursor: pointer; }
+        /* BOTTOM NAV */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding: 8px 8px 20px; z-index: 100; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 6px 14px; border-radius: 40px; transition: all 0.15s; }
+        .nav-item:active { background: #e8f4ff; }
+        .nav-icon { font-size: 22px; }
+        .nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); }
+        .nav-item.active .nav-label { color: var(--primary); }
+        .nav-item.active .nav-icon { filter: none; }
+        /* PAGES */
         .page { display: none; padding-bottom: 20px; }
         .page.active { display: block; }
-        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 24px; border-radius: 60px; font-size: 14px; z-index: 1000; max-width: 90%; text-align: center; animation: fadeInOut 2s ease; }
-        @keyframes fadeInOut { 0% { opacity: 0; transform: translateX(-50%) translateY(20px); } 15% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
-        .loading { text-align: center; padding: 40px; color: #7e8a9a; }
-        .spinner { width: 40px; height: 40px; border: 3px solid rgba(10,132,255,0.2); border-top-color: #0a84ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+        /* SECTION TITLE */
+        .section-title { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 16px 16px 8px; letter-spacing: 1px; text-transform: uppercase; }
+        /* TOAST */
+        .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 10px 22px; border-radius: 50px; font-size: 13px; z-index: 2000; max-width: 88%; text-align: center; animation: fadeInOut 2.2s ease forwards; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        @keyframes fadeInOut { 0% { opacity: 0; transform: translateX(-50%) translateY(16px); } 12% { opacity: 1; transform: translateX(-50%) translateY(0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-10px); } }
+        /* LOADING */
+        .loading { text-align: center; padding: 36px 16px; color: var(--text-muted); font-size: 14px; }
+        .spinner { width: 36px; height: 36px; border: 3px solid #e0f0ff; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 1000; align-items: center; justify-content: center; }
+        /* MODAL */
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); z-index: 1000; align-items: flex-end; justify-content: center; }
         .modal.show { display: flex; }
-        .modal-content { background: #0f172a; border-radius: 32px; max-height: 85vh; overflow-y: auto; width: 100%; max-width: 500px; margin: 20px; border: 1px solid rgba(10,132,255,0.3); }
-        .modal-header { padding: 20px; border-bottom: 1px solid rgba(10,132,255,0.2); font-weight: 700; font-size: 18px; color: #eef2ff; }
-        .feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 20px; }
-        .feedback-btn { background: rgba(30,41,59,0.8); border: none; padding: 14px; border-radius: 50px; font-size: 14px; font-weight: 500; cursor: pointer; color: #eef2ff; transition: all 0.2s; }
+        .modal-content { background: var(--surface); border-radius: 28px 28px 0 0; max-height: 90vh; overflow-y: auto; width: 100%; max-width: 540px; padding-bottom: 24px; }
+        .modal-header { padding: 18px 20px 14px; font-weight: 700; font-size: 17px; color: var(--text); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-close { font-size: 22px; cursor: pointer; color: var(--text-muted); background: none; border: none; }
+        /* AUTH */
+        .auth-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: linear-gradient(135deg, #e8f4ff 0%, #f0f4f8 100%); }
+        .auth-card { background: var(--surface); border-radius: 32px; padding: 36px 28px; width: 100%; max-width: 360px; box-shadow: 0 20px 60px rgba(10,132,255,0.15); border: 1px solid var(--border); }
+        .auth-logo { text-align: center; font-size: 52px; margin-bottom: 8px; }
+        .auth-title { text-align: center; font-size: 22px; font-weight: 800; color: var(--primary); margin-bottom: 24px; }
+        .auth-tab-row { display: flex; gap: 8px; margin-bottom: 20px; background: var(--surface2); padding: 4px; border-radius: 50px; }
+        .auth-tab { flex: 1; padding: 10px; border-radius: 50px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s; }
+        .auth-tab.active { background: var(--primary); color: white; box-shadow: 0 2px 8px rgba(10,132,255,0.3); }
+        .auth-input { width: 100%; padding: 14px 16px; border: 1.5px solid var(--border); border-radius: 14px; font-size: 15px; margin-bottom: 12px; outline: none; background: var(--surface); color: var(--text); transition: border 0.2s; }
+        .auth-input:focus { border-color: var(--primary); }
+        .auth-btn { width: 100%; background: var(--primary); color: white; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; margin-top: 4px; }
+        .auth-btn:active { background: var(--primary-dark); transform: scale(0.98); }
+        .error-msg { color: var(--danger); font-size: 12px; margin-top: 8px; text-align: center; }
+        /* ADMIN */
+        .admin-badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+        .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px; }
+        .admin-card { background: var(--surface); border-radius: 16px; padding: 14px 10px; cursor: pointer; border: 1px solid var(--border); text-align: center; transition: all 0.15s; box-shadow: var(--shadow); }
+        .admin-card:active { background: #e8f4ff; border-color: var(--primary); transform: scale(0.97); }
+        .admin-icon { font-size: 26px; margin-bottom: 6px; }
+        .admin-label { font-size: 11px; font-weight: 600; color: var(--text); }
+        /* BUTTONS */
+        .btn { padding: 8px 16px; border-radius: 30px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; }
+        .btn:active { transform: scale(0.96); }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-sm { padding: 6px 12px; font-size: 11px; }
+        /* FORM GROUP */
+        .fg { margin-bottom: 16px; }
+        .fg label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .fg input, .fg select, .fg textarea { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); outline: none; font-size: 14px; transition: border 0.2s; }
+        .fg input:focus, .fg select:focus, .fg textarea:focus { border-color: var(--primary); }
+        .fg textarea { resize: vertical; min-height: 70px; }
+        .brow { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+        /* READY CARD */
+        .ready-pool-card { background: var(--surface); border-radius: 20px; margin: 0 16px 12px; padding: 18px; border: 2px solid var(--success); box-shadow: 0 4px 16px rgba(16,185,129,0.12); }
+        .ready-pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .ready-pool-name { font-weight: 700; color: var(--success); font-size: 14px; }
+        .ready-queue { font-size: 11px; color: var(--text-muted); }
+        .ready-number { font-family: monospace; font-size: 22px; font-weight: 800; color: var(--text); margin: 8px 0; cursor: pointer; }
+        /* CHIP */
+        .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 30px; padding: 4px 10px; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+        /* SETTINGS TOGGLE */
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-label { font-size: 14px; font-weight: 600; color: var(--text); }
+        .toggle-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        /* DIVIDER */
+        .divider { height: 1px; background: var(--border); margin: 12px 16px; }
+        /* FEEDBACK GRID */
+        .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 20px; }
+        .feedback-btn { background: var(--surface2); border: 1.5px solid var(--border); padding: 14px 10px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text); transition: all 0.15s; text-align: center; }
         .feedback-btn:active { transform: scale(0.96); }
-        .feedback-btn.bad { background: rgba(239,68,68,0.2); color: #f87171; }
-        .feedback-btn.good { background: rgba(16,185,129,0.2); color: #34d399; }
-        .auth-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: radial-gradient(circle at 30% 20%, #0a84ff, #03060c); }
-        .auth-card { background: rgba(15,25,35,0.9); backdrop-filter: blur(10px); border-radius: 48px; padding: 40px 32px; width: 100%; max-width: 340px; border: 1px solid rgba(10,132,255,0.3); }
-        .auth-logo { text-align: center; font-size: 56px; margin-bottom: 24px; }
-        .auth-input { width: 100%; padding: 16px; border: 1px solid rgba(10,132,255,0.3); border-radius: 60px; font-size: 16px; margin-bottom: 16px; outline: none; background: rgba(30,41,59,0.6); color: #eef2ff; }
-        .auth-input:focus { border-color: #0a84ff; }
-        .auth-btn { width: 100%; background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; border: none; padding: 16px; border-radius: 60px; font-size: 16px; font-weight: 700; margin-top: 8px; cursor: pointer; transition: all 0.2s; }
-        .auth-btn:active { transform: scale(0.97); }
-        .error-msg { color: #f87171; font-size: 12px; margin-top: 8px; text-align: center; }
-        .admin-badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 4px 12px; border-radius: 30px; font-size: 10px; font-weight: 600; margin-left: 8px; }
-        .admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; padding: 8px 16px; }
-        .admin-card { background: rgba(20,30,45,0.6); backdrop-filter: blur(10px); border-radius: 20px; padding: 16px; cursor: pointer; border: 1px solid rgba(10,132,255,0.2); text-align: center; transition: all 0.2s; }
-        .admin-card:active { transform: scale(0.96); background: rgba(30,45,65,0.8); }
-        .admin-icon { font-size: 28px; margin-bottom: 8px; }
-        .admin-label { font-size: 12px; font-weight: 600; color: #eef2ff; }
-        .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 30px; }
-        .btn { padding: 10px 20px; border-radius: 40px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
-        .btn-primary { background: linear-gradient(135deg, #0a84ff, #5e2aff); color: white; }
-        .btn-danger { background: rgba(239,68,68,0.8); color: white; }
-        .btn-secondary { background: rgba(30,41,59,0.8); color: #eef2ff; }
-        .fg { margin-bottom: 20px; }
-        .fg label { display: block; font-size: 12px; font-weight: 600; color: #7e8a9a; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        .fg input, .fg select, .fg textarea { width: 100%; padding: 14px; border: 1px solid rgba(10,132,255,0.3); border-radius: 20px; background: rgba(30,41,59,0.6); color: #eef2ff; outline: none; font-size: 14px; }
-        .fg input:focus, .fg select:focus { border-color: #0a84ff; }
-        .brow { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+        .feedback-btn.good { background: #dcfce7; border-color: #86efac; color: #16a34a; }
+        .feedback-btn.bad { background: #fde8e8; border-color: #fca5a5; color: var(--danger); }
+        /* POOL ACCESS */
+        .access-user { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
         .hidden { display: none; }
-        .timer-input-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .timer-input-group input { flex: 1; min-width: 100px; }
-        .timer-preset { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-        .preset-btn { background: rgba(30,41,59,0.6); border: 1px solid rgba(10,132,255,0.3); padding: 8px 12px; border-radius: 30px; font-size: 12px; cursor: pointer; transition: all 0.2s; color: #eef2ff; }
-        .preset-btn:active { transform: scale(0.95); background: rgba(10,132,255,0.2); }
     </style>
 </head>
 <body>
 
-<div id="authContainer" style="display: flex;">
+<!-- AUTH SCREEN -->
+<div id="authContainer" style="display:flex;">
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-logo">⚡</div>
-            <h2 style="text-align: center; margin-bottom: 16px; background: linear-gradient(135deg, #0a84ff, #5e2aff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">NEON GRID</h2>
-            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
-                <button id="authLoginTab" class="auth-btn" style="background: #0a84ff; margin: 0; padding: 12px;">Login</button>
-                <button id="authRegisterTab" class="auth-btn" style="background: rgba(30,41,59,0.6); color: #9ca3af; margin: 0; padding: 12px;">Register</button>
+            <div class="auth-title">NEON GRID</div>
+            <div class="auth-tab-row">
+                <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">Login</button>
+                <button class="auth-tab" id="tabRegister" onclick="switchTab('register')">Register</button>
             </div>
             <div id="loginForm">
-                <input type="text" id="loginUsername" class="auth-input" placeholder="Username">
-                <input type="password" id="loginPassword" class="auth-input" placeholder="Password">
+                <input type="text" id="loginUsername" class="auth-input" placeholder="Username" autocomplete="username">
+                <input type="password" id="loginPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
                 <button class="auth-btn" onclick="doLogin()">Login</button>
                 <div id="loginError" class="error-msg"></div>
             </div>
-            <div id="registerForm" style="display: none;">
-                <input type="text" id="regUsername" class="auth-input" placeholder="Username">
-                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)">
+            <div id="registerForm" style="display:none;">
+                <input type="text" id="regUsername" class="auth-input" placeholder="Username" autocomplete="username">
+                <input type="password" id="regPassword" class="auth-input" placeholder="Password (min 6 chars)" autocomplete="new-password">
                 <button class="auth-btn" onclick="doRegister()">Create Account</button>
                 <div id="regError" class="error-msg"></div>
             </div>
@@ -1433,851 +1484,1031 @@ FRONTEND_HTML = '''<!DOCTYPE html>
     </div>
 </div>
 
-<div id="appContainer" style="display: none;">
-    <div class="status-bar"><span id="currentTime">--:--</span><span>⚡ NEON GRID</span><span>●</span></div>
-    <div class="header"><div class="user-info"><div><div class="user-name" id="userName">User</div><div class="user-id" id="userId">ID: --</div></div><div id="adminBadge" style="display: none;"><span class="admin-badge">ADMIN</span></div></div></div>
-
-    <div id="homePage" class="page active">
-        <div class="balance-card"><div class="balance-label">ACCOUNT BALANCE</div><div class="balance-amount" id="balanceAmount">0</div><div class="balance-sub">≈ ₱0.00 NGN</div><div class="withdraw-btn" onclick="showToast('Withdrawal feature coming soon')">Withdraw Now</div></div>
-        <div class="section-title">ACCOUNT MANAGEMENT</div>
-        <div class="menu-grid">
-            <div class="menu-card" onclick="showToast('Withdrawal feature coming soon')"><div class="menu-icon">💰</div><div class="menu-label">Withdraw</div><div class="menu-desc">Convert points to cash</div></div>
-            <div class="menu-card" onclick="showToast('Earnings details coming soon')"><div class="menu-icon">📊</div><div class="menu-label">Earnings Details</div><div class="menu-desc">View your earning records</div></div>
-            <div class="menu-card" onclick="showToast('Withdrawal history coming soon')"><div class="menu-icon">📦</div><div class="menu-label">Withdrawal Orders</div><div class="menu-desc">Track your withdrawals</div></div>
-            <div class="menu-card" onclick="showToast('Leaderboard coming soon')"><div class="menu-icon">🏆</div><div class="menu-label">Daily Lead Card</div><div class="menu-desc">Top performers</div></div>
+<!-- MAIN APP -->
+<div id="appContainer" style="display:none;">
+    <div class="status-bar">
+        <span id="currentTime">--:--</span>
+        <span style="font-weight:700;">⚡ NEON GRID</span>
+        <span id="wsStatus">●</span>
+    </div>
+    <div class="header">
+        <div class="user-info">
+            <div>
+                <div class="user-name" id="userName">User</div>
+                <div class="user-id" id="userId">ID: --</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div id="adminBadge" style="display:none;"><span class="admin-badge">ADMIN</span></div>
+                <button class="btn btn-secondary btn-sm" onclick="doLogout()">Logout</button>
+            </div>
         </div>
     </div>
 
+    <!-- HOME PAGE -->
+    <div id="homePage" class="page active">
+        <div class="section-title">QUICK ACTIONS</div>
+        <div style="padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div class="card" style="cursor:pointer;text-align:center;padding:16px;" onclick="navigateTo('numbers')">
+                <div style="font-size:32px;margin-bottom:6px;">📱</div>
+                <div style="font-weight:700;color:var(--primary);font-size:14px;">Get Number</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Assign & monitor</div>
+            </div>
+            <div class="card" style="cursor:pointer;text-align:center;padding:16px;" onclick="navigateTo('saved')">
+                <div style="font-size:32px;margin-bottom:6px;">💾</div>
+                <div style="font-weight:700;color:var(--primary);font-size:14px;">Saved Numbers</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Timer pools & ready</div>
+            </div>
+            <div class="card" style="cursor:pointer;text-align:center;padding:16px;" onclick="navigateTo('history')">
+                <div style="font-size:32px;margin-bottom:6px;">📜</div>
+                <div style="font-weight:700;color:var(--primary);font-size:14px;">OTP History</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">All received codes</div>
+            </div>
+            <div class="card" style="cursor:pointer;text-align:center;padding:16px;" onclick="doSearchOTP()">
+                <div style="font-size:32px;margin-bottom:6px;">🔍</div>
+                <div style="font-weight:700;color:var(--primary);font-size:14px;">Search OTP</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Look up by number</div>
+            </div>
+        </div>
+        <div class="section-title">CURRENT STATUS</div>
+        <div class="card" id="homeStatusCard">
+            <div class="number-label">ACTIVE NUMBER</div>
+            <div id="homeNumber" style="font-size:20px;font-weight:800;font-family:monospace;color:var(--primary);margin:4px 0 8px;">—</div>
+            <div id="homeRegion" style="font-size:12px;color:var(--text-muted);">No region selected</div>
+        </div>
+        <div id="homeOtpDisplay"></div>
+    </div>
+
+    <!-- NUMBERS PAGE -->
     <div id="numbersPage" class="page">
         <div class="number-card" id="currentNumberCard">
             <div class="number-label">YOUR ACTIVE NUMBER</div>
-            <div class="number-value" id="currentNumber" onclick="copyNumber()" style="cursor:pointer;" title="Tap to copy">—</div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="number-value" id="currentNumber" onclick="copyNumber()" title="Tap to copy">—</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                 <span class="region-badge" id="currentRegion">No region selected</span>
-                <div style="display: flex; gap: 12px;">
-                    <button class="withdraw-btn" style="background: rgba(30,41,59,0.8); color: #eef2ff; padding: 8px 16px; font-size: 13px;" onclick="changeNumber()">🔄 Change</button>
-                    <button class="withdraw-btn" style="background: rgba(30,41,59,0.8); color: #eef2ff; padding: 8px 16px; font-size: 13px;" onclick="copyNumber()">📋 Copy</button>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-sm" onclick="changeNumber()">🔄 Change</button>
+                    <button class="btn btn-secondary btn-sm" onclick="copyNumber()">📋 Copy</button>
+                    <button class="btn btn-secondary btn-sm" onclick="doSearchOTP()">🔍 OTP</button>
                 </div>
             </div>
         </div>
-        <div id="otpDisplay" style="display: none;"></div>
+        <div id="otpDisplay"></div>
         <div class="section-title">SELECT REGION</div>
-        <div class="filter-row"><input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g., 8101)"><button class="filter-btn" onclick="applyFilter()">Filter</button></div>
-        <div id="regionList" class="region-list"><div class="loading"><div class="spinner"></div>Loading regions...</div></div>
+        <div class="filter-row">
+            <input type="text" id="prefixFilter" class="filter-input" placeholder="Filter by prefix (e.g. 8101)">
+            <button class="filter-btn" onclick="applyFilter()">Filter</button>
+            <button class="filter-btn secondary" onclick="clearFilter()">Clear</button>
+        </div>
+        <div id="regionList" class="region-list">
+            <div class="loading"><div class="spinner"></div>Loading regions...</div>
+        </div>
     </div>
 
+    <!-- SAVED PAGE -->
     <div id="savedPage" class="page">
-        <!-- READY NUMBERS — always on top -->
-        <div class="section-title" id="readySection" style="display:none;">✅ READY NUMBERS</div>
-        <div id="readyList" class="saved-list"></div>
-
-        <!-- SAVE NUMBERS FORM -->
-        <div class="section-title">💾 SAVE NUMBERS</div>
-        <div style="padding: 0 16px 16px;">
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <textarea id="savedNumbersInput" class="filter-input" placeholder="Enter numbers (one per line)" style="height: 80px; resize: vertical;"></textarea>
-            </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <div class="timer-input-group">
-                    <input type="text" id="timerInput" class="filter-input" placeholder="Timer (e.g., 30m, 2h, 1d, 2s, 120)" value="30m">
-                    <button class="filter-btn" onclick="setTimerPreset('30m')">30m</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2h')">2h</button>
-                    <button class="filter-btn" onclick="setTimerPreset('1d')">1d</button>
-                    <button class="filter-btn" onclick="setTimerPreset('2s')">2s</button>
-                </div>
-            </div>
-            <div class="filter-row" style="margin: 0 0 12px 0;">
-                <input type="text" id="poolNameInput" class="filter-input" placeholder="Pool name (group label)">
-                <button class="filter-btn" onclick="saveNumbers()">Save</button>
-            </div>
+        <!-- READY NUMBERS — top priority -->
+        <div id="readySectionWrapper" style="display:none;">
+            <div class="section-title" style="color:var(--success);">✅ READY NUMBERS</div>
+            <div id="readyList"></div>
         </div>
 
-        <!-- SAVED POOLS — shows pool groups with counts only, no individual numbers -->
-        <div class="section-title" id="savedPoolsSection" style="display:none;">⏳ SAVED POOLS</div>
-        <div id="savedList" class="saved-list"></div>
+        <!-- SAVE FORM -->
+        <div class="section-title">💾 SAVE NUMBERS</div>
+        <div style="padding:0 16px 12px;">
+            <div class="fg"><label>Phone Numbers (one per line)</label><textarea id="savedNumbersInput" placeholder="+2348012345678&#10;+2348098765432" rows="3"></textarea></div>
+            <div class="fg">
+                <label>Timer</label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="timerInput" placeholder="e.g. 30m, 2h, 1d, 2s" value="30m" style="flex:1;min-width:120px;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;outline:none;font-size:14px;">
+                    <button class="filter-btn secondary" style="padding:12px 14px;" onclick="setTimer('30m')">30m</button>
+                    <button class="filter-btn secondary" style="padding:12px 14px;" onclick="setTimer('2h')">2h</button>
+                    <button class="filter-btn secondary" style="padding:12px 14px;" onclick="setTimer('1d')">1d</button>
+                    <button class="filter-btn secondary" style="padding:12px 14px;" onclick="setTimer('2s')">2s</button>
+                </div>
+            </div>
+            <div class="fg"><label>Pool Label</label><input type="text" id="poolNameInput" placeholder="e.g. UK WhatsApp, Nigeria IG"></div>
+            <button class="filter-btn" style="width:100%;padding:14px;" onclick="saveNumbers()">💾 Save Numbers</button>
+        </div>
+
+        <!-- PENDING POOLS -->
+        <div class="section-title" id="pendingSection" style="display:none;">⏳ PENDING POOLS</div>
+        <div id="savedList" style="padding:0 16px;"></div>
     </div>
 
+    <!-- HISTORY PAGE -->
     <div id="historyPage" class="page">
         <div class="section-title">📜 OTP HISTORY</div>
-        <div id="historyList" class="saved-list"></div>
+        <div id="historyList" style="padding:0 16px;"></div>
     </div>
 
+    <!-- ADMIN PAGE -->
     <div id="adminPage" class="page hidden">
         <div class="section-title">🛠️ ADMIN PANEL</div>
         <div class="admin-grid">
-            <div class="admin-card" onclick="loadAdminStats()"><div class="admin-icon">📊</div><div class="admin-label">Stats</div></div>
-            <div class="admin-card" onclick="openCreatePoolModal()"><div class="admin-icon">➕</div><div class="admin-label">Create Pool</div></div>
-            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload Numbers</div></div>
-            <div class="admin-card" onclick="loadUsersList()"><div class="admin-icon">👥</div><div class="admin-label">Users</div></div>
-            <div class="admin-card" onclick="loadBadNumbers()"><div class="admin-icon">🚫</div><div class="admin-label">Bad Numbers</div></div>
-            <div class="admin-card" onclick="loadReviews()"><div class="admin-icon">📝</div><div class="admin-label">Reviews</div></div>
+            <div class="admin-card" onclick="adminSection('stats')"><div class="admin-icon">📊</div><div class="admin-label">Stats</div></div>
+            <div class="admin-card" onclick="openPoolModal()"><div class="admin-icon">➕</div><div class="admin-label">New Pool</div></div>
+            <div class="admin-card" onclick="openUploadModal()"><div class="admin-icon">📁</div><div class="admin-label">Upload</div></div>
+            <div class="admin-card" onclick="adminSection('users')"><div class="admin-icon">👥</div><div class="admin-label">Users</div></div>
+            <div class="admin-card" onclick="adminSection('pools')"><div class="admin-icon">🌍</div><div class="admin-label">Pools</div></div>
+            <div class="admin-card" onclick="adminSection('bad')"><div class="admin-icon">🚫</div><div class="admin-label">Bad Nums</div></div>
+            <div class="admin-card" onclick="adminSection('settings')"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
             <div class="admin-card" onclick="showBroadcast()"><div class="admin-icon">📢</div><div class="admin-label">Broadcast</div></div>
-            <div class="admin-card" onclick="showSettings()"><div class="admin-icon">⚙️</div><div class="admin-label">Settings</div></div>
+            <div class="admin-card" onclick="adminSection('access')"><div class="admin-icon">🔑</div><div class="admin-label">Pool Access</div></div>
         </div>
-        <div id="adminStatsDiv" class="number-card" style="display: none;"></div>
-        <div id="adminUsersDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminBadDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminReviewsDiv" class="saved-list" style="display: none;"></div>
-        <div id="adminBroadcastDiv" class="number-card" style="display: none;"><textarea id="broadcastMsg" rows="3" style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;" onclick="sendBroadcast()">Send Broadcast</button></div>
-        <div id="adminSettingsDiv" class="number-card" style="display: none;">
-            <div class="fg"><label>Approval Mode</label><select id="approvalMode"><option value="on">ON - New users need approval</option><option value="off">OFF - All users can access</option></select></div>
-            <div class="fg"><label>OTP Redirect</label><select id="otpRedirect"><option value="pool">Per-Pool Link</option><option value="hardcoded">Hardcoded: https://t.me/earnplusz</option></select></div>
-            <button class="filter-btn" onclick="saveSettings()">Save Settings</button>
-        </div>
-        <div id="poolsList" class="saved-list"></div>
+        <div id="adminContentArea" style="padding:0 16px;margin-top:8px;"></div>
     </div>
 
+    <!-- BOTTOM NAV -->
     <div class="bottom-nav">
-        <div class="nav-item active" data-page="home"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
-        <div class="nav-item" data-page="numbers"><div class="nav-icon">📱</div><div class="nav-label">Numbers</div></div>
-        <div class="nav-item" data-page="saved"><div class="nav-icon">💾</div><div class="nav-label">Saved</div></div>
-        <div class="nav-item" data-page="history"><div class="nav-icon">📜</div><div class="nav-label">History</div></div>
-        <div class="nav-item" data-page="admin" id="adminNavItem" style="display: none;"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
+        <div class="nav-item active" data-page="home" onclick="navigateTo('home')"><div class="nav-icon">🏠</div><div class="nav-label">Home</div></div>
+        <div class="nav-item" data-page="numbers" onclick="navigateTo('numbers')"><div class="nav-icon">📱</div><div class="nav-label">Numbers</div></div>
+        <div class="nav-item" data-page="saved" onclick="navigateTo('saved')"><div class="nav-icon">💾</div><div class="nav-label">Saved</div></div>
+        <div class="nav-item" data-page="history" onclick="navigateTo('history')"><div class="nav-icon">📜</div><div class="nav-label">History</div></div>
+        <div class="nav-item hidden" id="adminNavItem" data-page="admin" onclick="navigateTo('admin')"><div class="nav-icon">⚙️</div><div class="nav-label">Admin</div></div>
     </div>
 </div>
 
-<!-- Modals -->
-<div id="poolModal" class="modal"><div class="modal-content"><div class="modal-header" id="poolModalTitle">Create New Pool</div><div style="padding: 20px;"><div class="fg"><label>Pool Name *</label><input type="text" id="poolName" placeholder="e.g., Nigeria"></div><div class="fg"><label>Country Code *</label><input type="text" id="poolCode" placeholder="e.g., 234"></div><div class="fg"><label>OTP Group ID *</label><input type="text" id="poolGroupId" placeholder="e.g., -1001234567890"></div><div class="fg"><label>OTP Link</label><input type="text" id="poolOtpLink" placeholder="https://t.me/your_channel"></div><div class="fg"><label>Match Format *</label><input type="text" id="poolMatchFormat" value="5+4" placeholder="e.g., 5+4"></div><div class="fg"><label>Telegram Match Format</label><input type="text" id="poolTelegramMatchFormat" placeholder="Leave blank to use Match Format"></div><div class="fg"><label>Monitoring Mode</label><select id="poolUsesPlatform"><option value="0">0 - Telegram Only 📱</option><option value="1">1 - Platform Only 🖥️</option><option value="2">2 - Both 📱+🖥️</option></select></div><div class="fg"><label>Trick Text (Guide for users)</label><textarea id="poolTrickText" rows="2" placeholder="Tips for using numbers..."></textarea></div><div style="display: flex; gap: 16px; margin: 16px 0;"><label><input type="checkbox" id="poolAdminOnly"> Admin Only</label><label><input type="checkbox" id="poolPaused" onchange="document.getElementById('pauseReasonDiv').style.display=this.checked?'block':'none'"> Paused</label></div><div id="pauseReasonDiv" style="display: none;" class="fg"><label>Pause Reason</label><input type="text" id="poolPauseReason" placeholder="Reason for pausing"></div><div class="brow"><button class="btn btn-secondary" onclick="closePoolModal()">Cancel</button><button class="btn btn-primary" onclick="savePool()">Save</button></div></div></div></div>
+<!-- FEEDBACK MODAL -->
+<div id="feedbackModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            Rate Your Number
+            <button class="modal-close" onclick="closeModal('feedbackModal')">✕</button>
+        </div>
+        <div id="feedbackNumber" style="font-family:monospace;font-size:18px;font-weight:700;text-align:center;padding:14px 20px 0;color:var(--primary);"></div>
+        <div class="feedback-grid">
+            <button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button>
+            <button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button>
+            <button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button>
+            <button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button>
+            <button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button>
+            <button class="feedback-btn" onclick="showOtherFeedback()">📝 Other Issue</button>
+        </div>
+        <div id="otherFeedbackDiv" style="display:none;padding:0 20px 16px;">
+            <div class="fg"><label>Describe the issue</label><textarea id="otherFeedbackText" placeholder="What went wrong?"></textarea></div>
+            <button class="btn btn-primary" style="width:100%;" onclick="submitFeedback('other')">Submit Feedback</button>
+        </div>
+    </div>
+</div>
 
-<div id="uploadModal" class="modal"><div class="modal-content"><div class="modal-header">Upload Numbers</div><div style="padding: 20px;"><div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div><div class="fg"><label>Upload File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv"></div><div class="brow"><button class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button><button class="btn btn-primary" onclick="uploadNumbers()">Upload</button></div><div id="uploadResult" style="margin-top: 16px;"></div></div></div></div>
+<!-- POOL MODAL -->
+<div id="poolModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span id="poolModalTitle">Create Pool</span>
+            <button class="modal-close" onclick="closeModal('poolModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div class="fg"><label>Pool Name *</label><input type="text" id="pmName" placeholder="e.g. Nigeria WS"></div>
+            <div class="fg"><label>Country Code *</label><input type="text" id="pmCode" placeholder="e.g. 234"></div>
+            <div class="fg"><label>OTP Group ID</label><input type="text" id="pmGroupId" placeholder="-1001234567890"></div>
+            <div class="fg"><label>OTP Link</label><input type="text" id="pmOtpLink" placeholder="https://t.me/your_channel"></div>
+            <div class="fg"><label>Match Format *</label><input type="text" id="pmMatchFmt" value="5+4" placeholder="e.g. 5+4"></div>
+            <div class="fg"><label>Telegram Match Format</label><input type="text" id="pmTgMatchFmt" placeholder="Leave blank = same as above"></div>
+            <div class="fg"><label>Monitoring Mode</label>
+                <select id="pmUsesPlatform">
+                    <option value="0">0 — Telegram Only 📱</option>
+                    <option value="1">1 — Platform Only 🖥️</option>
+                    <option value="2">2 — Both 📱🖥️</option>
+                </select>
+            </div>
+            <div class="fg"><label>Trick Text / Guide</label><textarea id="pmTrickText" placeholder="Usage tips shown to users..."></textarea></div>
+            <div style="display:flex;gap:20px;margin-bottom:12px;font-size:14px;">
+                <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pmAdminOnly"> Admin Only 🔒</label>
+                <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pmPaused" onchange="document.getElementById('pmPauseReasonRow').style.display=this.checked?'block':'none'"> Paused ⏸</label>
+            </div>
+            <div id="pmPauseReasonRow" style="display:none;" class="fg"><label>Pause Reason</label><input type="text" id="pmPauseReason" placeholder="Why is this pool paused?"></div>
+            <div class="brow">
+                <button class="btn btn-secondary" onclick="closeModal('poolModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="savePool()">Save Pool</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-<div id="feedbackModal" class="modal"><div class="modal-content"><div class="modal-header">Rate Your Number</div><div style="padding: 20px;"><div id="feedbackNumber" style="font-family: monospace; font-size: 18px; text-align: center; margin-bottom: 20px;"></div><div class="feedback-grid"><button class="feedback-btn good" onclick="submitFeedback('worked')">✅ Worked</button><button class="feedback-btn bad" onclick="submitFeedback('bad')">❌ Not Available</button><button class="feedback-btn" onclick="submitFeedback('email')">📧 Email Only</button><button class="feedback-btn" onclick="submitFeedback('other_devices')">📱 Other Devices</button><button class="feedback-btn" onclick="submitFeedback('try_later')">⏳ Try Later</button><button class="feedback-btn" onclick="showOtherFeedback()">📝 Other</button></div><div id="otherFeedbackDiv" style="display: none; margin-top: 16px;"><textarea id="otherFeedbackText" rows="2" placeholder="Describe the issue..." style="width:100%;padding:12px;border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;border:1px solid rgba(10,132,255,0.3);"></textarea><button class="filter-btn" style="margin-top:12px;width:100%;" onclick="submitFeedback('other')">Submit</button></div></div></div></div>
+<!-- UPLOAD MODAL -->
+<div id="uploadModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            Upload Numbers
+            <button class="modal-close" onclick="closeModal('uploadModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div class="fg"><label>Select Pool</label><select id="uploadPoolSelect"></select></div>
+            <div class="fg"><label>File (.txt or .csv)</label><input type="file" id="uploadFile" accept=".txt,.csv" style="padding:10px;border-radius:12px;border:1.5px solid var(--border);width:100%;"></div>
+            <div class="brow">
+                <button class="btn btn-secondary" onclick="closeModal('uploadModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="uploadNumbers()">Upload</button>
+            </div>
+            <div id="uploadResult" style="margin-top:12px;"></div>
+        </div>
+    </div>
+</div>
 
-<div id="changePoolModal" class="modal"><div class="modal-content"><div class="modal-header">🌐 Switch Pool</div><div style="padding: 20px;"><div style="font-size:12px;color:#7e8a9a;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Current Number</div><div id="changePoolCurrentNum" style="font-family:monospace;font-size:18px;color:#0a84ff;margin-bottom:20px;"></div><div class="fg"><label>Switch To Pool</label><select id="changePoolSelect" style="width:100%;padding:14px;border:1px solid rgba(10,132,255,0.3);border-radius:20px;background:rgba(30,41,59,0.6);color:#eef2ff;outline:none;font-size:14px;"></select></div><div style="font-size:12px;color:#7e8a9a;margin-top:8px;">You'll get the next available number from that pool</div><div class="brow"><button class="btn btn-secondary" onclick="document.getElementById('changePoolModal').classList.remove('show')">Cancel</button><button class="btn btn-primary" onclick="submitSwitchPool()">Switch</button></div></div></div></div>
+<!-- CHANGE POOL MODAL (for ready numbers) -->
+<div id="changePoolModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            🌐 Switch Pool
+            <button class="modal-close" onclick="closeModal('changePoolModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">CURRENT NUMBER</div>
+            <div id="cpCurrentNum" style="font-family:monospace;font-size:18px;font-weight:700;color:var(--primary);margin-bottom:16px;"></div>
+            <div class="fg"><label>Switch to Pool</label><select id="cpPoolSelect"></select></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">You\'ll get the next available number from the selected pool.</div>
+            <div class="brow">
+                <button class="btn btn-secondary" onclick="closeModal('changePoolModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitSwitchPool()">Switch</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- BROADCAST MODAL -->
+<div id="broadcastModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            📢 Broadcast
+            <button class="modal-close" onclick="closeModal('broadcastModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div class="fg"><label>Message</label><textarea id="broadcastMsg" rows="4" placeholder="Message to send to all users..."></textarea></div>
+            <div class="brow">
+                <button class="btn btn-secondary" onclick="closeModal('broadcastModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="sendBroadcast()">Send to All</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SEARCH OTP MODAL -->
+<div id="searchOtpModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            🔍 Search OTP
+            <button class="modal-close" onclick="closeModal('searchOtpModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div class="fg"><label>Phone Number</label><input type="text" id="searchOtpNumber" placeholder="+2348012345678"></div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Enter any number previously assigned to you. The bot will scan for an OTP and deliver it.</div>
+            <div class="brow">
+                <button class="btn btn-secondary" onclick="closeModal('searchOtpModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitSearchOTP()">Search</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- POOL ACCESS MODAL -->
+<div id="poolAccessModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            🔑 Pool Access: <span id="paPoolName"></span>
+            <button class="modal-close" onclick="closeModal('poolAccessModal')">✕</button>
+        </div>
+        <div style="padding:16px 20px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" id="paRestrictedNote"></div>
+            <div id="paUserList"></div>
+            <div class="fg" style="margin-top:14px;"><label>Add User by ID</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="number" id="paNewUserId" placeholder="User ID" style="flex:1;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;outline:none;font-size:14px;">
+                    <button class="btn btn-primary" onclick="grantAccess()">Grant</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
-const API_BASE = window.location.origin;
+const API = window.location.origin;
 let currentUser = null;
 let currentAssignment = null;
 let currentPoolId = null;
 let ws = null;
-let otpTimer = null;
-let currentFilter = null;
+let wsRetries = 0;
 let allRegions = [];
+let savedOtps = {};
+let currentFilter = '';
+let cpSavedId = null;
+let paCurrentPoolId = null;
+let editingPoolId = null;
 
-function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
-function formatTime() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
-setInterval(formatTime, 1000); formatTime();
-function copyText(t) { navigator.clipboard.writeText(t); showToast('Copied!'); }
-function fmt(n) { if (!n || n === '—') return n; return n.startsWith('+') ? n : '+' + n; }
-function setTimerPreset(value) { document.getElementById('timerInput').value = value; }
+// ═══ TIME ═══
+function tick() { document.getElementById('currentTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+setInterval(tick, 1000); tick();
 
+// ═══ UTILS ═══
+function showToast(msg, dur=2200) {
+    document.querySelectorAll('.toast').forEach(t=>t.remove());
+    const t = document.createElement('div'); t.className='toast'; t.textContent=msg;
+    document.body.appendChild(t); setTimeout(()=>t.remove(), dur);
+}
+function esc(s) { if(!s) return ''; return s.replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function fmt(n) { if(!n||n==='—') return n; return n.startsWith('+')?n:'+'+n; }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function setTimer(v) { document.getElementById('timerInput').value=v; }
+async function api(path, opts={}) {
+    const r = await fetch(API+path, {credentials:'include', ...opts});
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    return data;
+}
+
+// ═══ AUTH ═══
+function switchTab(tab) {
+    document.getElementById('loginForm').style.display = tab==='login'?'block':'none';
+    document.getElementById('registerForm').style.display = tab==='register'?'block':'none';
+    document.getElementById('tabLogin').className = 'auth-tab'+(tab==='login'?' active':'');
+    document.getElementById('tabRegister').className = 'auth-tab'+(tab==='register'?' active':'');
+}
+async function doLogin() {
+    const u = document.getElementById('loginUsername').value.trim();
+    const p = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    errEl.textContent='';
+    try {
+        await api('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        await checkAuth();
+    } catch(e) { errEl.textContent=e.message; }
+}
+async function doRegister() {
+    const u = document.getElementById('regUsername').value.trim();
+    const p = document.getElementById('regPassword').value;
+    const errEl = document.getElementById('regError');
+    errEl.textContent='';
+    if(p.length<6){errEl.textContent='Password must be at least 6 characters.';return;}
+    try {
+        const data = await api('/api/auth/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        if(data.approved) { await checkAuth(); }
+        else { errEl.textContent='Account created — awaiting admin approval.'; }
+    } catch(e) { errEl.textContent=e.message; }
+}
+async function doLogout() {
+    await fetch(API+'/api/auth/logout', {method:'POST', credentials:'include'}).catch(()=>{});
+    currentUser=null; currentAssignment=null;
+    document.getElementById('appContainer').style.display='none';
+    document.getElementById('authContainer').style.display='flex';
+    if(ws) ws.close();
+}
 async function checkAuth() {
     try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
-        if (res.ok) {
-            currentUser = await res.json();
-            document.getElementById('authContainer').style.display = 'none';
-            document.getElementById('appContainer').style.display = 'block';
-            document.getElementById('userName').textContent = currentUser.username;
-            document.getElementById('userId').textContent = `ID: ${currentUser.id}`;
-            if (currentUser.is_admin) {
-                document.getElementById('adminBadge').style.display = 'inline-block';
-                document.getElementById('adminNavItem').style.display = 'flex';
-                document.getElementById('adminPage').classList.remove('hidden');
-                loadAdminPools();
-            }
-            connectWebSocket();
-            loadRegions();
-            loadCurrentAssignment();
-            loadSavedNumbers();
-            loadHistory();
-            return true;
+        currentUser = await api('/api/auth/me');
+        document.getElementById('authContainer').style.display='none';
+        document.getElementById('appContainer').style.display='block';
+        document.getElementById('userName').textContent = currentUser.username;
+        document.getElementById('userId').textContent = 'ID: '+currentUser.id;
+        if(currentUser.is_admin) {
+            document.getElementById('adminBadge').style.display='inline-block';
+            document.getElementById('adminNavItem').classList.remove('hidden');
+            document.getElementById('adminPage').classList.remove('hidden');
         }
-    } catch(e) {}
-    document.getElementById('authContainer').style.display = 'flex';
-    document.getElementById('appContainer').style.display = 'none';
-    return false;
+        connectWS();
+        loadRegions();
+        loadCurrentAssignment();
+        loadSavedNumbers();
+        loadHistory();
+        return true;
+    } catch(e) {
+        document.getElementById('authContainer').style.display='flex';
+        document.getElementById('appContainer').style.display='none';
+        return false;
+    }
 }
 
-async function doLogin() {
-    const username = document.getElementById('loginUsername').value;
-    const password = document.getElementById('loginPassword').value;
-    const errorEl = document.getElementById('loginError');
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (res.ok) { checkAuth(); }
-        else { errorEl.textContent = data.detail || 'Login failed'; }
-    } catch(e) { errorEl.textContent = 'Network error'; }
-}
-
-async function doRegister() {
-    const username = document.getElementById('regUsername').value;
-    const password = document.getElementById('regPassword').value;
-    const errorEl = document.getElementById('regError');
-    if (password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; return; }
-    try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            if (data.approved) { checkAuth(); }
-            else { errorEl.textContent = 'Awaiting admin approval'; }
-        } else { errorEl.textContent = data.detail || 'Registration failed'; }
-    } catch(e) { errorEl.textContent = 'Network error'; }
-}
-
-function connectWebSocket() {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}/ws/user/${currentUser.id}`);
+// ═══ WEBSOCKET ═══
+function connectWS() {
+    const proto = location.protocol==='https:'?'wss:':'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/user/${currentUser.id}`);
+    ws.onopen = () => { document.getElementById('wsStatus').textContent='🟢'; wsRetries=0; };
     ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.type === 'otp') displayOTP(data);
-        else if (data.type === 'saved_otp') displaySavedOTP(data);
-        else if (data.type === 'broadcast') showToast(`📢 ${data.message}`);
+        const d = JSON.parse(e.data);
+        if(d.type==='otp') displayOTP(d, false);
+        else if(d.type==='saved_otp') displaySavedOTP(d);
+        else if(d.type==='broadcast'||d.type==='notification') showToast('📢 '+d.message, 4000);
     };
-    ws.onclose = () => setTimeout(connectWebSocket, 5000);
+    ws.onclose = () => {
+        document.getElementById('wsStatus').textContent='🔴';
+        wsRetries = Math.min(wsRetries+1, 6);
+        setTimeout(connectWS, Math.min(1000*wsRetries, 30000));
+    };
+    ws.onerror = () => ws.close();
 }
 
-function displayOTP(data) {
-    const otpDiv = document.getElementById('otpDisplay');
-    if (otpTimer) clearTimeout(otpTimer);
-    otpDiv.innerHTML = `<div class="otp-card"><div style="text-align:center;font-size:12px;">🔑 OTP CODE</div><div class="otp-code" onclick="copyText('${data.otp}')">${data.otp}</div><div class="otp-timer" id="otpCountdown">Auto-delete in 30s</div><div class="otp-message">${escapeHtml(data.raw_message || '')}</div></div>`;
-    otpDiv.style.display = 'block';
-    let seconds = 30;
-    const timer = setInterval(() => { seconds--; const cd = document.getElementById('otpCountdown'); if (cd) cd.textContent = `Auto-delete in ${seconds}s`; if (seconds <= 0) { clearInterval(timer); otpDiv.style.display = 'none'; } }, 1000);
-    otpTimer = setTimeout(() => { clearInterval(timer); otpDiv.style.display = 'none'; }, 30000);
+// ═══ OTP DISPLAY ═══
+function displayOTP(data, isSaved=false) {
+    const containerId = isSaved ? null : (document.getElementById('numbersPage').classList.contains('active') ? 'otpDisplay' : 'homeOtpDisplay');
+    const html = `<div class="otp-card">
+        <div style="text-align:center;font-size:11px;opacity:0.85;">🔑 OTP RECEIVED</div>
+        <div class="otp-code" onclick="copyText('${esc(data.otp)}')">${esc(data.otp)}</div>
+        <div class="otp-timer" id="ocd_${data.id}">Auto-delete in 30s — tap code to copy</div>
+        ${data.raw_message?`<div class="otp-message">${esc(data.raw_message)}</div>`:''}
+    </div>`;
+    if(containerId) {
+        const el = document.getElementById(containerId);
+        el.innerHTML = html; el.style.display='block';
+        let s=30;
+        const t=setInterval(()=>{
+            s--; const cd=document.getElementById('ocd_'+data.id);
+            if(cd) cd.textContent=`Auto-delete in ${s}s — tap code to copy`;
+            if(s<=0){clearInterval(t); el.style.display='none';}
+        },1000);
+    }
     loadHistory();
 }
-
 function displaySavedOTP(data) {
-    // Store OTP for the saved number card and refresh ready list
-    savedOtps[data.number] = { otp: data.otp, raw_message: data.raw_message || '' };
-    showToast(`🔑 OTP for ${data.number}: ${data.otp}`);
+    savedOtps[data.number] = {otp:data.otp, raw_message:data.raw_message||''};
+    showToast(`🔑 OTP for ${data.number}: ${data.otp}`, 5000);
     loadReadyNumbers();
-    // Auto-clear after 30s
-    setTimeout(() => {
-        delete savedOtps[data.number];
-        loadReadyNumbers();
-    }, 30000);
+    setTimeout(()=>{delete savedOtps[data.number]; loadReadyNumbers();}, 30000);
     loadHistory();
 }
+function copyText(t) { navigator.clipboard.writeText(t).catch(()=>{}); showToast('📋 Copied!'); }
 
+// ═══ NAVIGATION ═══
+function navigateTo(page) {
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById(page+'Page').classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    const navEl = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if(navEl) navEl.classList.add('active');
+    if(page==='numbers') loadRegions();
+    if(page==='saved') loadSavedNumbers();
+    if(page==='history') loadHistory();
+}
+
+// ═══ REGIONS ═══
 async function loadRegions() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        if (!res.ok) throw new Error();
-        allRegions = await res.json();
-        const container = document.getElementById('regionList');
-        let filtered = allRegions;
-        if (currentFilter) filtered = allRegions.filter(r => r.name.toLowerCase().includes(currentFilter.toLowerCase()) || r.country_code.includes(currentFilter));
-        if (!filtered.length) { container.innerHTML = '<div class="loading">No regions available</div>'; return; }
-        container.innerHTML = filtered.map(r => `<div class="region-item" onclick="selectRegion(${r.id})"><div><div class="region-name">${escapeHtml(r.name)}</div><div class="region-code">+${r.country_code}</div>${r.trick_text ? `<div style="font-size:11px;color:#f59e0b;">💡 ${escapeHtml(r.trick_text)}</div>` : ''}</div><div>${r.is_paused ? '<span style="color:#ef4444;font-size:12px;">⏸ Paused</span>' : `<span class="region-count">${r.number_count}</span>`}</div></div>`).join('');
-    } catch(e) { document.getElementById('regionList').innerHTML = '<div class="loading">Failed to load regions</div>'; }
+        allRegions = await api('/api/pools');
+        renderRegions();
+    } catch(e) { document.getElementById('regionList').innerHTML='<div class="loading">Failed to load regions</div>'; }
 }
-
-function applyFilter() { currentFilter = document.getElementById('prefixFilter').value.trim(); loadRegions(); }
+function renderRegions() {
+    const container = document.getElementById('regionList');
+    let data = allRegions;
+    if(currentFilter) data = data.filter(r=>r.name.toLowerCase().includes(currentFilter.toLowerCase())||r.country_code.includes(currentFilter));
+    if(!data.length){container.innerHTML='<div class="loading">No regions available</div>';return;}
+    container.innerHTML = data.map(r => {
+        const low = r.number_count>0 && r.number_count<50;
+        const badge = r.is_paused
+            ? `<span class="region-count paused">⏸ Paused</span>`
+            : `<span class="region-count${low?' low':''}">${r.number_count}${low?' ⚡':''}</span>`;
+        const mode = r.uses_platform===1?'🖥️':r.uses_platform===2?'📱🖥️':'📱';
+        const restricted = r.is_restricted?'🔐':'';
+        const adminOnly = r.is_admin_only?'🔒':'';
+        return `<div class="region-item" onclick="selectRegion(${r.id})">
+            <div>
+                <div class="region-name">${esc(r.name)} ${adminOnly}${restricted}</div>
+                <div class="region-sub">+${r.country_code} · ${mode}${r.trick_text?` · 💡 ${esc(r.trick_text)}`:''}</div>
+            </div>
+            ${badge}
+        </div>`;
+    }).join('');
+}
+function applyFilter() { currentFilter=document.getElementById('prefixFilter').value.trim(); renderRegions(); }
+function clearFilter() { currentFilter=''; document.getElementById('prefixFilter').value=''; renderRegions(); }
 
 async function selectRegion(poolId) {
-    const region = allRegions.find(r => r.id === poolId);
-    if (region.is_paused) { showToast(`Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
+    const region = allRegions.find(r=>r.id===poolId);
+    if(region?.is_paused){showToast(`⏸ ${region.pause_reason||'Region temporarily unavailable'}`);return;}
     try {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ pool_id: poolId })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            currentAssignment = data;
-            currentPoolId = data.pool_id;
-            document.getElementById('currentNumber').textContent = fmt(data.number);
-            document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
-            document.getElementById('currentRegion').textContent = data.pool_name;
-            showToast(`Number assigned: ${fmt(data.number)}`);
-            document.getElementById('otpDisplay').style.display = 'none';
-            if (otpTimer) clearTimeout(otpTimer);
-        } else { showToast(data.detail || 'Failed to assign number'); }
-    } catch(e) { showToast('Network error'); }
+        const data = await api('/api/pools/assign', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pool_id:poolId})});
+        currentAssignment = data; currentPoolId = data.pool_id;
+        document.getElementById('currentNumber').textContent = fmt(data.number);
+        document.getElementById('currentRegion').textContent = data.pool_name;
+        document.getElementById('homeNumber').textContent = fmt(data.number);
+        document.getElementById('homeRegion').textContent = data.pool_name;
+        document.getElementById('otpDisplay').style.display='none';
+        showToast(`✅ Number assigned: ${fmt(data.number)}`);
+        if(data.trick_text) showToast(`💡 ${data.trick_text}`, 4000);
+        loadRegions();
+    } catch(e) { showToast(e.message); }
 }
 
 async function loadCurrentAssignment() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
-        const data = await res.json();
-        if (data.assignment) {
-            currentAssignment = data.assignment;
-            currentPoolId = data.assignment.pool_id;
+        const data = await api('/api/pools/my-assignment');
+        if(data.assignment) {
+            currentAssignment = data.assignment; currentPoolId = data.assignment.pool_id;
             document.getElementById('currentNumber').textContent = fmt(currentAssignment.number);
-            document.getElementById('currentNumber').onclick = () => { copyText(fmt(currentAssignment.number)); showToast('📋 Number copied!'); };
             document.getElementById('currentRegion').textContent = currentAssignment.pool_name;
+            document.getElementById('homeNumber').textContent = fmt(currentAssignment.number);
+            document.getElementById('homeRegion').textContent = currentAssignment.pool_name;
         }
-    } catch(e) {}
+    } catch(e){}
 }
 
+// ═══ NUMBER ACTIONS ═══
 async function changeNumber() {
-    if (!currentAssignment) { showToast('No active number to change'); return; }
+    if(!currentAssignment){showToast('No active number');return;}
     document.getElementById('feedbackNumber').textContent = fmt(currentAssignment.number);
-    document.getElementById('feedbackModal').classList.add('show');
+    document.getElementById('otherFeedbackDiv').style.display='none';
+    document.getElementById('otherFeedbackText').value='';
+    openModal('feedbackModal');
 }
+function copyNumber() {
+    if(currentAssignment) copyText(fmt(currentAssignment.number));
+    else showToast('No number to copy');
+}
+function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display='block'; }
 
 async function submitFeedback(type) {
-    const comment = type === 'other' ? document.getElementById('otherFeedbackText').value : type;
-    const markAsBad = type === 'bad';
-
-    // Close modal immediately — don't make user wait
-    document.getElementById('feedbackModal').classList.remove('show');
-    document.getElementById('otherFeedbackDiv').style.display = 'none';
-    document.getElementById('otherFeedbackText').value = '';
-
-    if (currentAssignment) {
-        const savedAssignment = currentAssignment;
-        const savedPoolId = currentPoolId;
-
-        // Show loading state instantly
-        document.getElementById('currentNumber').textContent = '...';
-
-        // Fire review + release in parallel, don't await review
-        const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
-        fetch(`${API_BASE}/api/reviews`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number: savedAssignment.number, rating: markAsBad ? 1 : 4, comment: comment, mark_as_bad: markAsBad })
-        }); // fire and forget — don't block on this
-
-        await releasePromise;
-
-        if (savedPoolId) {
-            const res = await fetch(`${API_BASE}/api/pools/assign`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                body: JSON.stringify({ pool_id: savedPoolId })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                currentAssignment = data;
-                document.getElementById('currentNumber').textContent = fmt(data.number);
-                document.getElementById('currentNumber').onclick = () => { copyText(fmt(data.number)); showToast('📋 Number copied!'); };
-                document.getElementById('currentRegion').textContent = data.pool_name;
-                document.getElementById('otpDisplay').style.display = 'none';
-                if (otpTimer) clearTimeout(otpTimer);
-                showToast(`✅ New number: ${fmt(data.number)}`);
-            } else {
-                showToast('No more numbers in this pool, please select another region');
-                currentAssignment = null;
-                currentPoolId = null;
-                document.getElementById('currentNumber').textContent = '—';
-                document.getElementById('currentRegion').textContent = 'No region selected';
-            }
-        }
-        loadRegions();
-    }
-}
-
-function showOtherFeedback() { document.getElementById('otherFeedbackDiv').style.display = 'block'; }
-function copyNumber() { if (currentAssignment) copyText(fmt(currentAssignment.number)); else showToast('No number to copy'); }
-
-function parseTimer(timer) {
-    const match = timer.match(/^(\d+)([smhd])$/i);
-    if (match) {
-        const num = parseInt(match[1]);
-        const unit = match[2].toLowerCase();
-        if (unit === 's') return Math.max(1, Math.ceil(num / 60));
-        if (unit === 'h') return num * 60;
-        if (unit === 'd') return num * 1440;
-    }
-    const num = parseInt(timer);
-    return isNaN(num) ? 30 : num;
-}
-
-async function saveNumbers() {
-    const numbers = document.getElementById('savedNumbersInput').value.split('\\n').map(l => l.trim()).filter(l => l);
-    const timerRaw = document.getElementById('timerInput').value.trim();
-    const timerMinutes = parseTimer(timerRaw);
-    const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
-    if (!numbers.length) { showToast('Enter at least one number'); return; }
+    if(!currentAssignment) return;
+    const savedAsgn = currentAssignment;
+    const savedPoolId = currentPoolId;
+    closeModal('feedbackModal');
+    document.getElementById('currentNumber').textContent='...';
+    const comment = type==='other' ? document.getElementById('otherFeedbackText').value : type;
+    const markBad = type==='bad';
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ numbers, timer_minutes: timerMinutes, pool_name: poolName })
-        });
-        const data = await res.json();
-        if (res.ok) { showToast(`Saved ${data.saved} numbers`); document.getElementById('savedNumbersInput').value = ''; loadSavedNumbers(); }
-        else { showToast(data.detail || 'Failed to save'); }
-    } catch(e) { showToast('Network error'); }
+        await api(`/api/pools/release/${savedAsgn.assignment_id}`, {method:'POST'});
+        fetch(API+'/api/reviews', {method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify({number:savedAsgn.number, rating:markBad?1:4, comment:comment, mark_as_bad:markBad})});
+        if(savedPoolId) {
+            const data = await api('/api/pools/assign', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pool_id:savedPoolId})});
+            currentAssignment=data; currentPoolId=data.pool_id;
+            document.getElementById('currentNumber').textContent=fmt(data.number);
+            document.getElementById('currentRegion').textContent=data.pool_name;
+            document.getElementById('homeNumber').textContent=fmt(data.number);
+            document.getElementById('homeRegion').textContent=data.pool_name;
+            document.getElementById('otpDisplay').style.display='none';
+            document.getElementById('homeOtpDisplay').innerHTML='';
+            showToast(`✅ New number: ${fmt(data.number)}`);
+        } else {
+            currentAssignment=null; currentPoolId=null;
+            document.getElementById('currentNumber').textContent='—';
+            document.getElementById('currentRegion').textContent='No region selected';
+        }
+    } catch(e) { showToast(e.message); document.getElementById('currentNumber').textContent='—'; }
+    loadRegions();
+}
+
+// ═══ SEARCH OTP ═══
+function doSearchOTP() {
+    if(currentAssignment) document.getElementById('searchOtpNumber').value = currentAssignment.number;
+    openModal('searchOtpModal');
+}
+async function submitSearchOTP() {
+    const num = document.getElementById('searchOtpNumber').value.trim();
+    if(!num){showToast('Enter a number');return;}
+    closeModal('searchOtpModal');
+    try {
+        const data = await api('/api/otp/search?number='+encodeURIComponent(num), {method:'POST'});
+        showToast('👁️ Monitoring started — OTP will arrive shortly');
+    } catch(e) { showToast(e.message); }
+}
+
+// ═══ SAVED NUMBERS ═══
+function parseTimer(s) {
+    const m = s.match(/^(\d+)([smhd])$/i);
+    if(m) { const n=parseInt(m[1]),u=m[2].toLowerCase(); if(u==='s') return Math.max(1,Math.ceil(n/60)); if(u==='h') return n*60; if(u==='d') return n*1440; }
+    const n=parseInt(s); return isNaN(n)?30:n;
+}
+async function saveNumbers() {
+    const nums = document.getElementById('savedNumbersInput').value.split('\n').map(l=>l.trim()).filter(Boolean);
+    const timerMins = parseTimer(document.getElementById('timerInput').value.trim()||'30m');
+    const poolName = document.getElementById('poolNameInput').value.trim()||'Default';
+    if(!nums.length){showToast('Enter at least one number');return;}
+    try {
+        const data = await api('/api/saved', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({numbers:nums, timer_minutes:timerMins, pool_name:poolName})});
+        showToast(`💾 Saved ${data.saved} numbers`);
+        document.getElementById('savedNumbersInput').value='';
+        loadSavedNumbers();
+    } catch(e) { showToast(e.message); }
 }
 
 async function loadSavedNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
-        const data = await res.json();
-        const container = document.getElementById('savedList');
-        const activeItems = data.filter(item => !item.moved);
-
-        if (!activeItems.length) {
-            container.innerHTML = '<div class="loading">No active saved pools</div>';
-            document.getElementById('savedPoolsSection').style.display = 'none';
-        } else {
-            // Group by pool_name — show counts only, not individual numbers
+        const data = await api('/api/saved');
+        const pending = data.filter(i=>!i.moved);
+        const savedList = document.getElementById('savedList');
+        const pendingSection = document.getElementById('pendingSection');
+        if(!pending.length) { pendingSection.style.display='none'; savedList.innerHTML=''; }
+        else {
+            pendingSection.style.display='block';
+            // Group by pool_name
             const grouped = {};
-            activeItems.forEach(item => {
-                if (!grouped[item.pool_name]) grouped[item.pool_name] = { items: [], minSeconds: Infinity, status: 'green' };
-                grouped[item.pool_name].items.push(item);
-                if (item.seconds_left < grouped[item.pool_name].minSeconds) {
-                    grouped[item.pool_name].minSeconds = item.seconds_left;
-                    grouped[item.pool_name].status = item.status;
-                }
-            });
-
-            document.getElementById('savedPoolsSection').style.display = 'block';
-            container.innerHTML = Object.entries(grouped).map(([poolName, g]) => {
-                const count = g.items.length;
-                const minSec = g.minSeconds;
-                let cls = 'timer-green', time = `${Math.floor(minSec / 60)}m ${minSec % 60}s`;
-                if (g.status === 'yellow') cls = 'timer-yellow';
-                if (g.status === 'red') cls = 'timer-red';
-                if (g.status === 'expired') { cls = 'timer-red'; time = 'Expiring'; }
-                const ids = g.items.map(i => i.id);
-                return `<div class="saved-item">
+            pending.forEach(i=>{if(!grouped[i.pool_name])grouped[i.pool_name]={items:[],minSec:Infinity,status:'green'};grouped[i.pool_name].items.push(i);if(i.seconds_left<grouped[i.pool_name].minSec){grouped[i.pool_name].minSec=i.seconds_left;grouped[i.pool_name].status=i.status;}});
+            savedList.innerHTML = Object.entries(grouped).map(([pname,g])=>{
+                const ids=g.items.map(i=>i.id);
+                const count=g.items.length;
+                const minSec=g.minSec;
+                const m=Math.floor(minSec/60), s=minSec%60;
+                const timeStr=`${m}m ${s}s`;
+                const bc=g.status==='yellow'?'badge-yellow':g.status==='red'?'badge-red':g.status==='expired'?'badge-red':'badge-green';
+                return `<div class="list-item">
                     <div>
-                        <div class="saved-number">📦 ${escapeHtml(poolName)}</div>
-                        <div class="saved-timer">${count} number${count !== 1 ? 's' : ''} saved — timer running</div>
+                        <div class="item-number">📦 ${esc(pname)}</div>
+                        <div class="item-sub">${count} number${count!==1?'s':''} • timer running</div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="timer-badge ${cls}">${time}</span>
-                        <button onclick="deleteSavedPool(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="background:none;border:none;font-size:20px;cursor:pointer;" title="Delete pool">🗑️</button>
+                        <span class="timer-badge ${bc}">${g.status==='expired'?'Expiring':timeStr}</span>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSavedPool(${JSON.stringify(ids)})">🗑️</button>
                     </div>
                 </div>`;
             }).join('');
         }
-    } catch(e) {}
+    } catch(e){}
     loadReadyNumbers();
 }
 
 async function deleteSavedPool(ids) {
-    if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
-    for (const id of ids) {
-        await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
-    }
+    if(!confirm(`Delete all ${ids.length} number(s)?`)) return;
+    for(const id of ids) await fetch(API+'/api/saved/'+id, {method:'DELETE', credentials:'include'}).catch(()=>{});
     loadSavedNumbers();
 }
 
-// Track OTPs per saved number (number -> {otp, raw_message, timer})
-const savedOtps = {};
-
 async function loadReadyNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready`, { credentials: 'include' });
-        const data = await res.json();
+        const data = await api('/api/saved/ready');
+        const wrapper = document.getElementById('readySectionWrapper');
         const container = document.getElementById('readyList');
-        const section = document.getElementById('readySection');
-        if (!data.length) { section.style.display = 'none'; container.innerHTML = ''; return; }
-        section.style.display = 'block';
-
-        // Group all slots by pool_name — each pool is one independent queue
-        const grouped = {};
-        data.forEach(item => {
-            if (!grouped[item.pool_name]) grouped[item.pool_name] = [];
-            grouped[item.pool_name].push(item);
-        });
-
-        let html = '';
-        Object.entries(grouped).forEach(([poolName, items]) => {
-            const active = items[0]; // front of queue for this pool
-            const queueCount = items.length;
-            const otpInfo = savedOtps[active.number];
-            const otpHtml = otpInfo
-                ? `<div class="otp-card" style="margin-top:8px;padding:8px 12px;">
-                    <div style="font-size:11px;color:#7e8a9a;">🔑 OTP CODE</div>
-                    <div class="otp-code" onclick="copyText('${otpInfo.otp}')" style="font-size:22px;cursor:pointer;">${otpInfo.otp} 📋</div>
-                    ${otpInfo.raw_message ? `<div class="otp-message" style="font-size:11px;color:#9ca3af;margin-top:4px;">${escapeHtml(otpInfo.raw_message)}</div>` : ''}
-                  </div>` : '';
-            html += `
-            <div style="padding: 0 16px 8px;">
-                <div style="font-size:12px;font-weight:700;color:#7e8a9a;text-transform:uppercase;letter-spacing:1px;padding:8px 0 6px;">
-                    📦 ${escapeHtml(poolName)} <span style="color:#0a84ff;">(${queueCount} in queue)</span>
+        if(!data.length){wrapper.style.display='none';container.innerHTML='';return;}
+        wrapper.style.display='block';
+        // Group by pool_name — each pool is an independent queue
+        const grouped={};
+        data.forEach(i=>{if(!grouped[i.pool_name])grouped[i.pool_name]=[];grouped[i.pool_name].push(i);});
+        container.innerHTML = Object.entries(grouped).map(([pname,items])=>{
+            const active=items[0];
+            const qCount=items.length;
+            const otpInfo=savedOtps[active.number];
+            const otpHtml=otpInfo?`<div class="otp-card" style="margin:8px 0 0;padding:12px 16px;">
+                <div style="font-size:11px;">🔑 OTP CODE</div>
+                <div class="otp-code" style="font-size:28px;cursor:pointer;" onclick="copyText('${esc(otpInfo.otp)}')">${esc(otpInfo.otp)} 📋</div>
+                ${otpInfo.raw_message?`<div class="otp-message">${esc(otpInfo.raw_message)}</div>`:''}
+            </div>`:'';
+            return `<div class="ready-pool-card">
+                <div class="ready-pool-header">
+                    <span class="ready-pool-name">📦 ${esc(pname)}</span>
+                    <span class="ready-queue">${qCount} in queue</span>
                 </div>
-                <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:8px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div class="saved-number" onclick="copyText('${active.number.replace(/'/g,"\'")}');showToast('📋 Copied!')" style="cursor:pointer;" title="Tap to copy">
-                            ${escapeHtml(active.number)} 📋
-                        </div>
-                        <span class="timer-badge timer-ready">READY</span>
-                    </div>
-                    <div style="font-size:11px;color:#7e8a9a;margin-bottom:2px;">
-                        Slot 1 of ${queueCount} — tap number to copy
-                    </div>
-                    <div style="display:flex;gap:8px;">
-                        <button class="btn btn-sm btn-secondary" onclick="doNextNumber(${active.id}, '${poolName.replace(/'/g,"\\'")}')">🔄 Change Number</button>
-                        <button class="btn btn-sm btn-secondary" onclick="openSwitchPool(${active.id}, '${active.number.replace(/'/g,"\'")}', '${poolName.replace(/'/g,"\'")}')">🌐 Change Pool</button>
-                    </div>
-                    ${otpHtml}
+                <div class="ready-number" onclick="copyText('${active.number}');showToast('📋 Copied!')" title="Tap to copy">
+                    ${esc(active.number)} <span style="font-size:14px;">📋</span>
                 </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">Slot 1 of ${qCount} — tap number to copy</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary btn-sm" onclick="doNextNumber(${active.id},'${pname.replace(/'/g,"\\'")}')">🔄 Change Number</button>
+                    <button class="btn btn-secondary btn-sm" onclick="openChangePool(${active.id},'${active.number.replace(/'/g,"\\'")}','${pname.replace(/'/g,"\\'")}')">🌐 Change Pool</button>
+                    <button class="btn btn-primary btn-sm" onclick="triggerSavedMonitor('${active.number.replace(/'/g,"\\'")}')">👁️ Monitor</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteReady(${active.id})">🗑️</button>
+                </div>
+                ${otpHtml}
             </div>`;
-        });
-        container.innerHTML = html;
-    } catch(e) {}
+        }).join('');
+    } catch(e){}
 }
-
-let changeTargetId = null;
 
 async function doNextNumber(id, poolName) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST', credentials: 'include' });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(`New number: ${data.number}`);
-            // Trigger monitor bot for the new number from the same pool
-            await triggerSavedMonitor(data.number);
-            loadReadyNumbers();
-        } else { showToast(data.detail || 'No more numbers in this pool'); }
-    } catch(e) { showToast('Network error'); }
+        const data = await api(`/api/saved/${id}/next-number`, {method:'POST'});
+        showToast(`🔄 New number: ${data.number}`);
+        await triggerSavedMonitor(data.number);
+        loadReadyNumbers();
+    } catch(e) { showToast(e.message); }
 }
 
 async function triggerSavedMonitor(number) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-            body: JSON.stringify({ number })
-        });
-        if (res.ok) { showToast('👁️ Monitoring started...'); }
+        await api('/api/saved/trigger-monitor', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({number})});
+        showToast('👁️ Monitoring started...');
     } catch(e) { /* silent */ }
 }
 
-async function openSwitchPool(id, number, currentPool) {
-    changeTargetId = id;
-    document.getElementById('changePoolCurrentNum').textContent = number;
+async function openChangePool(id, number, currentPool) {
+    cpSavedId=id;
+    document.getElementById('cpCurrentNum').textContent=number;
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, { credentials: 'include' });
-        const readyPools = await res.json();
-        const select = document.getElementById('changePoolSelect');
-        const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
-        if (!options.length) { showToast('No other pools with available numbers'); return; }
-        select.innerHTML = options.map(p => `<option value="${escapeHtml(p.pool_name)}">${escapeHtml(p.pool_name)} (${p.count} available)</option>`).join('');
-        document.getElementById('changePoolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pools'); }
+        const pools = await api('/api/saved/ready-pools');
+        const opts = pools.filter(p=>p.pool_name!==currentPool && p.count>0);
+        if(!opts.length){showToast('No other pools with available numbers');return;}
+        document.getElementById('cpPoolSelect').innerHTML = opts.map(p=>`<option value="${esc(p.pool_name)}">${esc(p.pool_name)} (${p.count} available)</option>`).join('');
+        openModal('changePoolModal');
+    } catch(e){showToast(e.message);}
 }
 
 async function submitSwitchPool() {
-    const newPool = document.getElementById('changePoolSelect').value;
-    if (!newPool) { showToast('Select a pool'); return; }
+    const newPool = document.getElementById('cpPoolSelect').value;
+    if(!newPool||!cpSavedId) return;
+    closeModal('changePoolModal');
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST', credentials: 'include' });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(`Switched to ${newPool}: ${data.number}`);
-            document.getElementById('changePoolModal').classList.remove('show');
-            await triggerSavedMonitor(data.number);
-            loadReadyNumbers();
-        } else { showToast(data.detail || 'Switch failed'); }
-    } catch(e) { showToast('Network error'); }
+        const data = await api(`/api/saved/${cpSavedId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, {method:'POST'});
+        showToast(`🌐 Switched to ${newPool}: ${data.number}`);
+        await triggerSavedMonitor(data.number);
+        loadReadyNumbers();
+    } catch(e){showToast(e.message);}
 }
 
-async function deleteSaved(id) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' }); loadSavedNumbers(); }
+async function deleteReady(id) {
+    await fetch(API+'/api/saved/'+id, {method:'DELETE', credentials:'include'});
+    loadReadyNumbers();
+}
 
+// ═══ HISTORY ═══
 async function loadHistory() {
     try {
-        const res = await fetch(`${API_BASE}/api/otp/my`, { credentials: 'include' });
-        const data = await res.json();
+        const data = await api('/api/otp/my');
         const container = document.getElementById('historyList');
-        if (!data.length) { container.innerHTML = '<div class="loading">No OTP history</div>'; return; }
-        container.innerHTML = data.map(item => `<div class="history-item"><div class="history-number">${escapeHtml(item.number)}</div><div class="history-otp" onclick="copyText('${item.otp_code}')">${item.otp_code} 📋</div><div class="history-time">${new Date(item.delivered_at).toLocaleString()}</div></div>`).join('');
-    } catch(e) {}
-}
-
-// Admin functions
-let currentEditPoolId = null;
-
-function openCreatePoolModal() {
-    currentEditPoolId = null;
-    document.getElementById('poolModalTitle').textContent = 'Create New Pool';
-    document.getElementById('poolName').value = '';
-    document.getElementById('poolCode').value = '';
-    document.getElementById('poolGroupId').value = '';
-    document.getElementById('poolOtpLink').value = '';
-    document.getElementById('poolMatchFormat').value = '5+4';
-    document.getElementById('poolTelegramMatchFormat').value = '';
-    document.getElementById('poolUsesPlatform').value = '0';
-    document.getElementById('poolTrickText').value = '';
-    document.getElementById('poolAdminOnly').checked = false;
-    document.getElementById('poolPaused').checked = false;
-    document.getElementById('pauseReasonDiv').style.display = 'none';
-    document.getElementById('poolModal').classList.add('show');
-}
-
-async function openEditPoolModal(poolId) {
-    currentEditPoolId = poolId;
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const pool = pools.find(p => p.id === poolId);
-        if (!pool) return;
-        document.getElementById('poolModalTitle').textContent = `Edit Pool: ${pool.name}`;
-        document.getElementById('poolName').value = pool.name;
-        document.getElementById('poolCode').value = pool.country_code;
-        document.getElementById('poolGroupId').value = pool.otp_group_id || '';
-        document.getElementById('poolOtpLink').value = pool.otp_link || '';
-        document.getElementById('poolMatchFormat').value = pool.match_format || '5+4';
-        document.getElementById('poolTelegramMatchFormat').value = pool.telegram_match_format || '';
-        document.getElementById('poolUsesPlatform').value = pool.uses_platform || 0;
-        document.getElementById('poolTrickText').value = pool.trick_text || '';
-        document.getElementById('poolAdminOnly').checked = pool.is_admin_only || false;
-        document.getElementById('poolPaused').checked = pool.is_paused || false;
-        document.getElementById('pauseReasonDiv').style.display = pool.is_paused ? 'block' : 'none';
-        document.getElementById('poolPauseReason').value = pool.pause_reason || '';
-        document.getElementById('poolModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pool data'); }
-}
-
-async function savePool() {
-    const data = {
-        name: document.getElementById('poolName').value.trim(),
-        country_code: document.getElementById('poolCode').value.trim(),
-        otp_group_id: parseInt(document.getElementById('poolGroupId').value) || null,
-        otp_link: document.getElementById('poolOtpLink').value.trim(),
-        match_format: document.getElementById('poolMatchFormat').value.trim(),
-        telegram_match_format: document.getElementById('poolTelegramMatchFormat').value.trim(),
-        uses_platform: parseInt(document.getElementById('poolUsesPlatform').value),
-        trick_text: document.getElementById('poolTrickText').value.trim(),
-        is_admin_only: document.getElementById('poolAdminOnly').checked,
-        is_paused: document.getElementById('poolPaused').checked,
-        pause_reason: document.getElementById('poolPauseReason').value.trim()
-    };
-    if (!data.name || !data.country_code) { showToast('Pool name and country code are required'); return; }
-    try {
-        const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
-        const method = currentEditPoolId ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data) });
-        if (res.ok) {
-            showToast(currentEditPoolId ? 'Pool updated!' : 'Pool created!');
-            closePoolModal();
-            loadAdminPools();
-        } else { const err = await res.json(); showToast(err.detail || 'Failed to save pool'); }
-    } catch(e) { showToast('Network error'); }
-}
-
-function closePoolModal() { document.getElementById('poolModal').classList.remove('show'); }
-
-async function loadAdminPools() {
-    try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const container = document.getElementById('poolsList');
-        if (!pools.length) { container.innerHTML = '<div class="loading">No pools — create one above</div>'; return; }
-        container.innerHTML = pools.map(p => `
-            <div class="saved-item" style="flex-direction:column;align-items:stretch;gap:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div class="saved-number">${escapeHtml(p.name)} (+${p.country_code})</div>
-                        <div class="saved-timer">${p.number_count} numbers • Mode: ${p.uses_platform} • Format: ${p.match_format}${p.is_paused ? ' • <span style="color:#ef4444;">⏸ Paused</span>' : ''}${p.is_admin_only ? ' • 🔒' : ''}</div>
-                        ${p.trick_text ? `<div style="font-size:11px;color:#f59e0b;margin-top:2px;">💡 ${escapeHtml(p.trick_text)}</div>` : ''}
-                    </div>
-                    <div style="display:flex;gap:4px;">
-                        <button class="btn btn-sm btn-primary" onclick="openEditPoolModal(${p.id})">✏️</button>
-                        <button class="btn btn-sm btn-danger" onclick="deletePool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🗑️</button>
-                    </div>
+        if(!data.length){container.innerHTML='<div class="loading">No OTP history yet</div>';return;}
+        container.innerHTML = data.map(item=>`<div class="list-item column">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div class="item-number" style="font-size:13px;">${esc(item.number)}</div>
+                    <div class="item-sub">${new Date(item.delivered_at).toLocaleString()}</div>
                 </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn btn-sm btn-secondary" onclick="cutPoolNumbers(${p.id})">✂️ Cut</button>
-                    <button class="btn btn-sm btn-secondary" onclick="exportPool(${p.id})">📤 Export</button>
-                    <button class="btn btn-sm btn-danger" onclick="clearPool(${p.id}, '${escapeHtml(p.name).replace(/'/g,"\\'")}')">🧹 Clear</button>
-                    <button class="btn btn-sm btn-secondary" onclick="${p.is_paused ? `resumePool(${p.id})` : `pausePool(${p.id})`}">${p.is_paused ? '▶ Resume' : '⏸ Pause'}</button>
-                    <button class="btn btn-sm btn-secondary" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only ? '🔓 Public' : '🔒 Admin Only'}</button>
-                </div>
-            </div>`).join('');
-    } catch(e) { document.getElementById('poolsList').innerHTML = '<div class="loading">Failed to load pools</div>'; }
+                <button class="btn btn-secondary btn-sm" onclick="copyText('${esc(item.otp_code)}')">📋</button>
+            </div>
+            <div class="history-otp" onclick="copyText('${esc(item.otp_code)}')">${esc(item.otp_code)} 📋</div>
+            ${item.raw_message?`<div style="font-size:11px;color:var(--text-muted);">${esc(item.raw_message)}</div>`:''}
+        </div>`).join('');
+    } catch(e){}
 }
 
-async function cutPoolNumbers(poolId) {
-    const count = prompt('How many numbers to cut from the top?');
-    if (!count || isNaN(parseInt(count))) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`✂️ Removed ${data.removed} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Cut failed');
-}
-
-function exportPool(poolId) {
-    window.open(`${API_BASE}/api/admin/pools/${poolId}/export`, '_blank');
-}
-
-async function clearPool(poolId, poolName) {
-    if (!confirm(`⚠️ Clear ALL numbers from "${poolName}"? This cannot be undone!`)) return;
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(`🧹 Cleared ${data.deleted} numbers`); loadAdminPools(); }
-    else showToast(data.detail || 'Clear failed');
-}
-
-async function pausePool(poolId) {
-    const reason = prompt('Pause reason (optional):') || '';
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('⏸ Pool paused'); loadAdminPools(); }
-    else showToast('Failed to pause pool');
-}
-
-async function resumePool(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('▶ Pool resumed'); loadAdminPools(); }
-    else showToast('Failed to resume pool');
-}
-
-async function toggleAdminOnly(poolId) {
-    const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, { method: 'POST', credentials: 'include' });
-    const data = await res.json();
-    if (res.ok) { showToast(data.is_admin_only ? '🔒 Now Admin Only' : '🔓 Now Public'); loadAdminPools(); }
-    else showToast('Toggle failed');
-}
-
-async function deletePool(poolId, poolName) {
-    if (!confirm(`⚠️ Delete pool "${poolName}" and all its numbers? This cannot be undone!`)) return;
+// ═══ ADMIN ═══
+async function adminSection(section) {
+    const area = document.getElementById('adminContentArea');
+    area.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' });
-        if (res.ok) { showToast(`Pool "${poolName}" deleted`); loadAdminPools(); }
-        else { showToast('Failed to delete pool'); }
-    } catch(e) { showToast('Network error'); }
+        if(section==='stats') await renderAdminStats(area);
+        else if(section==='users') await renderAdminUsers(area);
+        else if(section==='pools') await renderAdminPools(area);
+        else if(section==='bad') await renderBadNumbers(area);
+        else if(section==='settings') await renderSettings(area);
+        else if(section==='access') await renderPoolAccessMenu(area);
+    } catch(e) { area.innerHTML=`<div class="loading" style="color:var(--danger);">Error: ${esc(e.message)}</div>`; }
 }
 
-async function openUploadModal() {
+async function renderAdminStats(area) {
+    const s = await api('/api/admin/stats');
+    area.innerHTML = `<div class="card">
+        <div class="number-label" style="margin-bottom:12px;">SYSTEM OVERVIEW</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;">
+            <div><div style="color:var(--text-muted);font-size:11px;">USERS</div><div style="font-size:24px;font-weight:800;color:var(--primary);">${s.total_users}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">PENDING</div><div style="font-size:24px;font-weight:800;color:var(--warning);">${s.pending_approval}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">POOLS</div><div style="font-size:24px;font-weight:800;color:var(--primary);">${s.total_pools}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">NUMBERS</div><div style="font-size:24px;font-weight:800;color:var(--success);">${s.total_numbers.toLocaleString()}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">OTPs SENT</div><div style="font-size:24px;font-weight:800;color:var(--success);">${s.total_otps}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">BAD NUMBERS</div><div style="font-size:24px;font-weight:800;color:var(--danger);">${s.bad_numbers}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">SAVED (PENDING)</div><div style="font-size:24px;font-weight:800;color:var(--primary);">${s.saved_numbers}</div></div>
+            <div><div style="color:var(--text-muted);font-size:11px;">ONLINE</div><div style="font-size:24px;font-weight:800;color:var(--success);">${s.online_users}</div></div>
+        </div>
+    </div>`;
+}
+
+async function renderAdminUsers(area) {
+    const users = await api('/api/admin/users');
+    if(!users.length){area.innerHTML='<div class="loading">No users</div>';return;}
+    area.innerHTML = users.map(u=>{
+        const status = u.is_admin?'👑 Admin':u.is_blocked?'🚫 Blocked':u.is_approved?'✅ Approved':'⏳ Pending';
+        const approveBtn = (!u.is_approved&&!u.is_blocked&&!u.is_admin)?`<button class="btn btn-success btn-sm" onclick="approveUser(${u.id})">Approve</button>`:'';
+        const blockBtn = !u.is_admin?(u.is_blocked?`<button class="btn btn-primary btn-sm" onclick="toggleBlock(${u.id},false)">Unblock</button>`:`<button class="btn btn-danger btn-sm" onclick="toggleBlock(${u.id},true)">Block</button>`):'';
+        return `<div class="list-item">
+            <div><div class="item-number" style="font-size:14px;">${esc(u.username)}</div><div class="item-sub">ID: ${u.id} · ${status}</div></div>
+            <div style="display:flex;gap:6px;">${approveBtn}${blockBtn}</div>
+        </div>`;
+    }).join('');
+}
+
+async function approveUser(id) {
+    await api('/api/admin/users/'+id+'/approve', {method:'POST'});
+    showToast('✅ User approved'); adminSection('users');
+}
+async function toggleBlock(id, block) {
+    await api('/api/admin/users/'+id+'/'+(block?'block':'unblock'), {method:'POST'});
+    showToast(block?'🚫 User blocked':'✅ User unblocked'); adminSection('users');
+}
+
+async function renderAdminPools(area) {
+    const pools = await api('/api/pools');
+    if(!pools.length){area.innerHTML='<div class="loading">No pools — create one above</div>';return;}
+    area.innerHTML = pools.map(p=>`<div class="list-item column">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+                <div class="item-number">${esc(p.name)} (+${p.country_code}) ${p.is_admin_only?'🔒':''}</div>
+                <div class="item-sub">${p.number_count.toLocaleString()} numbers · Mode: ${p.uses_platform} · Format: ${p.match_format}${p.is_paused?' · <span style="color:var(--danger);">⏸ Paused</span>':''}</div>
+                ${p.trick_text?`<div style="font-size:11px;color:var(--warning);margin-top:3px;">💡 ${esc(p.trick_text)}</div>`:''}
+            </div>
+            <div style="display:flex;gap:4px;">
+                <button class="btn btn-primary btn-sm" onclick="openEditPool(${p.id})">✏️</button>
+                <button class="btn btn-danger btn-sm" onclick="confirmDeletePool(${p.id},'${esc(p.name).replace(/'/g,"\\'")}')">🗑️</button>
+            </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="cutPool(${p.id})">✂️ Cut</button>
+            <button class="btn btn-secondary btn-sm" onclick="clearPool(${p.id},'${esc(p.name).replace(/'/g,"\\'")}')">🧹 Clear</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportPool(${p.id})">📤 Export</button>
+            <button class="btn btn-secondary btn-sm" onclick="${p.is_paused?`resumePool(${p.id})`:`pausePool(${p.id})`}">${p.is_paused?'▶ Resume':'⏸ Pause'}</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAdminOnly(${p.id})">${p.is_admin_only?'🔓 Public':'🔒 Admin Only'}</button>
+            <button class="btn btn-secondary btn-sm" onclick="openPoolAccessModal(${p.id},'${esc(p.name).replace(/'/g,"\\'")}')">🔑 Access</button>
+        </div>
+    </div>`).join('');
+}
+
+async function cutPool(id) {
+    const n=prompt('How many numbers to cut?');
+    if(!n||isNaN(parseInt(n))) return;
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
-        const pools = await res.json();
-        const select = document.getElementById('uploadPoolSelect');
-        select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p => `<option value="${p.id}">${p.name} (+${p.country_code}) - ${p.number_count} numbers</option>`).join('');
-        document.getElementById('uploadModal').classList.add('show');
-    } catch(e) { showToast('Failed to load pools'); }
+        const d=await api('/api/admin/pools/'+id+'/cut?count='+parseInt(n), {method:'POST'});
+        showToast(`✂️ Removed ${d.removed} numbers`); adminSection('pools');
+    } catch(e){showToast(e.message);}
+}
+async function clearPool(id, name) {
+    if(!confirm(`⚠️ Clear ALL numbers from "${name}"?`)) return;
+    const d=await api('/api/admin/pools/'+id+'/clear', {method:'POST'});
+    showToast(`🧹 Cleared ${d.deleted} numbers`); adminSection('pools');
+}
+function exportPool(id) { window.open(API+'/api/admin/pools/'+id+'/export', '_blank'); }
+async function pausePool(id) {
+    const r=prompt('Pause reason (optional):')||'';
+    await api('/api/admin/pools/'+id+'/pause?reason='+encodeURIComponent(r), {method:'POST'});
+    showToast('⏸ Paused'); adminSection('pools');
+}
+async function resumePool(id) {
+    await api('/api/admin/pools/'+id+'/resume', {method:'POST'});
+    showToast('▶ Resumed'); adminSection('pools');
+}
+async function toggleAdminOnly(id) {
+    const d=await api('/api/admin/pools/'+id+'/toggle-admin-only', {method:'POST'});
+    showToast(d.is_admin_only?'🔒 Admin Only':'🔓 Public'); adminSection('pools');
+}
+async function confirmDeletePool(id, name) {
+    if(!confirm(`⚠️ Delete pool "${name}" and all its numbers?`)) return;
+    await api('/api/admin/pools/'+id, {method:'DELETE'});
+    showToast('Pool deleted'); adminSection('pools');
 }
 
-function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); document.getElementById('uploadResult').innerHTML = ''; document.getElementById('uploadFile').value = ''; }
+async function renderBadNumbers(area) {
+    const bad = await api('/api/admin/bad-numbers');
+    if(!bad.length){area.innerHTML='<div class="loading">No bad numbers 🎉</div>';return;}
+    area.innerHTML = bad.map(b=>`<div class="list-item">
+        <div><div class="item-number" style="font-size:13px;">${esc(b.number)}</div><div class="item-sub">${esc(b.reason||'')}</div></div>
+        <button class="btn btn-primary btn-sm" onclick="removeBad('${b.number.replace(/'/g,"\\'")}')">Remove</button>
+    </div>`).join('');
+}
+async function removeBad(number) {
+    await api('/api/admin/bad-numbers?number='+encodeURIComponent(number), {method:'DELETE'});
+    showToast('Removed'); adminSection('bad');
+}
 
-async function uploadNumbers() {
-    const poolId = document.getElementById('uploadPoolSelect').value;
-    const fileInput = document.getElementById('uploadFile');
-    if (!poolId) { showToast('Select a pool'); return; }
-    if (!fileInput.files || !fileInput.files[0]) { showToast('Select a file'); return; }
-    const formData = new FormData(); formData.append('file', fileInput.files[0]);
+async function renderSettings(area) {
+    area.innerHTML = `<div class="card">
+        <div class="number-label" style="margin-bottom:14px;">BOT SETTINGS</div>
+        <div class="fg"><label>Approval Mode</label>
+            <select id="settApproval" onchange="saveSetting('approval',this.value==='on')">
+                <option value="on">ON — New users need approval</option>
+                <option value="off">OFF — All users can access freely</option>
+            </select>
+        </div>
+        <div class="fg"><label>OTP Redirect Mode</label>
+            <select id="settOtpRedirect" onchange="saveSetting('otp_redirect',null,this.value)">
+                <option value="pool">Per-Pool Link</option>
+                <option value="hardcoded">Hardcoded: https://t.me/earnplusz</option>
+            </select>
+        </div>
+    </div>`;
+}
+async function saveSetting(type, boolVal, strVal) {
+    if(type==='approval') await api('/api/admin/settings/approval?enabled='+(boolVal?'true':'false'), {method:'POST'});
+    if(type==='otp_redirect') await api('/api/admin/settings/otp-redirect?mode='+strVal, {method:'POST'});
+    showToast('✅ Setting saved');
+}
+
+async function renderPoolAccessMenu(area) {
+    const pools = await api('/api/pools');
+    if(!pools.length){area.innerHTML='<div class="loading">No pools</div>';return;}
+    area.innerHTML = `<div class="card">
+        <div class="number-label" style="margin-bottom:12px;">SELECT POOL TO MANAGE ACCESS</div>
+        ${pools.map(p=>`<div class="list-item" style="cursor:pointer;" onclick="openPoolAccessModal(${p.id},'${esc(p.name).replace(/'/g,"\\'")}')">
+            <div><div class="item-number" style="font-size:14px;">${esc(p.name)}</div><div class="item-sub">${p.is_restricted?'🔐 Restricted':'🌐 Open access'}</div></div>
+            <span style="font-size:20px;">›</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+async function openPoolAccessModal(poolId, poolName) {
+    paCurrentPoolId=poolId;
+    document.getElementById('paPoolName').textContent=poolName;
+    document.getElementById('paNewUserId').value='';
     try {
-        const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData });
-        const data = await res.json();
-        if (res.ok) {
-            document.getElementById('uploadResult').innerHTML = `<div style="background:#10b98120;padding:12px;border-radius:8px;">✅ Added: ${data.added}<br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`;
-            showToast(`${data.added} numbers uploaded!`);
-            loadAdminPools();
-        } else { showToast(data.detail || 'Upload failed'); }
-    } catch(e) { showToast('Network error'); }
+        const users = await api('/api/admin/pools/'+poolId+'/access');
+        const noteEl = document.getElementById('paRestrictedNote');
+        noteEl.textContent = users.length ? `🔐 Restricted — only listed users can access this pool.` : `🌐 Open — all approved users can access this pool. Add users below to restrict it.`;
+        const listEl = document.getElementById('paUserList');
+        if(!users.length){listEl.innerHTML='<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">No users added yet.</div>';return;}
+        listEl.innerHTML = users.map(u=>`<div class="access-user">
+            <div><div style="font-weight:600;font-size:14px;">${esc(u.username||u.first_name||'User '+u.user_id)}</div><div style="font-size:11px;color:var(--text-muted);">ID: ${u.user_id}</div></div>
+            <button class="btn btn-danger btn-sm" onclick="revokeAccess(${u.user_id})">Revoke</button>
+        </div>`).join('');
+    } catch(e){}
+    openModal('poolAccessModal');
+}
+async function grantAccess() {
+    const uid=parseInt(document.getElementById('paNewUserId').value);
+    if(!uid||!paCurrentPoolId) return;
+    try {
+        await api('/api/admin/pools/'+paCurrentPoolId+'/access/'+uid, {method:'POST'});
+        showToast('✅ Access granted'); openPoolAccessModal(paCurrentPoolId, document.getElementById('paPoolName').textContent);
+    } catch(e){showToast(e.message);}
+}
+async function revokeAccess(uid) {
+    if(!paCurrentPoolId) return;
+    await api('/api/admin/pools/'+paCurrentPoolId+'/access/'+uid, {method:'DELETE'});
+    showToast('Access revoked'); openPoolAccessModal(paCurrentPoolId, document.getElementById('paPoolName').textContent);
 }
 
-const ADMIN_DIVS = ['adminStatsDiv','adminUsersDiv','adminBadDiv','adminReviewsDiv','adminBroadcastDiv','adminSettingsDiv'];
-function hideOtherAdminDivs(showId) {
-    ADMIN_DIVS.forEach(id => {
-        document.getElementById(id).style.display = (id === showId) ? 'block' : 'none';
-    });
-}
-
-function loadAdminStats() {
-    fetch(`${API_BASE}/api/admin/stats`, { credentials: 'include' }).then(r => r.json()).then(stats => {
-        document.getElementById('adminStatsDiv').innerHTML = `
-            <div class="number-label" style="margin-bottom:16px;">System Stats</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:14px;">
-                <span>📊 Users</span><span style="font-weight:700;color:#0a84ff;">${stats.total_users}</span>
-                <span>⏳ Pending</span><span style="font-weight:700;color:#f59e0b;">${stats.pending_approval}</span>
-                <span>🌍 Pools</span><span style="font-weight:700;color:#0a84ff;">${stats.total_pools}</span>
-                <span>📞 Numbers</span><span style="font-weight:700;color:#10b981;">${stats.total_numbers}</span>
-                <span>🔑 OTPs</span><span style="font-weight:700;color:#10b981;">${stats.total_otps}</span>
-                <span>🚫 Bad</span><span style="font-weight:700;color:#ef4444;">${stats.bad_numbers}</span>
-                <span>💾 Saved</span><span style="font-weight:700;color:#0a84ff;">${stats.saved_numbers}</span>
-                <span>🟢 Online</span><span style="font-weight:700;color:#10b981;">${stats.online_users}</span>
-            </div>`;
-        hideOtherAdminDivs('adminStatsDiv');
-    }).catch(() => showToast('Failed to load stats'));
-}
-
-function loadUsersList() {
-    fetch(`${API_BASE}/api/admin/users`, { credentials: 'include' }).then(r => r.json()).then(users => {
-        if (!users.length) { document.getElementById('adminUsersDiv').innerHTML = '<div class="loading">No users</div>'; hideOtherAdminDivs('adminUsersDiv'); return; }
-        document.getElementById('adminUsersDiv').innerHTML = users.map(u => {
-            const status = u.is_admin ? '👑 Admin' : (u.is_blocked ? '🚫 Blocked' : (u.is_approved ? '✅ Approved' : '⏳ Pending'));
-            const approveBtn = (!u.is_approved && !u.is_blocked && !u.is_admin)
-                ? `<button class="btn btn-sm btn-primary" onclick="approveUser(${u.id})" style="margin-right:4px;">✅ Approve</button>` : '';
-            const blockBtn = u.is_admin ? '' : (u.is_blocked
-                ? `<button class="btn btn-sm btn-primary" onclick="toggleUser(${u.id}, false)">Unblock</button>`
-                : `<button class="btn btn-sm btn-danger" onclick="toggleUser(${u.id}, true)">Block</button>`);
-            return `<div class="saved-item"><div><div class="saved-number">${escapeHtml(u.username)}</div><div class="saved-timer">ID: ${u.id} • ${status}</div></div><div style="display:flex;gap:4px;flex-wrap:wrap;">${approveBtn}${blockBtn}</div></div>`;
-        }).join('');
-        hideOtherAdminDivs('adminUsersDiv');
-    }).catch(() => showToast('Failed to load users'));
-}
-
-async function approveUser(userId) {
-    const res = await fetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('User approved ✅'); loadUsersList(); }
-    else showToast('Failed to approve user');
-}
-
-async function toggleUser(userId, block) {
-    const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
-    const res = await fetch(url, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast(block ? 'User blocked 🚫' : 'User unblocked ✅'); loadUsersList(); }
-    else showToast('Action failed');
-}
-
-function loadBadNumbers() {
-    fetch(`${API_BASE}/api/admin/bad-numbers`, { credentials: 'include' }).then(r => r.json()).then(bad => {
-        document.getElementById('adminBadDiv').innerHTML = bad.length
-            ? bad.map(b => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(b.number)}</div><div class="saved-timer">${escapeHtml(b.reason || '')}</div></div><div><button class="btn btn-sm btn-primary" onclick="removeBadNumber('${b.number.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">Remove</button></div></div>`).join('')
-            : '<div class="loading">No bad numbers 🎉</div>';
-        hideOtherAdminDivs('adminBadDiv');
-    }).catch(() => showToast('Failed to load bad numbers'));
-}
-
-async function removeBadNumber(number) {
-    await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' });
-    showToast('Removed from bad numbers');
-    loadBadNumbers();
-}
-
-function loadReviews() {
-    fetch(`${API_BASE}/api/admin/reviews`, { credentials: 'include' }).then(r => r.json()).then(reviews => {
-        document.getElementById('adminReviewsDiv').innerHTML = reviews.length
-            ? reviews.map(r => `<div class="saved-item"><div><div class="saved-number">${escapeHtml(r.number)}</div><div class="saved-timer">Rating: ${'⭐'.repeat(Math.max(0,r.rating))} • ${escapeHtml(r.comment || 'No comment')}</div></div></div>`).join('')
-            : '<div class="loading">No reviews yet</div>';
-        hideOtherAdminDivs('adminReviewsDiv');
-    }).catch(() => showToast('Failed to load reviews'));
-}
-
-function showBroadcast() { hideOtherAdminDivs('adminBroadcastDiv'); }
-
+function showBroadcast() { openModal('broadcastModal'); }
 async function sendBroadcast() {
-    const msg = document.getElementById('broadcastMsg').value.trim();
-    if (!msg) { showToast('Enter a message'); return; }
-    const res = await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
-    if (res.ok) { showToast('📢 Broadcast sent!'); document.getElementById('broadcastMsg').value = ''; }
-    else showToast('Broadcast failed');
+    const msg=document.getElementById('broadcastMsg').value.trim();
+    if(!msg){showToast('Enter a message');return;}
+    await api('/api/admin/broadcast?message='+encodeURIComponent(msg), {method:'POST'});
+    showToast('📢 Broadcast sent!'); closeModal('broadcastModal'); document.getElementById('broadcastMsg').value='';
 }
 
-function showSettings() { hideOtherAdminDivs('adminSettingsDiv'); }
-
-async function saveSettings() {
-    const approval = document.getElementById('approvalMode').value;
-    const redirect = document.getElementById('otpRedirect').value;
-    await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' });
-    await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' });
-    showToast('Settings saved');
+// ═══ POOL MODAL ═══
+function openPoolModal(id=null) {
+    editingPoolId=id;
+    document.getElementById('poolModalTitle').textContent = id?'Edit Pool':'Create Pool';
+    if(!id) {
+        ['pmName','pmCode','pmGroupId','pmOtpLink','pmTgMatchFmt','pmTrickText','pmPauseReason'].forEach(f=>document.getElementById(f).value='');
+        document.getElementById('pmMatchFmt').value='5+4';
+        document.getElementById('pmUsesPlatform').value='0';
+        document.getElementById('pmAdminOnly').checked=false;
+        document.getElementById('pmPaused').checked=false;
+        document.getElementById('pmPauseReasonRow').style.display='none';
+    }
+    openModal('poolModal');
+}
+async function openEditPool(id) {
+    try {
+        const pools=await api('/api/pools');
+        const p=pools.find(pp=>pp.id===id);
+        if(!p) return;
+        editingPoolId=id;
+        document.getElementById('poolModalTitle').textContent='Edit Pool: '+p.name;
+        document.getElementById('pmName').value=p.name||'';
+        document.getElementById('pmCode').value=p.country_code||'';
+        document.getElementById('pmGroupId').value=p.otp_group_id||'';
+        document.getElementById('pmOtpLink').value=p.otp_link||'';
+        document.getElementById('pmMatchFmt').value=p.match_format||'5+4';
+        document.getElementById('pmTgMatchFmt').value=p.telegram_match_format||'';
+        document.getElementById('pmUsesPlatform').value=p.uses_platform||0;
+        document.getElementById('pmTrickText').value=p.trick_text||'';
+        document.getElementById('pmAdminOnly').checked=!!p.is_admin_only;
+        document.getElementById('pmPaused').checked=!!p.is_paused;
+        document.getElementById('pmPauseReason').value=p.pause_reason||'';
+        document.getElementById('pmPauseReasonRow').style.display=p.is_paused?'block':'none';
+        openModal('poolModal');
+    } catch(e){showToast(e.message);}
+}
+async function savePool() {
+    const d={
+        name:document.getElementById('pmName').value.trim(),
+        country_code:document.getElementById('pmCode').value.trim(),
+        otp_group_id:parseInt(document.getElementById('pmGroupId').value)||null,
+        otp_link:document.getElementById('pmOtpLink').value.trim(),
+        match_format:document.getElementById('pmMatchFmt').value.trim(),
+        telegram_match_format:document.getElementById('pmTgMatchFmt').value.trim(),
+        uses_platform:parseInt(document.getElementById('pmUsesPlatform').value),
+        trick_text:document.getElementById('pmTrickText').value.trim(),
+        is_admin_only:document.getElementById('pmAdminOnly').checked,
+        is_paused:document.getElementById('pmPaused').checked,
+        pause_reason:document.getElementById('pmPauseReason').value.trim()
+    };
+    if(!d.name||!d.country_code){showToast('Name and country code are required');return;}
+    try {
+        if(editingPoolId) await api('/api/admin/pools/'+editingPoolId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d)});
+        else await api('/api/admin/pools', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d)});
+        showToast(editingPoolId?'✅ Pool updated!':'✅ Pool created!');
+        closeModal('poolModal'); loadRegions(); adminSection('pools');
+    } catch(e){showToast(e.message);}
 }
 
-function navigateTo(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`${page}Page`).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-    if (page === 'numbers') loadRegions();
-    if (page === 'saved') loadSavedNumbers();
-    if (page === 'history') loadHistory();
+// ═══ UPLOAD MODAL ═══
+async function openUploadModal() {
+    const pools=await api('/api/pools');
+    document.getElementById('uploadPoolSelect').innerHTML='<option value="">-- Select Pool --</option>'+pools.map(p=>`<option value="${p.id}">${esc(p.name)} (+${p.country_code}) — ${p.number_count} nums</option>`).join('');
+    document.getElementById('uploadFile').value='';
+    document.getElementById('uploadResult').innerHTML='';
+    openModal('uploadModal');
 }
-
-document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => navigateTo(i.dataset.page)));
-document.getElementById('authLoginTab').onclick = () => { document.getElementById('loginForm').style.display = 'block'; document.getElementById('registerForm').style.display = 'none'; document.getElementById('authLoginTab').style.background = '#0a84ff'; document.getElementById('authLoginTab').style.color = 'white'; document.getElementById('authRegisterTab').style.background = 'rgba(30,41,59,0.6)'; document.getElementById('authRegisterTab').style.color = '#9ca3af'; };
-document.getElementById('authRegisterTab').onclick = () => { document.getElementById('loginForm').style.display = 'none'; document.getElementById('registerForm').style.display = 'block'; document.getElementById('authRegisterTab').style.background = '#0a84ff'; document.getElementById('authRegisterTab').style.color = 'white'; document.getElementById('authLoginTab').style.background = 'rgba(30,41,59,0.6)'; document.getElementById('authLoginTab').style.color = '#9ca3af'; };
-
-function escapeHtml(t) { if (!t) return ''; return t.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+async function uploadNumbers() {
+    const pid=document.getElementById('uploadPoolSelect').value;
+    const fi=document.getElementById('uploadFile');
+    if(!pid){showToast('Select a pool');return;}
+    if(!fi.files||!fi.files[0]){showToast('Select a file');return;}
+    const fd=new FormData(); fd.append('file',fi.files[0]);
+    try {
+        const d=await api('/api/admin/pools/'+pid+'/upload', {method:'POST', body:fd});
+        document.getElementById('uploadResult').innerHTML=`<div style="background:#dcfce7;padding:12px;border-radius:12px;font-size:13px;">✅ Added: <b>${d.added}</b><br>🚫 Bad skipped: <b>${d.skipped_bad}</b><br>⏳ Cooldown: <b>${d.skipped_cooldown}</b><br>🔁 Duplicates: <b>${d.duplicates}</b></div>`;
+        showToast(`${d.added} numbers uploaded!`); loadRegions(); adminSection('pools');
+    } catch(e){showToast(e.message);}
+}
 
 checkAuth();
 </script>
 </body>
 </html>'''
+
 
 @app.get("/")
 async def serve_frontend():
@@ -2425,6 +2656,7 @@ def list_pools(token: str = Cookie(default=None)):
                     "uses_platform": p.uses_platform, "is_paused": p.is_paused,
                     "pause_reason": p.pause_reason, "trick_text": p.trick_text,
                     "is_admin_only": p.is_admin_only, "number_count": count,
+                    "is_restricted": pool_is_restricted(p.id),
                     "last_restocked": p.last_restocked.isoformat() if p.last_restocked else None
                 })
             return result
@@ -2442,6 +2674,7 @@ def list_pools(token: str = Cookie(default=None)):
                 "uses_platform": p.get("uses_platform", 0), "is_paused": p.get("is_paused", False),
                 "pause_reason": p.get("pause_reason", ""), "trick_text": p.get("trick_text", ""),
                 "is_admin_only": p.get("is_admin_only", False), "number_count": len(active_numbers.get(pid, [])),
+                "is_restricted": pool_is_restricted(pid),
                 "last_restocked": p.get("last_restocked")
             })
         return result
@@ -3774,6 +4007,142 @@ async def websocket_feed(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         disconnect_feed(websocket)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MONITOR RESULT — numberbot POSTs here when OTP is found (same as /api/otp/monitor-result)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MonitorResultInbound(BaseModel):
+    number: str
+    otp: str
+    raw_message: str = ""
+    user_id: int
+    secret: str = ""
+
+@app.post("/monitor-result")
+async def monitor_result_inbound(payload: MonitorResultInbound):
+    """Alias for /api/otp/monitor-result — accepts numberbot's direct POST."""
+    if SHARED_SECRET and payload.secret != SHARED_SECRET:
+        raise HTTPException(403, "Invalid secret")
+    # Reuse existing logic
+    from fastapi import Request
+    class _FakePayload:
+        def __init__(self, p): self.__dict__ = p.__dict__
+    fake = MonitorResultPayload(
+        number=payload.number, otp=payload.otp,
+        raw_message=payload.raw_message, user_id=payload.user_id,
+        secret=payload.secret
+    )
+    return await monitor_result(fake)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN — DENY USER
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/users/{user_id}/deny")
+async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    deny_user(user_id)
+    await send_to_user(user_id, {"type": "notification", "message": "❌ Your access has been denied."})
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN — BLOCK ALL USERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/block-all")
+async def block_all_users(token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    blocked = 0
+    if SessionLocal:
+        with SessionLocal() as db:
+            non_admins = db.query(User).filter(User.is_admin == False, User.is_blocked == False).all()
+            for u in non_admins:
+                u.is_blocked = True
+                u.is_approved = False
+                blocked += 1
+            db.commit()
+    else:
+        for uid, u in users.items():
+            if not u.get("is_admin") and not u.get("is_blocked"):
+                u["is_blocked"] = True
+                u["is_approved"] = False
+                blocked += 1
+    await broadcast_all({"type": "notification", "message": "🚫 Access suspended by administrator."})
+    log.info(f"[Admin] Block all — {blocked} users blocked")
+    return {"ok": True, "blocked": blocked}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN — SEARCH USER BY ID
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/users/{user_id}/info")
+def user_info(user_id: int, token: str = Cookie(default=None)):
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    if SessionLocal:
+        with SessionLocal() as db:
+            u = db.query(User).filter(User.id == user_id).first()
+            if not u:
+                raise HTTPException(404, "User not found")
+            nums_used = db.query(Assignment).filter(Assignment.user_id == user_id).count()
+            return {
+                "id": u.id, "username": u.username,
+                "is_admin": u.is_admin, "is_approved": u.is_approved,
+                "is_blocked": u.is_blocked, "nums_used": nums_used,
+                "created_at": u.created_at.isoformat()
+            }
+    else:
+        u = users.get(user_id)
+        if not u:
+            raise HTTPException(404, "User not found")
+        nums_used = sum(1 for a in archived_numbers if a["user_id"] == user_id)
+        return {**u, "nums_used": nums_used}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ADMIN — PLATFORM STOCK FILES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/platform-files")
+async def platform_files(token: str = Cookie(default=None)):
+    """Fetch all numbers from platform API, grouped by country, return as JSON list of files."""
+    user = get_user_from_token(token)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    token_val = await _get_platform_token()
+    if not token_val:
+        raise HTTPException(503, "Platform login failed")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{PLATFORM_URL}/api/numbers?limit=500000",
+                headers={"Authorization": f"Bearer {token_val}"},
+                timeout=aiohttp.ClientTimeout(total=60)
+            ) as resp:
+                if resp.status != 200:
+                    raise HTTPException(502, f"Platform returned {resp.status}")
+                all_numbers = await resp.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, str(e))
+    country_map: Dict[str, List[str]] = defaultdict(list)
+    for entry in (all_numbers if isinstance(all_numbers, list) else []):
+        country = entry.get("country", "Unknown").strip()
+        phone = entry.get("phone_number", "").strip()
+        if phone:
+            country_map[country].append(phone)
+    return [{"country": k, "count": len(v), "numbers": v} for k, v in sorted(country_map.items())]
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
