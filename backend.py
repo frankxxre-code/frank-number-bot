@@ -121,6 +121,18 @@ log.info(f"Starting NEON GRID NETWORK on port {PORT}")
 log.info(f"Database: {'PostgreSQL' if DATABASE_URL else 'Memory (fallback)'}")
 log.info(f"Monitor Bot URL: {MONITOR_BOT_URL or 'NOT SET'}")
 
+def hash_password(p: str) -> str:
+    salt = os.urandom(16).hex()
+    h = hashlib.sha256((salt + p).encode()).hexdigest()
+    return f"{salt}:{h}"
+
+def verify_password(p: str, hashed: str) -> bool:
+    try:
+        salt, h = hashed.split(":", 1)
+        return hashlib.sha256((salt + p).encode()).hexdigest() == h
+    except:
+        return False
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATABASE SETUP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -288,6 +300,21 @@ if Base:
                     db.add(admin)
                     db.commit()
                     log.info("Default admin created: admin / admin123")
+                else:
+                    # Ensure existing admin account is always approved and has admin rights
+                    existing_admin = db.query(User).filter(User.is_admin == True).first()
+                    if existing_admin and not existing_admin.is_approved:
+                        existing_admin.is_approved = True
+                        db.commit()
+                        log.info(f"Fixed admin approval: {existing_admin.username}")
+                    # Also ensure 'admin' user specifically is always approved
+                    admin_user = db.query(User).filter(User.username == "admin").first()
+                    if admin_user:
+                        if not admin_user.is_approved or not admin_user.is_admin:
+                            admin_user.is_approved = True
+                            admin_user.is_admin = True
+                            db.commit()
+                            log.info("Ensured admin user is approved and has admin rights")
 
                 if db.query(Pool).count() == 0:
                     default_pools = [
@@ -363,18 +390,6 @@ else:
 
 def utcnow():
     return datetime.now(timezone.utc)
-
-def hash_password(p: str) -> str:
-    salt = os.urandom(16).hex()
-    h = hashlib.sha256((salt + p).encode()).hexdigest()
-    return f"{salt}:{h}"
-
-def verify_password(p: str, hashed: str) -> bool:
-    try:
-        salt, h = hashed.split(":", 1)
-        return hashlib.sha256((salt + p).encode()).hexdigest() == h
-    except:
-        return False
 
 def create_token(user_id: int) -> str:
     token = secrets.token_urlsafe(48)
@@ -1284,9 +1299,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
 
-# Handle Railway/Heroku reverse proxy (needed for correct HTTPS cookie behavior)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
-
+# CORS must be added FIRST (innermost), ProxyHeaders SECOND (outermost)
+# In FastAPI/Starlette, last added = outermost = runs first on incoming requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
@@ -1294,6 +1308,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# ProxyHeadersMiddleware added LAST so it runs FIRST — correctly unwraps Railway HTTPS headers
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  FRONTEND - EMBEDDED HTML (Complete - White/Blue Theme, Full Feature Parity)
@@ -2627,7 +2643,7 @@ async def login(req: LoginRequest):
                 raise HTTPException(401, "Invalid username or password")
             if user.is_blocked:
                 raise HTTPException(403, "Account blocked")
-            if not user.is_approved:
+            if not user.is_approved and not user.is_admin:
                 raise HTTPException(403, "Account pending approval")
             token = create_token(user.id)
             resp = JSONResponse({"ok": True, "token": token, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
@@ -2643,7 +2659,7 @@ async def login(req: LoginRequest):
             raise HTTPException(401, "Invalid username or password")
         if user.get("is_blocked"):
             raise HTTPException(403, "Account blocked")
-        if not user.get("is_approved"):
+        if not user.get("is_approved") and not user.get("is_admin"):
             raise HTTPException(403, "Account pending approval")
         token = create_token(user["id"])
         resp = JSONResponse({"ok": True, "token": token, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
