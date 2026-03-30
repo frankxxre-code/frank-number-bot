@@ -43,9 +43,10 @@ from collections import defaultdict
 
 import aiohttp
 import uvicorn
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi import (FastAPI, WebSocket, WebSocketDisconnect,
-                     Depends, HTTPException, Cookie,
-                     UploadFile, File, BackgroundTasks, Form, Query)
+                     Depends, HTTPException, Cookie, Header,
+                     UploadFile, File, BackgroundTasks, Form, Query, Request)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
@@ -396,9 +397,12 @@ def revoke_token(token: str):
     else:
         sessions.pop(token, None)
 
-def get_user_from_token(token: str):
-    if not token:
+def get_user_from_token(token: str, x_token: str = None):
+    # Accept token from cookie OR X-Token header (for Railway HTTPS compatibility)
+    effective_token = token or x_token
+    if not effective_token:
         return None
+    token = effective_token
     
     if SessionLocal:
         with SessionLocal() as db:
@@ -1280,6 +1284,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NEON GRID NETWORK", lifespan=lifespan)
 
+# Handle Railway/Heroku reverse proxy (needed for correct HTTPS cookie behavior)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
@@ -1809,8 +1816,28 @@ function fmt(n) { if(!n||n==='—') return n; return n.startsWith('+')?n:'+'+n; 
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 function openModal(id) { document.getElementById(id).classList.add('show'); }
 function setTimer(v) { document.getElementById('timerInput').value=v; }
+// Token helpers - store in both cookie and localStorage for Railway HTTPS compatibility
+function getToken() {
+    // Try localStorage first, then cookie
+    const ls = localStorage.getItem('ngn_token');
+    if(ls) return ls;
+    const m = document.cookie.match(/(?:^|; )token=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : null;
+}
+function setToken(t) {
+    localStorage.setItem('ngn_token', t);
+    document.cookie = `token=${encodeURIComponent(t)};path=/;max-age=${86400*30};samesite=lax`;
+}
+function clearToken() {
+    localStorage.removeItem('ngn_token');
+    document.cookie = 'token=;path=/;max-age=0';
+}
+
 async function api(path, opts={}) {
-    const r = await fetch(API+path, {credentials:'include', ...opts});
+    const token = getToken();
+    const headers = {...(opts.headers||{})};
+    if(token) headers['X-Token'] = token;
+    const r = await fetch(API+path, {credentials:'include', ...opts, headers});
     const data = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
     return data;
@@ -1828,8 +1855,11 @@ async function doLogin() {
     const p = document.getElementById('loginPassword').value;
     const errEl = document.getElementById('loginError');
     errEl.textContent='';
+    if(!u){errEl.textContent='Enter username';return;}
+    if(!p){errEl.textContent='Enter password';return;}
     try {
-        await api('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        const data = await api('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        if(data.token) setToken(data.token);
         await checkAuth();
     } catch(e) { errEl.textContent=e.message; }
 }
@@ -1838,19 +1868,22 @@ async function doRegister() {
     const p = document.getElementById('regPassword').value;
     const errEl = document.getElementById('regError');
     errEl.textContent='';
+    if(!u){errEl.textContent='Enter username';return;}
     if(p.length<6){errEl.textContent='Password must be at least 6 characters.';return;}
     try {
         const data = await api('/api/auth/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        if(data.token) setToken(data.token);
         if(data.approved) { await checkAuth(); }
         else { errEl.textContent='Account created — awaiting admin approval.'; }
     } catch(e) { errEl.textContent=e.message; }
 }
 async function doLogout() {
-    await fetch(API+'/api/auth/logout', {method:'POST', credentials:'include'}).catch(()=>{});
+    await fetch(API+'/api/auth/logout', {method:'POST', credentials:'include', headers:{'X-Token':getToken()||''}}).catch(()=>{});
+    clearToken();
     currentUser=null; currentAssignment=null;
     document.getElementById('appContainer').style.display='none';
     document.getElementById('authContainer').style.display='flex';
-    if(ws) ws.close();
+    if(ws){ws.close();ws=null;}
 }
 async function checkAuth() {
     try {
@@ -1880,7 +1913,8 @@ async function checkAuth() {
 // ═══ WEBSOCKET ═══
 function connectWS() {
     const proto = location.protocol==='https:'?'wss:':'ws:';
-    ws = new WebSocket(`${proto}//${location.host}/ws/user/${currentUser.id}`);
+    const tok = getToken();
+    ws = new WebSocket(`${proto}//${location.host}/ws/user/${currentUser.id}${tok?'?token='+encodeURIComponent(tok):''}`);
     ws.onopen = () => { document.getElementById('wsStatus').textContent='🟢'; wsRetries=0; };
     ws.onmessage = (e) => {
         const d = JSON.parse(e.data);
@@ -2556,8 +2590,8 @@ async def register(req: RegisterRequest):
             db.refresh(user)
             if is_first:
                 token = create_token(user.id)
-                resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
-                resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+                resp = JSONResponse({"ok": True, "token": token, "approved": True, "is_admin": True, "user_id": user.id})
+                resp.set_cookie("token", token, httponly=False, samesite="lax", secure=False, max_age=86400*30, path="/")
                 return resp
             return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
     else:
@@ -2576,8 +2610,8 @@ async def register(req: RegisterRequest):
         }
         if is_first:
             token = create_token(user_id)
-            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+            resp = JSONResponse({"ok": True, "token": token, "approved": True, "is_admin": True, "user_id": user_id})
+            resp.set_cookie("token", token, httponly=False, samesite="lax", secure=False, max_age=86400*30, path="/")
             return resp
         return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
 
@@ -2596,8 +2630,8 @@ async def login(req: LoginRequest):
             if not user.is_approved:
                 raise HTTPException(403, "Account pending approval")
             token = create_token(user.id)
-            resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+            resp = JSONResponse({"ok": True, "token": token, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
+            resp.set_cookie("token", token, httponly=False, samesite="lax", secure=False, max_age=86400*30, path="/")
             return resp
     else:
         user = None
@@ -2612,20 +2646,21 @@ async def login(req: LoginRequest):
         if not user.get("is_approved"):
             raise HTTPException(403, "Account pending approval")
         token = create_token(user["id"])
-        resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
-        resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400*30, path="/")
+        resp = JSONResponse({"ok": True, "token": token, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
+        resp.set_cookie("token", token, httponly=False, samesite="lax", secure=False, max_age=86400*30, path="/")
         return resp
 
 @app.post("/api/auth/logout")
-def logout(token: str = Cookie(default=None)):
+def logout(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    token = token or x_token
     revoke_token(token)
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("token", path="/")
     return resp
 
 @app.get("/api/auth/me")
-def me(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def me(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
@@ -2635,8 +2670,8 @@ def me(token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/pools")
-def list_pools(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_pools(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2684,8 +2719,8 @@ class AssignRequest(BaseModel):
     prefix: Optional[str] = None
 
 @app.post("/api/pools/assign")
-async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def assign_number(req: AssignRequest, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -2740,16 +2775,16 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
         return assignment
 
 @app.get("/api/pools/my-assignment")
-def my_assignment(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def my_assignment(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     assignment = get_current_assignment(user["id"])
     return {"assignment": assignment}
 
 @app.post("/api/pools/release/{assignment_id}")
-def release_number(assignment_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def release_number(assignment_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     release_assignment(user["id"], assignment_id)
@@ -2773,8 +2808,8 @@ class PoolCreate(BaseModel):
     pause_reason: Optional[str] = ""
 
 @app.post("/api/admin/pools")
-def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def create_pool(req: PoolCreate, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2799,8 +2834,8 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
         return {"ok": True, "id": pool_id}
 
 @app.put("/api/admin/pools/{pool_id}")
-def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2820,8 +2855,8 @@ def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)
         return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}")
-def delete_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_pool(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2838,8 +2873,8 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
-async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
 
@@ -2929,8 +2964,8 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
     return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
 
 @app.get("/api/admin/pools/{pool_id}/export")
-def export_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def export_pool(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2947,8 +2982,8 @@ def export_pool(pool_id: int, token: str = Cookie(default=None)):
     )
 
 @app.post("/api/admin/pools/{pool_id}/cut")
-def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2967,8 +3002,8 @@ def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
     return {"ok": True, "removed": removed}
 
 @app.post("/api/admin/pools/{pool_id}/clear")
-def clear_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def clear_pool(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -2984,8 +3019,8 @@ def clear_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True, "deleted": deleted}
 
 @app.post("/api/admin/pools/{pool_id}/pause")
-def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3010,8 +3045,8 @@ def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/resume")
-def resume_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def resume_pool(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3036,8 +3071,8 @@ def resume_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
-def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def toggle_admin_only(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3059,8 +3094,8 @@ def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True, "is_admin_only": new_val}
 
 @app.post("/api/admin/pools/{pool_id}/trick")
-def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3081,16 +3116,16 @@ def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=No
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/pools/{pool_id}/access")
-def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def get_pool_access(pool_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
     return get_pool_access_users(pool_id)
 
 @app.post("/api/admin/pools/{pool_id}/access/{user_id}")
-def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3110,8 +3145,8 @@ def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(d
     return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
-def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3209,8 +3244,8 @@ async def monitor_result(payload: MonitorResultPayload):
     return {"ok": True}
 
 @app.get("/api/otp/my")
-def my_otps(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def my_otps(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3224,8 +3259,8 @@ def my_otps(token: str = Cookie(default=None)):
         return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
 
 @app.post("/api/otp/search")
-async def search_otp(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def search_otp(number: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3270,8 +3305,8 @@ class SaveRequest(BaseModel):
     pool_name: str
 
 @app.post("/api/saved")
-def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def save_numbers(req: SaveRequest, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3323,8 +3358,8 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
     return {"ok": True, "saved": saved, "expires_at": expires_at.isoformat()}
 
 @app.get("/api/saved")
-def list_saved(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_saved(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3387,8 +3422,8 @@ def list_saved(token: str = Cookie(default=None)):
         return result
 
 @app.get("/api/saved/ready")
-def ready_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def ready_numbers(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3434,8 +3469,8 @@ def ready_numbers(token: str = Cookie(default=None)):
         return result
 
 @app.put("/api/saved/{saved_id}")
-def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3461,8 +3496,8 @@ def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=
     return {"ok": True}
 
 @app.delete("/api/saved/{saved_id}")
-def delete_saved(saved_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_saved(saved_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3732,8 +3767,8 @@ class ReviewRequest(BaseModel):
     mark_as_bad: bool = False
 
 @app.post("/api/reviews")
-def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def submit_review(req: ReviewRequest, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3795,8 +3830,8 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/stats")
-def stats(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def stats(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3827,8 +3862,8 @@ def stats(token: str = Cookie(default=None)):
         }
 
 @app.get("/api/admin/users")
-def list_users(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_users(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3840,8 +3875,8 @@ def list_users(token: str = Cookie(default=None)):
         return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
-async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     approve_user(user_id)
@@ -3849,8 +3884,8 @@ async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
-async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def block_user_endpoint(user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     block_user(user_id)
@@ -3858,8 +3893,8 @@ async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
-async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     unblock_user(user_id)
@@ -3867,8 +3902,8 @@ async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
-def list_bad_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_bad_numbers(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3880,8 +3915,8 @@ def list_bad_numbers(token: str = Cookie(default=None)):
         return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
-def remove_bad_number(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def remove_bad_number(number: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3895,8 +3930,8 @@ def remove_bad_number(number: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.get("/api/admin/reviews")
-def list_reviews(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_reviews(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3908,8 +3943,8 @@ def list_reviews(token: str = Cookie(default=None)):
         return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
 
 @app.post("/api/admin/broadcast")
-async def broadcast_message(message: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def broadcast_message(message: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3917,8 +3952,8 @@ async def broadcast_message(message: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/settings/approval")
-def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3926,8 +3961,8 @@ def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None))
     return {"ok": True, "mode": "on" if enabled else "off"}
 
 @app.post("/api/admin/settings/otp-redirect")
-def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3942,16 +3977,16 @@ def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None))
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/buttons")
-def get_buttons(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def get_buttons(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     
     return _get_custom_buttons()
 
 @app.post("/api/admin/buttons")
-def add_button(label: str, url: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def add_button(label: str, url: str, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3968,8 +4003,8 @@ def add_button(label: str, url: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.delete("/api/admin/buttons/{button_id}")
-def delete_button(button_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_button(button_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3991,7 +4026,8 @@ def delete_button(button_id: int, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.websocket("/ws/user/{user_id}")
-async def websocket_user(websocket: WebSocket, user_id: int):
+async def websocket_user(websocket: WebSocket, user_id: int, token: str = None):
+    # Accept token as query param for WS authentication
     await connect_user(websocket, user_id)
     try:
         while True:
@@ -4041,8 +4077,8 @@ async def monitor_result_inbound(payload: MonitorResultInbound):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/admin/users/{user_id}/deny")
-async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     deny_user(user_id)
@@ -4055,8 +4091,8 @@ async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/admin/block-all")
-async def block_all_users(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def block_all_users(token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     blocked = 0
@@ -4084,8 +4120,8 @@ async def block_all_users(token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/users/{user_id}/info")
-def user_info(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def user_info(user_id: int, token: str = Cookie(default=None), x_token: str = Header(default=None, alias="X-Token")):
+    user = get_user_from_token(token, x_token)
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     if SessionLocal:
