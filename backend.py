@@ -1276,20 +1276,124 @@ async def scheduler():
 #  FASTAPI APP
 # ══════════════════════════════════════════════════════════════════════════════
 
+_startup_report: dict = {}
+
+async def _run_startup_diagnostics():
+    report = {
+        "timestamp": utcnow().isoformat(),
+        "checks": {}
+    }
+
+    log.info("=" * 60)
+    log.info("  🔍 NEON GRID — STARTUP DIAGNOSTICS")
+    log.info("=" * 60)
+
+    # ── 1. ENV VARS ──────────────────────────────────────────────
+    env_ok = bool(DATABASE_URL) and bool(FRONTEND_URL and FRONTEND_URL != "*")
+    report["checks"]["env_vars"] = {
+        "ok": env_ok,
+        "DATABASE_URL": "SET ✅" if DATABASE_URL else "MISSING ❌",
+        "FRONTEND_URL": f"{FRONTEND_URL} ✅" if (FRONTEND_URL and FRONTEND_URL != "*") else f"{FRONTEND_URL!r} ⚠️  (cookies may not work)",
+        "MONITOR_BOT_URL": f"{MONITOR_BOT_URL} ✅" if MONITOR_BOT_URL else "NOT SET ⚠️",
+        "SHARED_SECRET": "SET ✅" if SHARED_SECRET else "NOT SET ⚠️",
+        "PORT": str(PORT),
+    }
+    for k, v in report["checks"]["env_vars"].items():
+        if k != "ok":
+            log.info(f"  [ENV] {k}: {v}")
+
+    # ── 2. DATABASE ──────────────────────────────────────────────
+    if SessionLocal:
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+                user_count = db.query(User).count()
+                pool_count = db.query(Pool).count()
+                number_count = db.query(ActiveNumber).count()
+                admin_count = db.query(User).filter(User.is_admin == True).count()
+                approved_admin = db.query(User).filter(User.is_admin == True, User.is_approved == True).count()
+                report["checks"]["database"] = {
+                    "ok": True,
+                    "connection": "✅ Connected",
+                    "users": user_count,
+                    "admins": admin_count,
+                    "approved_admins": approved_admin,
+                    "pools": pool_count,
+                    "numbers": number_count,
+                }
+                log.info(f"  [DB] ✅ Connected — {user_count} users, {admin_count} admins, {pool_count} pools, {number_count} numbers")
+                if user_count == 0:
+                    log.warning("  [DB] ⚠️  NO USERS — first visitor must Register to create admin account")
+                if admin_count > 0 and approved_admin == 0:
+                    log.warning("  [DB] ⚠️  Admin exists but is_approved=FALSE — auto-fixing...")
+                    db.execute(text("UPDATE users SET is_approved = TRUE WHERE is_admin = TRUE"))
+                    db.commit()
+                    log.info("  [DB] ✅ Admin approval fixed")
+        except Exception as e:
+            report["checks"]["database"] = {"ok": False, "error": str(e)}
+            log.error(f"  [DB] ❌ Connection FAILED: {e}")
+    else:
+        report["checks"]["database"] = {"ok": False, "error": "No DATABASE_URL — running in memory mode"}
+        log.warning("  [DB] ⚠️  No DATABASE_URL — using in-memory storage (data lost on restart)")
+
+    # ── 3. COOKIE / AUTH CONFIG ───────────────────────────────────
+    frontend_set = bool(FRONTEND_URL and FRONTEND_URL != "*")
+    cookie_ok = frontend_set  # secure cookies need HTTPS + specific origin
+    report["checks"]["cookie_auth"] = {
+        "ok": cookie_ok,
+        "secure_cookie": "✅ secure=True on all Set-Cookie headers" if cookie_ok else "⚠️  FRONTEND_URL not set — cookies may be dropped by browser on HTTPS",
+        "cors_credentials": "✅ allow_credentials=True" if frontend_set else "⚠️  Wildcard origin — credentials disabled",
+        "samesite": "lax",
+    }
+    log.info(f"  [AUTH] Cookie secure: {'✅' if cookie_ok else '❌'} | CORS credentials: {'✅' if frontend_set else '⚠️'}")
+    if not cookie_ok:
+        log.warning("  [AUTH] ❌ Set FRONTEND_URL=https://franknumberplatform.up.railway.app in Railway variables!")
+
+    # ── 4. JAVASCRIPT INTEGRITY ───────────────────────────────────
+    try:
+        backtick_count = FRONTEND_HTML.count('`')
+        js_ok = backtick_count % 2 == 0
+        report["checks"]["javascript"] = {
+            "ok": js_ok,
+            "backtick_pairs": backtick_count // 2,
+            "status": "✅ No unclosed template literals" if js_ok else f"❌ ODD backtick count ({backtick_count}) — JS will be broken!",
+        }
+        log.info(f"  [JS]  Template literals: {'✅ OK' if js_ok else '❌ BROKEN — unclosed backtick!'}")
+    except Exception as e:
+        report["checks"]["javascript"] = {"ok": False, "error": str(e)}
+
+    # ── 5. MONITOR BOT ────────────────────────────────────────────
+    if MONITOR_BOT_URL:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{MONITOR_BOT_URL}/health", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    bot_ok = resp.status == 200
+                    report["checks"]["monitor_bot"] = {"ok": bot_ok, "status": resp.status, "url": MONITOR_BOT_URL}
+                    log.info(f"  [BOT] Monitor bot: {'✅ reachable' if bot_ok else f'⚠️  HTTP {resp.status}'}")
+        except Exception as e:
+            report["checks"]["monitor_bot"] = {"ok": False, "error": str(e), "url": MONITOR_BOT_URL}
+            log.warning(f"  [BOT] Monitor bot unreachable: {e}")
+    else:
+        report["checks"]["monitor_bot"] = {"ok": False, "error": "MONITOR_BOT_URL not set"}
+        log.warning("  [BOT] ⚠️  MONITOR_BOT_URL not set — OTP monitoring won't work")
+
+    # ── 6. SUMMARY ───────────────────────────────────────────────
+    all_ok = all(v.get("ok", False) for v in report["checks"].values())
+    report["overall"] = "✅ ALL SYSTEMS GO" if all_ok else "⚠️  SOME CHECKS FAILED — see details above"
+    log.info("=" * 60)
+    log.info(f"  RESULT: {report['overall']}")
+    log.info("  Visit /api/debug for full live status report")
+    log.info("=" * 60)
+
+    global _startup_report
+    _startup_report = report
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Starting NEON GRID NETWORK...")
     init_db()
-    # Boot-time safety: force admin approval in case DB state is wrong
-    if SessionLocal:
-        try:
-            with SessionLocal() as db:
-                result = db.execute(text("UPDATE users SET is_approved = TRUE WHERE is_admin = TRUE"))
-                db.commit()
-                if result.rowcount > 0:
-                    log.info(f"[lifespan] Ensured is_approved=TRUE for {result.rowcount} admin(s)")
-        except Exception as e:
-            log.error(f"[lifespan] Admin fix error: {e}")
+    await _run_startup_diagnostics()
     asyncio.create_task(scheduler())
     asyncio.create_task(_platform_stock_watcher())
     log.info("✅ Scheduler and stock watcher started")
@@ -1839,12 +1943,7 @@ function connectWebSocket() {
 function displayOTP(data) {
     const otpDiv = document.getElementById('otpDisplay');
     if (otpTimer) clearTimeout(otpTimer);
-    otpDiv.innerHTML = `<div class="otp-card" style="margin:16px;">
-        <div style="text-align:center;font-size:12px;opacity:0.8;font-weight:600;">🔑 OTP CODE</div>
-        <div class="otp-code" onclick="copyText('${escapeHtml(data.otp)}')">${escapeHtml(data.otp)}</div>
-        <div class="otp-timer" id="otpCountdown">Auto-delete in 30s — tap to copy</div>
-        ${data.raw_message ? `<div class="otp-message">${escapeHtml(data.raw_message)}</div>` : ''}
-    </div>`;
+    otpDiv.innerHTML = '<div class="otp-card" style="margin:16px;"><div style="text-align:center;font-size:12px;opacity:0.8;font-weight:600;">🔑 OTP CODE</div><div class="otp-code" onclick="copyText(\'' + escapeHtml(data.otp) + '\')">' + escapeHtml(data.otp) + '</div><div class="otp-timer" id="otpCountdown">Auto-delete in 30s — tap to copy</div>' + (data.raw_message ? '<div class="otp-message">' + escapeHtml(data.raw_message) + '</div>' : '') + '</div>';
     otpDiv.style.display = 'block';
     let seconds = 30;
     const timer = setInterval(() => {
@@ -2741,6 +2840,77 @@ async def serve_frontend():
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "NEON GRID NETWORK", "timestamp": utcnow().isoformat()}
+
+@app.get("/api/debug")
+async def debug_status():
+    """Live system diagnostic — checks DB, auth, JS, env vars, monitor bot in real time."""
+    live = {
+        "timestamp": utcnow().isoformat(),
+        "startup_report": _startup_report,
+        "live_checks": {}
+    }
+
+    # Live DB check
+    if SessionLocal:
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+                live["live_checks"]["database"] = {
+                    "ok": True,
+                    "users": db.query(User).count(),
+                    "admins": db.query(User).filter(User.is_admin == True).count(),
+                    "approved_admins": db.query(User).filter(User.is_admin == True, User.is_approved == True).count(),
+                    "pools": db.query(Pool).count(),
+                    "numbers": db.query(ActiveNumber).count(),
+                    "sessions": db.query(UserSession).filter(UserSession.expires_at > utcnow()).count(),
+                }
+        except Exception as e:
+            live["live_checks"]["database"] = {"ok": False, "error": str(e)}
+    else:
+        live["live_checks"]["database"] = {"ok": False, "error": "No DATABASE_URL"}
+
+    # Live env check
+    live["live_checks"]["config"] = {
+        "FRONTEND_URL": FRONTEND_URL or "NOT SET",
+        "MONITOR_BOT_URL": MONITOR_BOT_URL or "NOT SET",
+        "PORT": PORT,
+        "cookie_secure": bool(FRONTEND_URL and FRONTEND_URL != "*"),
+        "cors_credentials": bool(FRONTEND_URL and FRONTEND_URL != "*"),
+        "database_mode": "PostgreSQL" if DATABASE_URL else "Memory",
+    }
+
+    # Live JS check
+    backtick_count = FRONTEND_HTML.count('`')
+    live["live_checks"]["javascript"] = {
+        "ok": backtick_count % 2 == 0,
+        "backtick_count": backtick_count,
+        "status": "OK" if backtick_count % 2 == 0 else "BROKEN - unclosed template literal"
+    }
+
+    # Live WebSocket connections
+    live["live_checks"]["websockets"] = {
+        "connected_users": len(user_connections),
+        "feed_listeners": len(feed_connections),
+        "user_ids_online": list(user_connections.keys())
+    }
+
+    # Live monitor bot check
+    if MONITOR_BOT_URL:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{MONITOR_BOT_URL}/health", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    live["live_checks"]["monitor_bot"] = {"ok": resp.status == 200, "http_status": resp.status}
+        except Exception as e:
+            live["live_checks"]["monitor_bot"] = {"ok": False, "error": str(e)}
+    else:
+        live["live_checks"]["monitor_bot"] = {"ok": False, "error": "MONITOR_BOT_URL not set"}
+
+    all_ok = all(
+        v.get("ok", True) for v in live["live_checks"].values()
+        if isinstance(v, dict) and "ok" in v
+    )
+    live["overall"] = "ALL SYSTEMS GO" if all_ok else "ISSUES DETECTED — check live_checks"
+    return live
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTH ENDPOINTS
