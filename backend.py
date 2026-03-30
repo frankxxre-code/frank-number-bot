@@ -43,8 +43,8 @@ from collections import defaultdict
 
 import aiohttp
 import uvicorn
-from fastapi import (FastAPI, WebSocket, WebSocketDisconnect,
-                     Depends, HTTPException, Cookie,
+from fastapi import (FastAPI, WebSocket, WebSocketDisconnect, Request,
+                     Depends, HTTPException, Cookie, Header,
                      UploadFile, File, BackgroundTasks, Form, Query)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, HTMLResponse
@@ -407,7 +407,12 @@ def revoke_token(token: str):
 def get_user_from_token(token: str):
     if not token:
         return None
-    
+    # Strip "Bearer " prefix if sent as Authorization header value
+    if token.startswith("Bearer "):
+        token = token[7:]
+    if not token:
+        return None
+
     if SessionLocal:
         with SessionLocal() as db:
             user_session = db.query(UserSession).filter(
@@ -425,6 +430,13 @@ def get_user_from_token(token: str):
             if user and not user.get("is_blocked"):
                 return user
     return None
+
+def get_token(request: Request) -> str:
+    """Read token from cookie OR Authorization header — whichever is present."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return request.cookies.get("token", "")
 
 def is_admin(user_id: int) -> bool:
     if SessionLocal:
@@ -1819,6 +1831,24 @@ FRONTEND_HTML = '''<!DOCTYPE html>
 <script>
 const API_BASE = window.location.origin;
 let currentUser = null;
+
+// ── TOKEN STORAGE — uses localStorage to bypass cookie issues on HTTPS ──────
+function getToken() { return localStorage.getItem('ngn_token') || ''; }
+function setToken(t) { if (t) localStorage.setItem('ngn_token', t); }
+function clearToken() { localStorage.removeItem('ngn_token'); }
+
+// ── AUTH FETCH — always sends Bearer token header ────────────────────────────
+function authHeaders(extra) {
+    const h = { 'Authorization': 'Bearer ' + getToken() };
+    if (extra) Object.assign(h, extra);
+    return h;
+}
+function apiFetch(url, opts) {
+    opts = opts || {};
+    opts.credentials = 'include';
+    opts.headers = authHeaders(opts.headers || {});
+    return fetch(url, opts);
+}
 let currentAssignment = null;
 let currentPoolId = null;
 let ws = null;
@@ -1849,8 +1879,13 @@ function setTimerPreset(v) { document.getElementById('timerInput').value = v; }
 function escapeHtml(t) { if (!t) return ''; return String(t).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
 
 async function checkAuth() {
+    if (!getToken()) {
+        document.getElementById('authContainer').style.display = 'flex';
+        document.getElementById('appContainer').style.display = 'none';
+        return false;
+    }
     try {
-        const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/auth/me`);
         if (res.ok) {
             currentUser = await res.json();
             document.getElementById('authContainer').style.display = 'none';
@@ -1873,6 +1908,7 @@ async function checkAuth() {
             return true;
         }
     } catch (e) {}
+    clearToken();
     document.getElementById('authContainer').style.display = 'flex';
     document.getElementById('appContainer').style.display = 'none';
     return false;
@@ -1885,12 +1921,15 @@ async function doLogin() {
     if (!username || !password) { errorEl.textContent = 'Please enter username and password'; return; }
     try {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
         const data = await res.json();
-        if (res.ok) { errorEl.textContent = ''; checkAuth(); }
-        else { errorEl.textContent = data.detail || 'Login failed'; }
+        if (res.ok) {
+            setToken(data.token);
+            errorEl.textContent = '';
+            checkAuth();
+        } else { errorEl.textContent = data.detail || 'Login failed'; }
     } catch (e) { errorEl.textContent = 'Network error — check your connection'; }
 }
 
@@ -1901,19 +1940,23 @@ async function doRegister() {
     if (password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; return; }
     try {
         const res = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
         const data = await res.json();
         if (res.ok) {
-            if (data.approved) { errorEl.textContent = ''; checkAuth(); }
-            else { errorEl.textContent = '✅ Registered! Awaiting admin approval.'; }
+            if (data.approved) {
+                setToken(data.token);
+                errorEl.textContent = '';
+                checkAuth();
+            } else { errorEl.textContent = '✅ Registered! Awaiting admin approval.'; }
         } else { errorEl.textContent = data.detail || 'Registration failed'; }
     } catch (e) { errorEl.textContent = 'Network error'; }
 }
 
 async function doLogout() {
-    try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' }); } catch (e) {}
+    try { await apiFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }); } catch (e) {}
+    clearToken();
     currentUser = null;
     document.getElementById('authContainer').style.display = 'flex';
     document.getElementById('appContainer').style.display = 'none';
@@ -1966,7 +2009,7 @@ function displaySavedOTP(data) {
 
 async function loadCustomButtons() {
     try {
-        const res = await fetch(`${API_BASE}/api/buttons`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/buttons`, { credentials: 'include' });
         if (!res.ok) return;
         const buttons = await res.json();
         const container = document.getElementById('customButtonsList');
@@ -1979,7 +2022,7 @@ async function loadCustomButtons() {
 
 async function loadRegions() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         if (!res.ok) throw new Error();
         allRegions = await res.json();
         const container = document.getElementById('regionList');
@@ -2013,8 +2056,8 @@ async function selectRegion(poolId) {
     if (!region) return;
     if (region.is_paused) { showToast(`⏸ Region paused: ${region.pause_reason || 'Temporarily unavailable'}`); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/pools/assign`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch(`${API_BASE}/api/pools/assign`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pool_id: poolId })
         });
         const data = await res.json();
@@ -2038,7 +2081,7 @@ async function selectRegion(poolId) {
 
 async function loadCurrentAssignment() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools/my-assignment`, { credentials: 'include' });
         const data = await res.json();
         if (data.assignment) {
             currentAssignment = data.assignment;
@@ -2072,16 +2115,16 @@ async function submitFeedback(type) {
     const savedAssignment = currentAssignment;
     const savedPoolId = currentPoolId;
     document.getElementById('currentNumber').textContent = '…';
-    const releasePromise = fetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, { method: 'POST', credentials: 'include' });
+    const releasePromise = apiFetch(`${API_BASE}/api/pools/release/${savedAssignment.assignment_id}`, { method: 'POST' });
     fetch(`${API_BASE}/api/reviews`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: savedAssignment.number, rating: markAsBad ? 1 : 4, comment, mark_as_bad: markAsBad })
     });
     await releasePromise;
     if (savedPoolId) {
         try {
-            const res = await fetch(`${API_BASE}/api/pools/assign`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            const res = await apiFetch(`${API_BASE}/api/pools/assign`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pool_id: savedPoolId })
             });
             const data = await res.json();
@@ -2129,8 +2172,8 @@ async function saveNumbers() {
     const poolName = document.getElementById('poolNameInput').value.trim() || 'Default Pool';
     if (!numbers.length) { showToast('Enter at least one number'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch(`${API_BASE}/api/saved`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ numbers, timer_minutes: timerMinutes, pool_name: poolName })
         });
         const data = await res.json();
@@ -2144,7 +2187,7 @@ async function saveNumbers() {
 
 async function loadSavedNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/saved`, { credentials: 'include' });
         const data = await res.json();
         const container = document.getElementById('savedList');
         const activeItems = data.filter(item => !item.moved);
@@ -2191,13 +2234,13 @@ async function loadSavedNumbers() {
 
 async function deleteSavedPool(ids) {
     if (!confirm(`Delete all ${ids.length} number(s) in this pool?`)) return;
-    for (const id of ids) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' }); }
+    for (const id of ids) { await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE' }); }
     loadSavedNumbers();
 }
 
 async function loadReadyNumbers() {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/saved/ready`, { credentials: 'include' });
         const data = await res.json();
         const container = document.getElementById('readyList');
         const section = document.getElementById('readySection');
@@ -2245,7 +2288,7 @@ async function loadReadyNumbers() {
 
 async function deleteReadySlot(id) {
     if (!confirm('Remove this ready number slot?')) return;
-    await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`${API_BASE}/api/saved/${id}`, { method: 'DELETE' });
     loadSavedNumbers();
 }
 
@@ -2253,7 +2296,7 @@ let changeTargetId = null;
 
 async function doNextNumber(id, poolName) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/saved/${id}/next-number`, { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
             showToast(`🔄 New number: ${data.number}`);
@@ -2265,8 +2308,8 @@ async function doNextNumber(id, poolName) {
 
 async function triggerSavedMonitor(number) {
     try {
-        const res = await fetch(`${API_BASE}/api/saved/trigger-monitor`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch(`${API_BASE}/api/saved/trigger-monitor`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ number })
         });
         if (res.ok) showToast('👁️ Monitoring started…');
@@ -2277,7 +2320,7 @@ async function openSwitchPool(id, number, currentPool) {
     changeTargetId = id;
     document.getElementById('changePoolCurrentNum').textContent = number;
     try {
-        const res = await fetch(`${API_BASE}/api/saved/ready-pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/saved/ready-pools`, { credentials: 'include' });
         const readyPools = await res.json();
         const select = document.getElementById('changePoolSelect');
         const options = readyPools.filter(p => p.pool_name !== currentPool && p.count > 0);
@@ -2291,7 +2334,7 @@ async function submitSwitchPool() {
     const newPool = document.getElementById('changePoolSelect').value;
     if (!newPool) { showToast('Select a pool'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/saved/${changeTargetId}/switch-pool?new_pool_name=${encodeURIComponent(newPool)}`, { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
             showToast(`✅ Switched to ${newPool}: ${data.number}`);
@@ -2304,7 +2347,7 @@ async function submitSwitchPool() {
 
 async function loadHistory() {
     try {
-        const res = await fetch(`${API_BASE}/api/otp/my`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/otp/my`, { credentials: 'include' });
         const data = await res.json();
         const container = document.getElementById('historyList');
         if (!data.length) { container.innerHTML = '<div class="loading" style="color:#94a3b8;">No OTP history yet</div>'; return; }
@@ -2350,7 +2393,7 @@ function openCreatePoolModal() {
 async function openEditPoolModal(poolId) {
     currentEditPoolId = poolId;
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         const pools = await res.json();
         const pool = pools.find(p => p.id === poolId);
         if (!pool) { showToast('Pool not found'); return; }
@@ -2389,7 +2432,7 @@ async function savePool() {
     try {
         const url = currentEditPoolId ? `/api/admin/pools/${currentEditPoolId}` : '/api/admin/pools';
         const method = currentEditPoolId ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+        const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         if (res.ok) {
             showToast(currentEditPoolId ? '✅ Pool updated!' : '✅ Pool created!');
             closePoolModal();
@@ -2402,7 +2445,7 @@ function closePoolModal() { document.getElementById('poolModal').classList.remov
 
 async function loadAdminPools() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         const pools = await res.json();
         const container = document.getElementById('poolsList');
         document.getElementById('poolsListTitle').style.display = 'block';
@@ -2436,7 +2479,7 @@ async function cutPoolNumbers(poolId) {
     const count = prompt('How many numbers to cut from the top?');
     if (!count || isNaN(parseInt(count))) return;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/cut?count=${parseInt(count)}`, { method: 'POST' });
         const data = await res.json();
         if (res.ok) { showToast(`✂️ Removed ${data.removed} numbers`); loadAdminPools(); }
         else showToast(data.detail || 'Cut failed');
@@ -2448,7 +2491,7 @@ function exportPool(poolId) { window.open(`${API_BASE}/api/admin/pools/${poolId}
 async function clearPool(poolId, name) {
     if (!confirm(`⚠️ Clear ALL numbers from "${name}"? This cannot be undone!`)) return;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/clear`, { method: 'POST' });
         const data = await res.json();
         if (res.ok) { showToast(`🧹 Cleared ${data.deleted} numbers`); loadAdminPools(); }
         else showToast(data.detail || 'Clear failed');
@@ -2458,7 +2501,7 @@ async function clearPool(poolId, name) {
 async function pausePool(poolId) {
     const reason = prompt('Pause reason (optional):') || '';
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/pause?reason=${encodeURIComponent(reason)}`, { method: 'POST' });
         if (res.ok) { showToast('⏸ Pool paused'); loadAdminPools(); }
         else showToast('Failed to pause pool');
     } catch (e) { showToast('Network error'); }
@@ -2466,7 +2509,7 @@ async function pausePool(poolId) {
 
 async function resumePool(poolId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/resume`, { method: 'POST' });
         if (res.ok) { showToast('▶ Pool resumed'); loadAdminPools(); }
         else showToast('Failed to resume pool');
     } catch (e) { showToast('Network error'); }
@@ -2474,7 +2517,7 @@ async function resumePool(poolId) {
 
 async function toggleAdminOnly(poolId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/toggle-admin-only`, { method: 'POST' });
         const data = await res.json();
         if (res.ok) { showToast(data.is_admin_only ? '🔒 Now Admin Only' : '🔓 Now Public'); loadAdminPools(); }
         else showToast('Toggle failed');
@@ -2484,7 +2527,7 @@ async function toggleAdminOnly(poolId) {
 async function deletePool(poolId, name) {
     if (!confirm(`⚠️ Delete pool "${name}" and ALL its numbers? This cannot be undone!`)) return;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}`, { method: 'DELETE' });
         if (res.ok) { showToast(`Pool "${name}" deleted`); loadAdminPools(); }
         else showToast('Failed to delete pool');
     } catch (e) { showToast('Network error'); }
@@ -2492,7 +2535,7 @@ async function deletePool(poolId, name) {
 
 async function openUploadModal() {
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         const pools = await res.json();
         const select = document.getElementById('uploadPoolSelect');
         select.innerHTML = '<option value="">-- Select Pool --</option>' + pools.map(p =>
@@ -2515,7 +2558,7 @@ async function uploadNumbers() {
     formData.append('file', fileInput.files[0]);
     try {
         document.getElementById('uploadResult').innerHTML = '<div class="loading"><div class="spinner"></div>Uploading…</div>';
-        const res = await fetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', credentials: 'include', body: formData });
+        const res = await apiFetch(`/api/admin/pools/${poolId}/upload`, { method: 'POST', body: formData });
         const data = await res.json();
         if (res.ok) {
             document.getElementById('uploadResult').innerHTML = `<div style="background:#d1fae5;padding:12px;border-radius:10px;font-size:13px;">✅ Added: <strong>${data.added}</strong><br>🚫 Bad skipped: ${data.skipped_bad}<br>⏳ Cooldown skipped: ${data.skipped_cooldown}<br>🔁 Duplicates: ${data.duplicates}</div>`;
@@ -2571,7 +2614,7 @@ function loadUsersList() {
 
 async function approveUser(userId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/approve`, { method: 'POST' });
         if (res.ok) { showToast('✅ User approved'); loadUsersList(); }
         else showToast('Failed to approve user');
     } catch (e) { showToast('Network error'); }
@@ -2579,7 +2622,7 @@ async function approveUser(userId) {
 
 async function denyUser(userId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/users/${userId}/deny`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/deny`, { method: 'POST' });
         if (res.ok) { showToast('❌ User denied'); loadUsersList(); }
         else showToast('Failed to deny user');
     } catch (e) { showToast('Network error'); }
@@ -2588,7 +2631,7 @@ async function denyUser(userId) {
 async function toggleUser(userId, block) {
     try {
         const url = block ? `/api/admin/users/${userId}/block` : `/api/admin/users/${userId}/unblock`;
-        const res = await fetch(url, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(url, { method: 'POST' });
         if (res.ok) { showToast(block ? '🚫 User blocked' : '✅ User unblocked'); loadUsersList(); }
         else showToast('Action failed');
     } catch (e) { showToast('Network error'); }
@@ -2609,7 +2652,7 @@ function loadBadNumbers() {
 
 async function removeBadNumber(number) {
     try {
-        await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE', credentials: 'include' });
+        await fetch(`${API_BASE}/api/admin/bad-numbers?number=${encodeURIComponent(number)}`, { method: 'DELETE' });
         showToast('✅ Removed from bad numbers');
         loadBadNumbers();
     } catch (e) { showToast('Network error'); }
@@ -2635,7 +2678,7 @@ async function sendBroadcast() {
     const msg = document.getElementById('broadcastMsg').value.trim();
     if (!msg) { showToast('Enter a message first'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/broadcast?message=${encodeURIComponent(msg)}`, { method: 'POST' });
         if (res.ok) { showToast('📢 Broadcast sent to all users!'); document.getElementById('broadcastMsg').value = ''; }
         else showToast('Broadcast failed');
     } catch (e) { showToast('Network error'); }
@@ -2647,8 +2690,8 @@ async function saveSettings() {
     try {
         const approval = document.getElementById('approvalMode').value;
         const redirect = document.getElementById('otpRedirect').value;
-        const r1 = await fetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST', credentials: 'include' });
-        const r2 = await fetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST', credentials: 'include' });
+        const r1 = await apiFetch(`${API_BASE}/api/admin/settings/approval?enabled=${approval === 'on'}`, { method: 'POST' });
+        const r2 = await apiFetch(`${API_BASE}/api/admin/settings/otp-redirect?mode=${redirect}`, { method: 'POST' });
         if (r1.ok && r2.ok) showToast('✅ Settings saved');
         else showToast('Failed to save some settings');
     } catch (e) { showToast('Network error'); }
@@ -2657,7 +2700,7 @@ async function saveSettings() {
 async function loadPoolAccess() {
     hideAdminContent('adminContentDiv');
     try {
-        const res = await fetch(`${API_BASE}/api/pools`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/pools`, { credentials: 'include' });
         const pools = await res.json();
         const el = document.getElementById('adminContentDiv');
         el.innerHTML = `<div style="padding:0 0 10px;font-weight:700;font-size:14px;color:#1a2a3a;">🔑 Pool Access Control</div>` +
@@ -2674,7 +2717,7 @@ async function loadPoolAccess() {
 
 async function managePoolAccess(poolId, poolName) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/access`, { credentials: 'include' });
         const data = await res.json();
         hideAdminContent('adminContentDiv');
         const el = document.getElementById('adminContentDiv');
@@ -2697,7 +2740,7 @@ async function managePoolAccess(poolId, poolName) {
 async function grantAccess(poolId, userId) {
     if (!userId) { showToast('Enter a user ID'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${userId}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/access/${userId}`, { method: 'POST' });
         if (res.ok) { showToast('✅ Access granted'); managePoolAccess(poolId, 'Pool'); }
         else { const d = await res.json(); showToast(d.detail || 'Failed to grant access'); }
     } catch (e) { showToast('Network error'); }
@@ -2705,7 +2748,7 @@ async function grantAccess(poolId, userId) {
 
 async function revokeAccess(poolId, userId) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/pools/${poolId}/access/${userId}`, { method: 'DELETE', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/pools/${poolId}/access/${userId}`, { method: 'DELETE' });
         if (res.ok) { showToast('✅ Access revoked'); managePoolAccess(poolId, 'Pool'); }
         else showToast('Failed to revoke access');
     } catch (e) { showToast('Network error'); }
@@ -2715,7 +2758,7 @@ async function searchUserById() {
     const uid = prompt('Enter User ID to look up:');
     if (!uid || isNaN(parseInt(uid))) return;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/users/${uid}/info`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/users/${uid}/info`, { credentials: 'include' });
         const d = await res.json();
         if (res.ok) {
             hideAdminContent('adminContentDiv');
@@ -2743,7 +2786,7 @@ async function searchUserById() {
 async function blockAllUsers() {
     if (!confirm('⚠️ Block ALL non-admin users? They will lose access immediately.')) return;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/block-all`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/block-all`, { method: 'POST' });
         const d = await res.json();
         if (res.ok) { showToast(`🚫 Blocked ${d.blocked} users`); loadUsersList(); }
         else showToast(d.detail || 'Failed');
@@ -2753,7 +2796,7 @@ async function blockAllUsers() {
 async function loadButtons() {
     hideAdminContent('adminContentDiv');
     try {
-        const res = await fetch(`${API_BASE}/api/buttons`, { credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/buttons`, { credentials: 'include' });
         const buttons = await res.json();
         const el = document.getElementById('adminContentDiv');
         el.innerHTML = `
@@ -2774,7 +2817,7 @@ async function doAddButton() {
     const url = document.getElementById('newBtnUrl').value.trim();
     if (!label || !url) { showToast('Enter label and URL'); return; }
     try {
-        const res = await fetch(`${API_BASE}/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, { method: 'POST', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/buttons?label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`, { method: 'POST' });
         if (res.ok) {
             showToast('✅ Button added');
             document.getElementById('addButtonModal').classList.remove('show');
@@ -2788,7 +2831,7 @@ async function doAddButton() {
 
 async function deleteButton(id) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/buttons/${id}`, { method: 'DELETE', credentials: 'include' });
+        const res = await apiFetch(`${API_BASE}/api/admin/buttons/${id}`, { method: 'DELETE' });
         if (res.ok) { showToast('✅ Button removed'); loadButtons(); loadCustomButtons(); }
         else showToast('Failed to remove button');
     } catch (e) { showToast('Network error'); }
@@ -2950,8 +2993,8 @@ async def register(req: RegisterRequest):
             db.refresh(user)
             if is_first:
                 token = create_token(user.id)
-                resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id})
-                resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
+                resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user.id, "token": token})
+                resp.set_cookie("token", token, httponly=False, samesite="lax", secure=True, max_age=86400*30, path="/")
             raise HTTPException(400, "Username already taken")
         is_first = len(users) == 0
         user_id = _counters["user"]
@@ -2966,8 +3009,8 @@ async def register(req: RegisterRequest):
         }
         if is_first:
             token = create_token(user_id)
-            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
+            resp = JSONResponse({"ok": True, "approved": True, "is_admin": True, "user_id": user_id, "token": token})
+            resp.set_cookie("token", token, httponly=False, samesite="lax", secure=True, max_age=86400*30, path="/")
             return resp
         return {"ok": True, "approved": False, "message": "Awaiting admin approval"}
 
@@ -2986,8 +3029,8 @@ async def login(req: LoginRequest):
             if not user.is_approved:
                 raise HTTPException(403, "Account pending approval")
             token = create_token(user.id)
-            resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin})
-            resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
+            resp = JSONResponse({"ok": True, "user_id": user.id, "username": user.username, "is_admin": user.is_admin, "token": token})
+            resp.set_cookie("token", token, httponly=False, samesite="lax", secure=True, max_age=86400*30, path="/")
             return resp
     else:
         user = None
@@ -3002,20 +3045,20 @@ async def login(req: LoginRequest):
         if not user.get("is_approved"):
             raise HTTPException(403, "Account pending approval")
         token = create_token(user["id"])
-        resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"]})
-        resp.set_cookie("token", token, httponly=True, samesite="lax", secure=True, max_age=86400*30, path="/")
+        resp = JSONResponse({"ok": True, "user_id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "token": token})
+        resp.set_cookie("token", token, httponly=False, samesite="lax", secure=True, max_age=86400*30, path="/")
         return resp
 
 @app.post("/api/auth/logout")
-def logout(token: str = Cookie(default=None)):
-    revoke_token(token)
+def logout(request: Request):
+    revoke_token(get_token(request))
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("token", path="/")
     return resp
 
 @app.get("/api/auth/me")
-def me(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def me(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     return {"id": user["id"], "username": user["username"], "is_admin": user["is_admin"], "is_approved": user["is_approved"]}
@@ -3025,8 +3068,8 @@ def me(token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/pools")
-def list_pools(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_pools(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3072,8 +3115,8 @@ class AssignRequest(BaseModel):
     prefix: Optional[str] = None
 
 @app.post("/api/pools/assign")
-async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def assign_number(req: AssignRequest, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3128,16 +3171,16 @@ async def assign_number(req: AssignRequest, token: str = Cookie(default=None)):
         return assignment
 
 @app.get("/api/pools/my-assignment")
-def my_assignment(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def my_assignment(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     assignment = get_current_assignment(user["id"])
     return {"assignment": assignment}
 
 @app.post("/api/pools/release/{assignment_id}")
-def release_number(assignment_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def release_number(assignment_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     release_assignment(user["id"], assignment_id)
@@ -3161,8 +3204,8 @@ class PoolCreate(BaseModel):
     pause_reason: Optional[str] = ""
 
 @app.post("/api/admin/pools")
-def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def create_pool(req: PoolCreate, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3187,8 +3230,8 @@ def create_pool(req: PoolCreate, token: str = Cookie(default=None)):
         return {"ok": True, "id": pool_id}
 
 @app.put("/api/admin/pools/{pool_id}")
-def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def update_pool(pool_id: int, req: PoolCreate, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3208,8 +3251,8 @@ def update_pool(pool_id: int, req: PoolCreate, token: str = Cookie(default=None)
         return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}")
-def delete_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_pool(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3226,8 +3269,8 @@ def delete_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/upload")
-async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def upload_numbers(pool_id: int, request: Request, file: UploadFile = File(...)):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
 
@@ -3317,8 +3360,8 @@ async def upload_numbers(pool_id: int, file: UploadFile = File(...), token: str 
     return {"ok": True, "added": added, "skipped_bad": skipped_bad, "skipped_cooldown": skipped_cooldown, "duplicates": duplicates}
 
 @app.get("/api/admin/pools/{pool_id}/export")
-def export_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def export_pool(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3335,8 +3378,8 @@ def export_pool(pool_id: int, token: str = Cookie(default=None)):
     )
 
 @app.post("/api/admin/pools/{pool_id}/cut")
-def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def cut_numbers(pool_id: int, count: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3355,8 +3398,8 @@ def cut_numbers(pool_id: int, count: int, token: str = Cookie(default=None)):
     return {"ok": True, "removed": removed}
 
 @app.post("/api/admin/pools/{pool_id}/clear")
-def clear_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def clear_pool(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3372,8 +3415,8 @@ def clear_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True, "deleted": deleted}
 
 @app.post("/api/admin/pools/{pool_id}/pause")
-def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def pause_pool(pool_id: int, request: Request, reason: str = ""):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3398,8 +3441,8 @@ def pause_pool(pool_id: int, reason: str = "", token: str = Cookie(default=None)
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/resume")
-def resume_pool(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def resume_pool(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3424,8 +3467,8 @@ def resume_pool(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/pools/{pool_id}/toggle-admin-only")
-def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def toggle_admin_only(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3447,8 +3490,8 @@ def toggle_admin_only(pool_id: int, token: str = Cookie(default=None)):
     return {"ok": True, "is_admin_only": new_val}
 
 @app.post("/api/admin/pools/{pool_id}/trick")
-def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_trick_text(pool_id: int, trick_text: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3469,16 +3512,16 @@ def set_trick_text(pool_id: int, trick_text: str, token: str = Cookie(default=No
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/pools/{pool_id}/access")
-def get_pool_access(pool_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def get_pool_access(pool_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
     return get_pool_access_users(pool_id)
 
 @app.post("/api/admin/pools/{pool_id}/access/{user_id}")
-def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def grant_pool_access_endpoint(pool_id: int, user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3498,8 +3541,8 @@ def grant_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(d
     return {"ok": True}
 
 @app.delete("/api/admin/pools/{pool_id}/access/{user_id}")
-def revoke_pool_access_endpoint(pool_id: int, user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def revoke_pool_access_endpoint(pool_id: int, user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -3597,8 +3640,8 @@ async def monitor_result(payload: MonitorResultPayload):
     return {"ok": True}
 
 @app.get("/api/otp/my")
-def my_otps(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def my_otps(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3612,8 +3655,8 @@ def my_otps(token: str = Cookie(default=None)):
         return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
 
 @app.post("/api/otp/search")
-async def search_otp(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def search_otp(number: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3658,8 +3701,8 @@ class SaveRequest(BaseModel):
     pool_name: str
 
 @app.post("/api/saved")
-def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def save_numbers(req: SaveRequest, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3711,8 +3754,8 @@ def save_numbers(req: SaveRequest, token: str = Cookie(default=None)):
     return {"ok": True, "saved": saved, "expires_at": expires_at.isoformat()}
 
 @app.get("/api/saved")
-def list_saved(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_saved(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3775,8 +3818,8 @@ def list_saved(token: str = Cookie(default=None)):
         return result
 
 @app.get("/api/saved/ready")
-def ready_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def ready_numbers(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3822,8 +3865,8 @@ def ready_numbers(token: str = Cookie(default=None)):
         return result
 
 @app.put("/api/saved/{saved_id}")
-def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def update_saved(saved_id: int, timer_minutes: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3849,8 +3892,8 @@ def update_saved(saved_id: int, timer_minutes: int, token: str = Cookie(default=
     return {"ok": True}
 
 @app.delete("/api/saved/{saved_id}")
-def delete_saved(saved_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_saved(saved_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -3874,9 +3917,9 @@ def delete_saved(saved_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/saved/{saved_id}/next-number")
-def ready_next_number(saved_id: int, token: str = Cookie(default=None)):
+def ready_next_number(saved_id: int, request: Request):
     """Replace this ready number with the next available number from the same pool."""
-    user = get_user_from_token(token)
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
 
@@ -3938,9 +3981,9 @@ def ready_next_number(saved_id: int, token: str = Cookie(default=None)):
         raise HTTPException(404, "Ready number not found")
 
 @app.post("/api/saved/{saved_id}/switch-pool")
-def ready_switch_pool(saved_id: int, new_pool_name: str, token: str = Cookie(default=None)):
+def ready_switch_pool(saved_id: int, new_pool_name: str, request: Request):
     """Move this ready number slot to a different pool, picking the next number from that pool."""
-    user = get_user_from_token(token)
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
 
@@ -4011,9 +4054,9 @@ def ready_switch_pool(saved_id: int, new_pool_name: str, token: str = Cookie(def
         raise HTTPException(404, "Ready number not found")
 
 @app.get("/api/saved/ready-pools")
-def list_ready_pools(token: str = Cookie(default=None)):
+def list_ready_pools(request: Request):
     """Return pools that have ready numbers (moved=True saved numbers), with their stock count."""
-    user = get_user_from_token(token)
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
 
@@ -4049,13 +4092,13 @@ class TriggerMonitorRequest(BaseModel):
     number: str
 
 @app.post("/api/saved/trigger-monitor")
-async def trigger_saved_monitor(req: TriggerMonitorRequest, token: str = Cookie(default=None)):
+async def trigger_saved_monitor(req: TriggerMonitorRequest, request: Request):
     """
     Trigger monitor bot for a saved/ready number.
     Looks up the pool from the number's saved_number record,
     gets group_id and match_format, sends monitor request.
     """
-    user = get_user_from_token(token)
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
 
@@ -4120,8 +4163,8 @@ class ReviewRequest(BaseModel):
     mark_as_bad: bool = False
 
 @app.post("/api/reviews")
-def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def submit_review(req: ReviewRequest, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
@@ -4183,8 +4226,8 @@ def submit_review(req: ReviewRequest, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/stats")
-def stats(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def stats(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4215,8 +4258,8 @@ def stats(token: str = Cookie(default=None)):
         }
 
 @app.get("/api/admin/users")
-def list_users(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_users(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4228,8 +4271,8 @@ def list_users(token: str = Cookie(default=None)):
         return [{"id": u["id"], "username": u["username"], "is_admin": u["is_admin"], "is_approved": u["is_approved"], "is_blocked": u.get("is_blocked", False), "created_at": u.get("created_at", utcnow().isoformat())} for u in users.values()]
 
 @app.post("/api/admin/users/{user_id}/approve")
-async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def approve_user_endpoint(user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     approve_user(user_id)
@@ -4237,8 +4280,8 @@ async def approve_user_endpoint(user_id: int, token: str = Cookie(default=None))
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/block")
-async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def block_user_endpoint(user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     block_user(user_id)
@@ -4246,8 +4289,8 @@ async def block_user_endpoint(user_id: int, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/users/{user_id}/unblock")
-async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def unblock_user_endpoint(user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     unblock_user(user_id)
@@ -4255,8 +4298,8 @@ async def unblock_user_endpoint(user_id: int, token: str = Cookie(default=None))
     return {"ok": True}
 
 @app.get("/api/admin/bad-numbers")
-def list_bad_numbers(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_bad_numbers(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4268,8 +4311,8 @@ def list_bad_numbers(token: str = Cookie(default=None)):
         return [{"number": num, "reason": data.get("reason", ""), "created_at": data.get("marked_at", "")} for num, data in bad_numbers.items()]
 
 @app.delete("/api/admin/bad-numbers")
-def remove_bad_number(number: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def remove_bad_number(number: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4283,8 +4326,8 @@ def remove_bad_number(number: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.get("/api/admin/reviews")
-def list_reviews(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def list_reviews(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4296,8 +4339,8 @@ def list_reviews(token: str = Cookie(default=None)):
         return [{"id": r["id"], "user_id": r["user_id"], "number": r["number"], "rating": r["rating"], "comment": r["comment"], "created_at": r["created_at"]} for r in sorted(reviews, key=lambda x: x["created_at"], reverse=True)[:100]]
 
 @app.post("/api/admin/broadcast")
-async def broadcast_message(message: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def broadcast_message(message: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4305,8 +4348,8 @@ async def broadcast_message(message: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.post("/api/admin/settings/approval")
-def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_approval_mode_endpoint(enabled: bool, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4314,8 +4357,8 @@ def set_approval_mode_endpoint(enabled: bool, token: str = Cookie(default=None))
     return {"ok": True, "mode": "on" if enabled else "off"}
 
 @app.post("/api/admin/settings/otp-redirect")
-def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def set_otp_redirect_mode_endpoint(mode: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4330,16 +4373,16 @@ def set_otp_redirect_mode_endpoint(mode: str, token: str = Cookie(default=None))
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/buttons")
-def get_buttons(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def get_buttons(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
     
     return _get_custom_buttons()
 
 @app.post("/api/admin/buttons")
-def add_button(label: str, url: str, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def add_button(label: str, url: str, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4356,8 +4399,8 @@ def add_button(label: str, url: str, token: str = Cookie(default=None)):
     return {"ok": True}
 
 @app.delete("/api/admin/buttons/{button_id}")
-def delete_button(button_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def delete_button(button_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     
@@ -4425,8 +4468,8 @@ async def monitor_result_inbound(payload: MonitorResultInbound):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/admin/users/{user_id}/deny")
-async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def deny_user_endpoint(user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     deny_user(user_id)
@@ -4439,8 +4482,8 @@ async def deny_user_endpoint(user_id: int, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/admin/block-all")
-async def block_all_users(token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+async def block_all_users(request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     blocked = 0
@@ -4468,8 +4511,8 @@ async def block_all_users(token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/users/{user_id}/info")
-def user_info(user_id: int, token: str = Cookie(default=None)):
-    user = get_user_from_token(token)
+def user_info(user_id: int, request: Request):
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     if SessionLocal:
@@ -4497,9 +4540,9 @@ def user_info(user_id: int, token: str = Cookie(default=None)):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/admin/platform-files")
-async def platform_files(token: str = Cookie(default=None)):
+async def platform_files(request: Request):
     """Fetch all numbers from platform API grouped by country."""
-    user = get_user_from_token(token)
+    user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
     token_val = await _get_platform_token()
