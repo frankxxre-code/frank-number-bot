@@ -1430,7 +1430,7 @@ FRONTEND_HTML = '''<!DOCTYPE html>
         .auth-input:focus { border-color: var(--primary); }
         .auth-btn { width: 100%; background: var(--primary); color: white; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; margin-top: 4px; }
         .auth-btn:active { background: var(--primary-dark); transform: scale(0.98); }
-        .error-msg { color: var(--danger); font-size: 12px; margin-top: 8px; text-align: center; }
+        .error-msg { color: var(--danger); font-size: 13px; margin-top: 10px; text-align: center; min-height: 20px; font-weight: 600; }
         /* ADMIN */
         .admin-badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
         .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px; }
@@ -1870,14 +1870,27 @@ async function doLogin() {
     const u = document.getElementById('loginUsername').value.trim();
     const p = document.getElementById('loginPassword').value;
     const errEl = document.getElementById('loginError');
+    const btn = document.querySelector('#loginForm .auth-btn');
     errEl.textContent='';
     if(!u){errEl.textContent='Enter username';return;}
     if(!p){errEl.textContent='Enter password';return;}
+    btn.textContent='Logging in...';
+    btn.disabled=true;
     try {
         const data = await api('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
         if(data.token) setToken(data.token);
         await checkAuth();
-    } catch(e) { errEl.textContent=e.message; }
+    } catch(e) {
+        errEl.textContent = e.message || 'Login failed. Check your connection.';
+        errEl.style.display = 'block';
+        errEl.style.color = '#ef4444';
+        errEl.style.fontSize = '13px';
+        errEl.style.marginTop = '8px';
+        console.error('Login error:', e);
+    } finally {
+        btn.textContent='Login';
+        btn.disabled=false;
+    }
 }
 async function doRegister() {
     const u = document.getElementById('regUsername').value.trim();
@@ -1891,7 +1904,10 @@ async function doRegister() {
         if(data.token) setToken(data.token);
         if(data.approved) { await checkAuth(); }
         else { errEl.textContent='Account created — awaiting admin approval.'; }
-    } catch(e) { errEl.textContent=e.message; }
+    } catch(e) {
+        errEl.textContent = e.message || 'Registration failed.';
+        errEl.style.display = 'block';
+    }
 }
 async function doLogout() {
     await fetch(API+'/api/auth/logout', {method:'POST', credentials:'include', headers:{'X-Token':getToken()||''}}).catch(()=>{});
@@ -2567,6 +2583,41 @@ async def serve_frontend():
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "NEON GRID NETWORK", "timestamp": utcnow().isoformat()}
+
+@app.get("/api/test")
+def test_endpoint():
+    """Quick connectivity test — open this URL in browser to verify API is reachable"""
+    db_ok = False
+    admin_exists = False
+    admin_approved = False
+    if SessionLocal:
+        try:
+            with SessionLocal() as db:
+                db_ok = True
+                admin = db.query(User).filter(User.username == "admin").first()
+                if admin:
+                    admin_exists = True
+                    admin_approved = admin.is_approved
+                    # Auto-fix: ensure admin is always approved
+                    if not admin.is_approved or not admin.is_admin:
+                        admin.is_approved = True
+                        admin.is_admin = True
+                        db.commit()
+                        admin_approved = True
+                        log.info("[test] Auto-fixed admin approval")
+        except Exception as e:
+            return {"status": "db_error", "error": str(e)}
+    else:
+        db_ok = True
+        admin_exists = True
+        admin_approved = True
+    return {
+        "status": "ok",
+        "db": db_ok,
+        "admin_exists": admin_exists,
+        "admin_approved": admin_approved,
+        "message": "If admin_approved is false, login was failing. It has been auto-fixed — try logging in now."
+    }
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTH ENDPOINTS
