@@ -180,9 +180,9 @@ if Base:
         last_restocked = Column(DateTime(timezone=True), nullable=True)
         created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
         
-        numbers = relationship("ActiveNumber", back_populates="pool", cascade="all, delete")
-        assignments = relationship("Assignment", back_populates="pool")
-        access_list = relationship("PoolAccess", back_populates="pool", cascade="all, delete")
+        numbers = relationship("ActiveNumber", back_populates="pool", cascade="all, delete-orphan")
+        assignments = relationship("Assignment", back_populates="pool", cascade="all, delete-orphan")
+        access_list = relationship("PoolAccess", back_populates="pool", cascade="all, delete-orphan")
 
     class ActiveNumber(Base):
         __tablename__ = "active_numbers"
@@ -1361,18 +1361,15 @@ async def _run_startup_diagnostics():
     if not cookie_ok:
         log.warning("  [AUTH] ❌ Set FRONTEND_URL=https://franknumberplatform.up.railway.app in Railway variables!")
 
-    # ── 4. JAVASCRIPT INTEGRITY ───────────────────────────────────
-    try:
-        backtick_count = FRONTEND_HTML.count('`')
-        js_ok = backtick_count % 2 == 0
-        report["checks"]["javascript"] = {
-            "ok": js_ok,
-            "backtick_pairs": backtick_count // 2,
-            "status": "✅ No unclosed template literals" if js_ok else f"❌ ODD backtick count ({backtick_count}) — JS will be broken!",
-        }
-        log.info(f"  [JS]  Template literals: {'✅ OK' if js_ok else '❌ BROKEN — unclosed backtick!'}")
-    except Exception as e:
-        report["checks"]["javascript"] = {"ok": False, "error": str(e)}
+    # ── 4. FRONTEND FILE ─────────────────────────────────────────
+    import os as _os
+    html_path = _os.path.join(_os.path.dirname(__file__), "frontend.html")
+    fe_exists = _os.path.exists(html_path)
+    report["checks"]["frontend"] = {
+        "ok": fe_exists,
+        "status": "✅ frontend.html found" if fe_exists else "❌ frontend.html NOT FOUND — deploy it alongside backend.py",
+    }
+    log.info(f"  [FE]  frontend.html: {'✅ found' if fe_exists else '❌ MISSING'}")
 
     # ── 5. MONITOR BOT ────────────────────────────────────────────
     if MONITOR_BOT_URL:
@@ -1491,12 +1488,12 @@ async def debug_status():
         "database_mode": "PostgreSQL" if DATABASE_URL else "Memory",
     }
 
-    # Live JS check
-    backtick_count = FRONTEND_HTML.count('`')
-    live["live_checks"]["javascript"] = {
-        "ok": backtick_count % 2 == 0,
-        "backtick_count": backtick_count,
-        "status": "OK" if backtick_count % 2 == 0 else "BROKEN - unclosed template literal"
+    # Frontend file check
+    import os as _os2
+    html_path2 = _os2.path.join(_os2.path.dirname(__file__), "frontend.html")
+    live["live_checks"]["frontend"] = {
+        "ok": _os2.path.exists(html_path2),
+        "status": "frontend.html found" if _os2.path.exists(html_path2) else "MISSING"
     }
 
     # Live WebSocket connections
@@ -1828,12 +1825,27 @@ def delete_pool(pool_id: int, request: Request):
     user = get_user_from_token(get_token(request))
     if not user or not user["is_admin"]:
         raise HTTPException(403, "Admin only")
-    
+
     if SessionLocal:
         with SessionLocal() as db:
-            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete()
-            db.query(Pool).filter(Pool.id == pool_id).delete()
+            pool = db.query(Pool).filter(Pool.id == pool_id).first()
+            if not pool:
+                raise HTTPException(404, "Pool not found")
+            # Delete in correct FK order
+            # 1. OTP logs linked to assignments in this pool
+            assignment_ids = [a.id for a in db.query(Assignment).filter(Assignment.pool_id == pool_id).all()]
+            if assignment_ids:
+                db.query(OTPLog).filter(OTPLog.assignment_id.in_(assignment_ids)).delete(synchronize_session=False)
+            # 2. Assignments
+            db.query(Assignment).filter(Assignment.pool_id == pool_id).delete(synchronize_session=False)
+            # 3. Active numbers
+            db.query(ActiveNumber).filter(ActiveNumber.pool_id == pool_id).delete(synchronize_session=False)
+            # 4. Pool access
+            db.query(PoolAccess).filter(PoolAccess.pool_id == pool_id).delete(synchronize_session=False)
+            # 5. Pool itself
+            db.delete(pool)
             db.commit()
+            log.info(f"[Admin] Pool {pool_id} deleted with all related data")
     else:
         if pool_id not in pools:
             raise HTTPException(404, "Pool not found")
@@ -2491,7 +2503,7 @@ def delete_saved(saved_id: int, request: Request):
 
 @app.post("/api/saved/{saved_id}/next-number")
 def ready_next_number(saved_id: int, request: Request):
-    """Replace this ready number with the next available number from the same pool."""
+    """Replace this ready number with the next available number from the same pool. Old number is discarded (not returned to pool) to prevent rotation."""
     user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -2510,27 +2522,35 @@ def ready_next_number(saved_id: int, request: Request):
             if not pool:
                 raise HTTPException(404, "Pool not found")
 
-            # Pick next number from the pool (excluding current one)
+            old_number = saved.number
+
+            # Pick next number — exclude current AND any other ready numbers this user has in this pool
+            user_ready_numbers = [
+                s.number for s in db.query(SavedNumber).filter(
+                    SavedNumber.user_id == user["id"],
+                    SavedNumber.pool_name == saved.pool_name,
+                    SavedNumber.moved == True
+                ).all()
+            ]
+
             next_num_row = db.query(ActiveNumber).filter(
                 ActiveNumber.pool_id == pool.id,
-                ActiveNumber.number != saved.number
+                ActiveNumber.number.notin_(user_ready_numbers)
             ).order_by(ActiveNumber.id.desc()).first()
 
             if not next_num_row:
                 raise HTTPException(404, "No more numbers available in this pool")
 
-            old_number = saved.number
             new_number = next_num_row.number
 
-            # Remove next number from pool (it's now assigned to this saved slot)
+            # Remove new number from pool
             db.delete(next_num_row)
-            # Put the old number back into the pool so others can use it
-            existing_old = db.query(ActiveNumber).filter(ActiveNumber.number == old_number).first()
-            if not existing_old:
-                db.add(ActiveNumber(pool_id=pool.id, number=old_number))
+            # OLD number is NOT returned to pool — prevents 2-number rotation loop
+            # It stays discarded so users always get fresh numbers
 
             saved.number = new_number
             db.commit()
+            log.info(f"[Ready] User {user['id']} changed number {old_number} → {new_number} in pool {saved.pool_name}")
             return {"ok": True, "number": new_number, "pool_name": saved.pool_name}
     else:
         for s in saved_numbers:
@@ -2539,16 +2559,13 @@ def ready_next_number(saved_id: int, request: Request):
                 if not pool:
                     raise HTTPException(404, "Pool not found")
                 pid = pool["id"]
-                nums = [n for n in active_numbers.get(pid, []) if n != s["number"]]
+                user_ready = {sn["number"] for sn in saved_numbers if sn["user_id"] == user["id"] and sn.get("moved") and sn["pool_name"] == s["pool_name"]}
+                nums = [n for n in active_numbers.get(pid, []) if n not in user_ready]
                 if not nums:
                     raise HTTPException(404, "No more numbers available in this pool")
-                old_number = s["number"]
                 new_number = nums[-1]
-                nums.pop()
-                # Put old number back
-                if old_number not in nums:
-                    nums.append(old_number)
-                active_numbers[pid] = nums
+                active_numbers[pid] = [n for n in active_numbers[pid] if n != new_number]
+                # Do NOT put old number back
                 s["number"] = new_number
                 return {"ok": True, "number": new_number, "pool_name": s["pool_name"]}
         raise HTTPException(404, "Ready number not found")
