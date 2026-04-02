@@ -1798,7 +1798,72 @@ function buildOtpRing(seconds) {
   '</div>';
 }
 
-// ── UPGRADED showOTP with ring + auto-copy ──
+// ── SMS RINGTONE ENGINE ──────────────────────────────────────────
+// Synthesizes a classic SMS chime using Web Audio API.
+// No file needed — works offline and on mobile.
+(function() {
+  var _actx = null;
+
+  function getACtx() {
+    if (_actx && _actx.state !== 'closed') return _actx;
+    try {
+      _actx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { _actx = null; }
+    return _actx;
+  }
+
+  // Plays a single tone burst
+  function tone(ctx, freq, startTime, duration, gain, type) {
+    var osc  = ctx.createOscillator();
+    var env  = ctx.createGain();
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.type      = type || 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+    // Envelope: fast attack, sustain, fast decay
+    env.gain.setValueAtTime(0, startTime);
+    env.gain.linearRampToValueAtTime(gain, startTime + 0.01);
+    env.gain.setValueAtTime(gain, startTime + duration - 0.04);
+    env.gain.linearRampToValueAtTime(0, startTime + duration);
+    osc.start(startTime);
+    osc.stop(startTime + duration);
+  }
+
+  // Classic Nokia-style SMS chime: ascending two-tone pattern
+  function playSMSChime() {
+    var ctx = getACtx();
+    if (!ctx) return;
+    // Resume if browser suspended context (autoplay policy)
+    if (ctx.state === 'suspended') ctx.resume();
+    var t = ctx.currentTime + 0.05;
+
+    // Pattern: short high beep, pause, two-note rising chime
+    // Modelled after the universal SMS notification sound
+    tone(ctx, 1200, t,        0.08, 0.4, 'sine');        // quick high blip
+    tone(ctx, 1000, t + 0.12, 0.08, 0.35, 'sine');       // slightly lower
+    tone(ctx, 880,  t + 0.28, 0.12, 0.45, 'sine');       // root
+    tone(ctx, 1100, t + 0.41, 0.18, 0.55, 'sine');       // rising resolve
+
+    // Soft harmonic layer for fullness (like a real phone speaker)
+    tone(ctx, 440,  t + 0.28, 0.30, 0.08, 'triangle');   // sub warmth
+  }
+
+  // Unlock audio on first user touch (iOS requirement)
+  var _unlocked = false;
+  function unlockAudio() {
+    if (_unlocked) return;
+    var ctx = getACtx();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    _unlocked = true;
+  }
+  document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+  document.addEventListener('click',      unlockAudio, { once: true });
+
+  // Expose globally so showOTP can call it
+  window.playSMSChime = playSMSChime;
+})();
+
+// ── Wire ringtone into existing showOTP override ──
 var _origShowOTP = null;
 setTimeout(function() {
   if (typeof showOTP === 'function') {
@@ -1814,6 +1879,17 @@ setTimeout(function() {
           (data.raw_message ? '<div class="otp-raw">' + eh(data.raw_message) + '</div>' : '') +
         '</div>';
       el.style.display = 'block';
+
+      // 🔔 Play SMS ringtone on every OTP arrival
+      if (typeof window.playSMSChime === 'function') {
+        window.playSMSChime();
+      }
+
+      // 🗣️ Speak "OTP received: X X X X X X"
+      speakOTP(data.otp);
+
+      // 📲 Native OS notification (works when tab is backgrounded)
+      showBgNotification(data.otp, data.raw_message);
 
       // Auto-copy OTP to clipboard
       navigator.clipboard.writeText(data.otp).then(function() {
@@ -1888,6 +1964,67 @@ setInterval(function() {
     el.textContent = h > 0 ? h + 'h ' + m + 'm' : m > 0 ? m + 'm ' + sec + 's' : sec + 's';
   });
 }, 1000);
+
+// ── VOICE ANNOUNCEMENT ───────────────────────────────────────────
+// Speaks "OTP received: X X X X X X" aloud using Web Speech API
+function speakOTP(otp) {
+  if (!window.speechSynthesis) return;
+  // Cancel any in-progress speech first
+  window.speechSynthesis.cancel();
+  var msg = new SpeechSynthesisUtterance();
+  // Spell out the digits with spaces so it reads them individually
+  msg.text = 'O T P received. ' + String(otp).split('').join(' ');
+  msg.lang   = 'en-US';
+  msg.rate   = 0.92;   // slightly slower = clearer digits
+  msg.pitch  = 1.05;
+  msg.volume = 1;
+  // Pick a natural voice if available
+  var voices = window.speechSynthesis.getVoices();
+  var pref = voices.find(function(v) {
+    return v.lang === 'en-US' && v.localService;
+  }) || voices.find(function(v) {
+    return v.lang.startsWith('en');
+  });
+  if (pref) msg.voice = pref;
+  window.speechSynthesis.speak(msg);
+}
+
+// ── BACKGROUND NOTIFICATION SYSTEM ───────────────────────────────
+// Shows a native OS notification when an OTP arrives.
+// Works even when the tab is in the background (but tab must be open).
+// For true closed-tab delivery the backend needs Web Push — see sw.js.
+var _notifAllowed = false;
+
+function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') { _notifAllowed = true; return; }
+  if (Notification.permission === 'denied')  return;
+  Notification.requestPermission().then(function(p) {
+    _notifAllowed = (p === 'granted');
+  });
+}
+
+function showBgNotification(otp, rawMsg) {
+  if (!_notifAllowed || Notification.permission !== 'granted') return;
+  var body = rawMsg ? rawMsg.substring(0, 120) : 'Your OTP code is ' + otp;
+  var n = new Notification('🔑 OTP Received', {
+    body:    body,
+    icon:    '/icon-192.png',   // reuse PWA icon
+    badge:   '/icon-192.png',
+    tag:     'otp-alert',       // replaces previous notification instead of stacking
+    renotify: true,
+    vibrate: [200, 100, 200],   // buzz pattern on Android
+    data:    { otp: otp },
+  });
+  // Tap notification → focus the tab
+  n.onclick = function() { window.focus(); n.close(); };
+  // Auto-close after 20s
+  setTimeout(function() { n.close(); }, 20000);
+}
+
+// Ask for permission as soon as user interacts (required by browsers)
+document.addEventListener('click',      requestNotifPermission, { once: true });
+document.addEventListener('touchstart', requestNotifPermission, { once: true, passive: true });
 
 // ── SERVICE WORKER (PWA) ──
 if ('serviceWorker' in navigator) {
