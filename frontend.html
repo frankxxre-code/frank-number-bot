@@ -1105,18 +1105,11 @@ function connectWS() {
       else if (d.type === 'broadcast' || d.type === 'notification') toast(d.message || '');
       if (d.type === 'otp' || d.type === 'saved_otp') {
         if (ca && ca.pool_id) {
-          const now = new Date().toISOString();
-          activityTimestamps[ca.pool_id] = now;
+          activityOverrides[ca.pool_id] = new Date().toISOString();
           const el = document.getElementById('ago-' + ca.pool_id);
           if (el) el.textContent = '⏱ Last: just now';
-          loadActivity().then(() => {
-            activityTimestamps[ca.pool_id] = now;
-            const el2 = document.getElementById('ago-' + ca.pool_id);
-            if (el2) el2.textContent = '⏱ Last: just now';
-          });
-        } else {
-          loadActivity();
         }
+        loadActivity();
       }
     } catch (ex) {}
   };
@@ -1135,34 +1128,17 @@ function connectFeedWS() {
       if (d.type === 'feed_otp') {
         const now = new Date().toISOString();
         if (d.pool_id) {
-          // Immediately show "just now" for this pool
-          activityTimestamps[d.pool_id] = now;
+          // Set override so this pool shows "just now" and counts up from here
+          activityOverrides[d.pool_id] = now;
           const el = document.getElementById('ago-' + d.pool_id);
           if (el) el.textContent = '⏱ Last: just now';
-          // Reload to update count and add new pools, then re-stamp so timer stays correct
-          loadActivity().then(() => {
-            activityTimestamps[d.pool_id] = now;
-            const el2 = document.getElementById('ago-' + d.pool_id);
-            if (el2) el2.textContent = '⏱ Last: just now';
-          });
-        } else {
-          loadActivity();
         }
+        loadActivity();
       }
     } catch (ex) {}
   };
   feedWs.onclose = () => setTimeout(connectFeedWS, 5000);
   feedWs.onerror = () => {};
-}
-
-function resetActivityTimers() {
-  const now = new Date().toISOString();
-  for (const id of Object.keys(activityTimestamps)) {
-    activityTimestamps[id] = now;
-    const el = document.getElementById('ago-' + id);
-    if (el) el.textContent = '⏱ Last: just now';
-  }
-  loadActivity();
 }
 
 // DISPLAY OTP (regular assignment)
@@ -1212,7 +1188,8 @@ document.querySelectorAll('.nv').forEach(n => n.addEventListener('click', () => 
 
 // OTP ACTIVITY — pools ranked by today's OTP receives
 let activityInterval = null;
-let activityTimestamps = {}; // pool id -> last_received ISO string
+let activityTimestamps = {}; // server timestamps
+let activityOverrides = {};  // locally set on OTP arrival — always wins over server time
 
 async function loadActivity() {
   try {
@@ -1226,8 +1203,6 @@ async function loadActivity() {
       c.innerHTML = '<div class="empty" style="padding:20px 16px;">No OTPs received today yet</div>';
       return;
     }
-    // Store timestamps for live ticking
-    activityTimestamps = {};
     pools.forEach(p => { activityTimestamps[p.id] = p.last_received; });
 
     const maxCount = pools[0]?.count_today || 1;
@@ -1237,13 +1212,15 @@ async function loadActivity() {
       const rankIcon = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
       const isHot = p.count_today >= maxCount * 0.6;
       const isTop = rank <= 3;
+      // Override wins — means this pool JUST got an OTP, show from that moment
+      const ts = activityOverrides[p.id] || p.last_received;
       return '<div class="activity-item' + (isTop ? ' top' : '') + '">' +
         '<div class="activity-left">' +
           '<div class="activity-rank ' + rankClass + '">' + rankIcon + '</div>' +
           '<div>' +
             '<div class="activity-pool-name">' + eh(p.name) + '</div>' +
             '<div class="activity-pool-code">+' + eh(p.country_code) + '</div>' +
-            '<div class="activity-last" id="ago-' + p.id + '">⏱ Last: ' + timeAgo(p.last_received) + '</div>' +
+            '<div class="activity-last" id="ago-' + p.id + '">⏱ Last: ' + timeAgo(ts) + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="activity-right">' +
@@ -1254,11 +1231,11 @@ async function loadActivity() {
   } catch (ex) {}
 }
 
-// Tick every second — updates only the "X ago" spans, no API call
+// Tick every second — override wins over server timestamp
 setInterval(() => {
-  for (const [id, ts] of Object.entries(activityTimestamps)) {
+  for (const id of Object.keys(activityTimestamps)) {
     const el = document.getElementById('ago-' + id);
-    if (el) el.textContent = '⏱ Last: ' + timeAgo(ts);
+    if (el) el.textContent = '⏱ Last: ' + timeAgo(activityOverrides[id] || activityTimestamps[id]);
   }
 }, 1000);
 
