@@ -2239,6 +2239,80 @@ def my_otps(request: Request):
         user_otps.sort(key=lambda x: x["delivered_at"], reverse=True)
         return [{"id": o["id"], "number": o["number"], "otp_code": o["otp_code"], "raw_message": o.get("raw_message", ""), "delivered_at": o["delivered_at"]} for o in user_otps[:50]]
 
+@app.get("/api/otp/pool-activity")
+def otp_pool_activity(request: Request):
+    """
+    Returns pools that received OTPs today, ordered by most recent first.
+    Shows pool name, last OTP time, and total OTPs received today.
+    Visible to all authenticated users.
+    """
+    user = get_user_from_token(get_token(request))
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    today_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = []
+
+    if SessionLocal:
+        with SessionLocal() as db:
+            # Get all OTP logs from today with their assignment's pool
+            logs = (
+                db.query(OTPLog, Assignment, Pool)
+                .outerjoin(Assignment, OTPLog.assignment_id == Assignment.id)
+                .outerjoin(Pool, Assignment.pool_id == Pool.id)
+                .filter(OTPLog.delivered_at >= today_start)
+                .order_by(OTPLog.delivered_at.desc())
+                .all()
+            )
+            # Build per-pool stats: last_received, count
+            pool_map: Dict[int, dict] = {}
+            for log_entry, assignment, pool in logs:
+                if pool is None:
+                    continue
+                pid = pool.id
+                if pid not in pool_map:
+                    pool_map[pid] = {
+                        "id": pool.id,
+                        "name": pool.name,
+                        "country_code": pool.country_code,
+                        "last_received": log_entry.delivered_at.isoformat(),
+                        "count_today": 0,
+                    }
+                pool_map[pid]["count_today"] += 1
+            result = list(pool_map.values())
+    else:
+        # Memory mode
+        pool_map: Dict[int, dict] = {}
+        today_str = today_start.isoformat()
+        for log_entry in sorted(otp_logs, key=lambda x: x["delivered_at"], reverse=True):
+            if log_entry["delivered_at"] < today_str:
+                continue
+            # Find pool via archived assignments
+            pool_id = None
+            for a in archived_numbers:
+                if a["number"] == log_entry["number"] and a["user_id"] == log_entry["user_id"]:
+                    pool_id = a.get("pool_id")
+                    break
+            if pool_id is None:
+                continue
+            pool = pools.get(pool_id)
+            if not pool:
+                continue
+            if pool_id not in pool_map:
+                pool_map[pool_id] = {
+                    "id": pool_id,
+                    "name": pool.get("name", f"Pool {pool_id}"),
+                    "country_code": pool.get("country_code", ""),
+                    "last_received": log_entry["delivered_at"],
+                    "count_today": 0,
+                }
+            pool_map[pool_id]["count_today"] += 1
+        result = list(pool_map.values())
+
+    # Sort: most recently received OTP first
+    result.sort(key=lambda x: x["last_received"], reverse=True)
+    return result
+
 @app.post("/api/otp/search")
 async def search_otp(number: str, request: Request):
     user = get_user_from_token(get_token(request))
