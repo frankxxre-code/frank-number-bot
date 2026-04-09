@@ -747,6 +747,20 @@ body::after{
    <div class="home-tile" onclick="goPage('history')"><div class="atile-icon">📜</div><div class="atile-label">OTP History</div></div>
    <div class="home-tile" id="homeAdminTile" style="display:none" onclick="goPage('admin')"><div class="atile-icon">⚙️</div><div class="atile-label">Admin Panel</div></div>
   </div>
+
+  <!-- OTP ACTIVITY — inline on homepage -->
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 18px 10px;">
+   <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;">🟢 Pools Receiving OTP Today</div>
+   <div class="activity-live-pill"><div class="activity-live-dot"></div>LIVE</div>
+  </div>
+  <div id="activityList" style="padding-bottom:4px;">
+   <div style="padding:0 16px;">
+    <div class="skel" style="height:64px;border-radius:16px;margin-bottom:10px;"></div>
+    <div class="skel" style="height:64px;border-radius:16px;margin-bottom:10px;"></div>
+    <div class="skel" style="height:64px;border-radius:16px;margin-bottom:10px;"></div>
+   </div>
+  </div>
+
   <div class="sec-title">Links</div>
   <div id="linksList"></div>
  </div>
@@ -820,24 +834,6 @@ body::after{
   <div id="histList"><div class="empty">No OTP history yet</div></div>
  </div>
 
- <!-- OTP ACTIVITY -->
- <div class="page" id="pgActivity">
-  <div class="activity-header">
-   <div>
-    <div class="sec-title" style="padding:0;font-size:12px;">Today's OTP Activity</div>
-    <div class="activity-date" id="activityDate"></div>
-   </div>
-   <div class="activity-live-pill"><div class="activity-live-dot"></div>LIVE</div>
-  </div>
-  <div id="activityList">
-   <div style="padding:0 16px;">
-    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
-    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
-    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
-   </div>
-  </div>
- </div>
-
  <!-- ADMIN -->
  <div class="page" id="pgAdmin" style="display:none;">
   <div class="sec-title">Admin Panel</div>
@@ -862,7 +858,6 @@ body::after{
   <div class="nv on" data-page="home"><div class="nv-icon">🏠</div><div class="nv-label">Home</div></div>
   <div class="nv" data-page="numbers"><div class="nv-icon">📱</div><div class="nv-label">Numbers</div></div>
   <div class="nv" data-page="saved"><div class="nv-icon">💾</div><div class="nv-label">Saved</div></div>
-  <div class="nv" data-page="activity"><div class="nv-icon">📊</div><div class="nv-label">Activity</div></div>
   <div class="nv" data-page="history"><div class="nv-icon">📜</div><div class="nv-label">History</div></div>
   <div class="nv" data-page="admin" id="adminNav" style="display:none;"><div class="nv-icon">⚙️</div><div class="nv-label">Admin</div></div>
  </div>
@@ -1156,7 +1151,6 @@ function goPage(page) {
   if (page === 'saved') loadSaved();
   if (page === 'history') loadHistory();
   if (page === 'admin') loadAdminPools();
-  if (page === 'activity') loadActivity();
 }
 document.querySelectorAll('.nv').forEach(n => n.addEventListener('click', () => goPage(n.dataset.page)));
 
@@ -1168,14 +1162,9 @@ async function loadActivity() {
     if (!r.ok) return;
     const pools = await r.json();
     const c = document.getElementById('activityList');
-    const dateEl = document.getElementById('activityDate');
-    if (dateEl) {
-      const now = new Date();
-      dateEl.textContent = now.toLocaleDateString([], {weekday:'long', month:'short', day:'numeric'});
-    }
     if (!c) return;
     if (!pools.length) {
-      c.innerHTML = '<div class="empty">No OTPs received today yet</div>';
+      c.innerHTML = '<div class="empty" style="padding:20px 16px;">No OTPs received today yet</div>';
       return;
     }
     const maxCount = pools[0]?.count_today || 1;
@@ -1192,7 +1181,7 @@ async function loadActivity() {
           '<div>' +
             '<div class="activity-pool-name">' + eh(p.name) + '</div>' +
             '<div class="activity-pool-code">+' + eh(p.country_code) + '</div>' +
-            '<div class="activity-last">⏱ Last OTP: ' + ago + '</div>' +
+            '<div class="activity-last">⏱ Last: ' + ago + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="activity-right">' +
