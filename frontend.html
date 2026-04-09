@@ -1032,6 +1032,7 @@ function showApp() {
     loadAdminPools();
   }
   connectWS();
+  connectFeedWS();
   loadRgns();
   loadCurAssign();
   loadSaved();
@@ -1039,7 +1040,7 @@ function showApp() {
   loadLinks();
   loadActivity();
   if (activityInterval) clearInterval(activityInterval);
-  activityInterval = setInterval(loadActivity, 20000);
+  activityInterval = setInterval(loadActivity, 10000);
 }
 
 // LOGIN
@@ -1085,11 +1086,12 @@ async function doLogout() {
   try { await af(API + '/api/auth/logout', {method: 'POST'}); } catch (ex) {}
   T.del(); cu = null;
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  if (feedWs) { feedWs.onclose = null; feedWs.close(); feedWs = null; }
   if (activityInterval) { clearInterval(activityInterval); activityInterval = null; }
   showAuth();
 }
 
-// WEBSOCKET
+// WEBSOCKET — personal OTPs
 function connectWS() {
   const ind = document.getElementById('wsInd');
   const wsUrl = 'wss://franknumberplatform.up.railway.app/ws/user/' + cu.id + '?token=' + T.get();
@@ -1101,22 +1103,66 @@ function connectWS() {
       if (d.type === 'otp') showOTP(d);
       else if (d.type === 'saved_otp') showSavedOTP(d);
       else if (d.type === 'broadcast' || d.type === 'notification') toast(d.message || '');
-      // On any OTP: instantly reset all ago timers to now, then reload for accurate data
-      if (d.type === 'otp' || d.type === 'saved_otp' || d.type === 'feed_otp') {
-        const now = new Date().toISOString();
-        // Reset every tracked pool's timer to now so UI shows "just now" immediately
-        for (const id of Object.keys(activityTimestamps)) {
-          activityTimestamps[id] = now;
-          const el = document.getElementById('ago-' + id);
+      if (d.type === 'otp' || d.type === 'saved_otp') {
+        if (ca && ca.pool_id) {
+          const now = new Date().toISOString();
+          activityTimestamps[ca.pool_id] = now;
+          const el = document.getElementById('ago-' + ca.pool_id);
           if (el) el.textContent = '⏱ Last: just now';
+          loadActivity().then(() => {
+            activityTimestamps[ca.pool_id] = now;
+            const el2 = document.getElementById('ago-' + ca.pool_id);
+            if (el2) el2.textContent = '⏱ Last: just now';
+          });
+        } else {
+          loadActivity();
         }
-        // Then do a full reload to get the correct pool + count
-        loadActivity();
       }
     } catch (ex) {}
   };
   ws.onclose = () => { ind.classList.remove('live'); setTimeout(connectWS, 5000); };
   ws.onerror = () => ind.classList.remove('live');
+}
+
+// FEED WEBSOCKET — broadcasts ALL users' OTPs, used to update activity section
+let feedWs = null;
+function connectFeedWS() {
+  const feedUrl = 'wss://franknumberplatform.up.railway.app/ws/feed';
+  feedWs = new WebSocket(feedUrl);
+  feedWs.onmessage = ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.type === 'feed_otp') {
+        const now = new Date().toISOString();
+        if (d.pool_id) {
+          // Immediately show "just now" for this pool
+          activityTimestamps[d.pool_id] = now;
+          const el = document.getElementById('ago-' + d.pool_id);
+          if (el) el.textContent = '⏱ Last: just now';
+          // Reload to update count and add new pools, then re-stamp so timer stays correct
+          loadActivity().then(() => {
+            activityTimestamps[d.pool_id] = now;
+            const el2 = document.getElementById('ago-' + d.pool_id);
+            if (el2) el2.textContent = '⏱ Last: just now';
+          });
+        } else {
+          loadActivity();
+        }
+      }
+    } catch (ex) {}
+  };
+  feedWs.onclose = () => setTimeout(connectFeedWS, 5000);
+  feedWs.onerror = () => {};
+}
+
+function resetActivityTimers() {
+  const now = new Date().toISOString();
+  for (const id of Object.keys(activityTimestamps)) {
+    activityTimestamps[id] = now;
+    const el = document.getElementById('ago-' + id);
+    if (el) el.textContent = '⏱ Last: just now';
+  }
+  loadActivity();
 }
 
 // DISPLAY OTP (regular assignment)
