@@ -1101,8 +1101,18 @@ function connectWS() {
       if (d.type === 'otp') showOTP(d);
       else if (d.type === 'saved_otp') showSavedOTP(d);
       else if (d.type === 'broadcast' || d.type === 'notification') toast(d.message || '');
-      // Refresh activity whenever any OTP lands
-      if (d.type === 'otp' || d.type === 'saved_otp' || d.type === 'feed_otp') loadActivity();
+      // On any OTP: instantly reset all ago timers to now, then reload for accurate data
+      if (d.type === 'otp' || d.type === 'saved_otp' || d.type === 'feed_otp') {
+        const now = new Date().toISOString();
+        // Reset every tracked pool's timer to now so UI shows "just now" immediately
+        for (const id of Object.keys(activityTimestamps)) {
+          activityTimestamps[id] = now;
+          const el = document.getElementById('ago-' + id);
+          if (el) el.textContent = '⏱ Last: just now';
+        }
+        // Then do a full reload to get the correct pool + count
+        loadActivity();
+      }
     } catch (ex) {}
   };
   ws.onclose = () => { ind.classList.remove('live'); setTimeout(connectWS, 5000); };
@@ -1156,6 +1166,8 @@ document.querySelectorAll('.nv').forEach(n => n.addEventListener('click', () => 
 
 // OTP ACTIVITY — pools ranked by today's OTP receives
 let activityInterval = null;
+let activityTimestamps = {}; // pool id -> last_received ISO string
+
 async function loadActivity() {
   try {
     const r = await af(API + '/api/otp/pool-activity');
@@ -1164,9 +1176,14 @@ async function loadActivity() {
     const c = document.getElementById('activityList');
     if (!c) return;
     if (!pools.length) {
+      activityTimestamps = {};
       c.innerHTML = '<div class="empty" style="padding:20px 16px;">No OTPs received today yet</div>';
       return;
     }
+    // Store timestamps for live ticking
+    activityTimestamps = {};
+    pools.forEach(p => { activityTimestamps[p.id] = p.last_received; });
+
     const maxCount = pools[0]?.count_today || 1;
     c.innerHTML = pools.map((p, i) => {
       const rank = i + 1;
@@ -1174,14 +1191,13 @@ async function loadActivity() {
       const rankIcon = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
       const isHot = p.count_today >= maxCount * 0.6;
       const isTop = rank <= 3;
-      const ago = timeAgo(p.last_received);
       return '<div class="activity-item' + (isTop ? ' top' : '') + '">' +
         '<div class="activity-left">' +
           '<div class="activity-rank ' + rankClass + '">' + rankIcon + '</div>' +
           '<div>' +
             '<div class="activity-pool-name">' + eh(p.name) + '</div>' +
             '<div class="activity-pool-code">+' + eh(p.country_code) + '</div>' +
-            '<div class="activity-last">⏱ Last: ' + ago + '</div>' +
+            '<div class="activity-last" id="ago-' + p.id + '">⏱ Last: ' + timeAgo(p.last_received) + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="activity-right">' +
@@ -1191,6 +1207,14 @@ async function loadActivity() {
     }).join('');
   } catch (ex) {}
 }
+
+// Tick every second — updates only the "X ago" spans, no API call
+setInterval(() => {
+  for (const [id, ts] of Object.entries(activityTimestamps)) {
+    const el = document.getElementById('ago-' + id);
+    if (el) el.textContent = '⏱ Last: ' + timeAgo(ts);
+  }
+}, 1000);
 
 function timeAgo(isoStr) {
   if (!isoStr) return '—';
