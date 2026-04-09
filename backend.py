@@ -2265,7 +2265,7 @@ def otp_pool_activity(request: Request):
                 .all()
             )
             # Build per-pool stats: last_received, count
-            pool_map: Dict[int, dict] = {}
+            pool_map = {}
             for log_entry, assignment, pool in logs:
                 if pool is None:
                     continue
@@ -2282,7 +2282,7 @@ def otp_pool_activity(request: Request):
             result = list(pool_map.values())
     else:
         # Memory mode
-        pool_map: Dict[int, dict] = {}
+        pool_map = {}
         today_str = today_start.isoformat()
         for log_entry in sorted(otp_logs, key=lambda x: x["delivered_at"], reverse=True):
             if log_entry["delivered_at"] < today_str:
@@ -3285,3 +3285,4 @@ if __name__ == "__main__":
         port=PORT,
         reload=False,
         log_level="info"
+    )
