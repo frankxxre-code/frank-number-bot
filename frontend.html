@@ -617,8 +617,61 @@ body::after{
   background:rgba(124,111,255,.04);
 }
 
-/* ── HOME GRID ── */
-.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px 16px;}
+/* ── OTP ACTIVITY PAGE ── */
+.activity-item{
+  background:var(--card);border:1px solid rgba(124,111,255,.1);
+  border-radius:16px;padding:14px 16px;margin:0 16px 10px;
+  display:flex;justify-content:space-between;align-items:center;
+  box-shadow:0 2px 12px rgba(0,0,0,.2);
+  transition:border-color .2s;
+}
+.activity-item.top{
+  border-color:rgba(0,212,170,.3);
+  background:linear-gradient(135deg,rgba(0,212,170,.06),var(--card));
+}
+.activity-left{display:flex;align-items:center;gap:12px;}
+.activity-rank{
+  font-size:18px;font-weight:900;color:var(--muted2);
+  min-width:24px;text-align:center;
+}
+.activity-rank.gold{color:#ffd700;filter:drop-shadow(0 0 6px rgba(255,215,0,.4));}
+.activity-rank.silver{color:#c0c0c0;}
+.activity-rank.bronze{color:#cd7f32;}
+.activity-pool-name{font-weight:700;font-size:15px;}
+.activity-pool-code{font-size:11px;color:var(--muted);margin-top:2px;}
+.activity-last{font-size:11px;color:var(--green);margin-top:2px;font-weight:600;}
+.activity-right{text-align:right;}
+.activity-count{
+  background:rgba(124,111,255,.12);border:1px solid rgba(124,111,255,.2);
+  color:var(--accent);padding:5px 12px;border-radius:20px;
+  font-size:13px;font-weight:800;
+}
+.activity-count.hot{
+  background:rgba(0,212,170,.1);border-color:rgba(0,212,170,.25);
+  color:var(--green);
+}
+.activity-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:14px 18px 6px;
+}
+.activity-date{font-size:11px;color:var(--muted);font-weight:600;}
+.activity-live-pill{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.2);
+  color:var(--green);padding:4px 10px;border-radius:20px;
+  font-size:10px;font-weight:700;letter-spacing:.5px;
+}
+.activity-live-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 6px var(--green);
+  animation:actpulse 1.8s ease-in-out infinite;
+}
+@keyframes actpulse{
+  0%,100%{opacity:1;box-shadow:0 0 6px var(--green);}
+  50%{opacity:.5;box-shadow:0 0 12px var(--green);}
+}
+
+
 .home-tile{
   background:var(--card);border:1px solid rgba(124,111,255,.12);
   border-radius:20px;padding:20px 14px;text-align:center;cursor:pointer;
@@ -767,6 +820,24 @@ body::after{
   <div id="histList"><div class="empty">No OTP history yet</div></div>
  </div>
 
+ <!-- OTP ACTIVITY -->
+ <div class="page" id="pgActivity">
+  <div class="activity-header">
+   <div>
+    <div class="sec-title" style="padding:0;font-size:12px;">Today's OTP Activity</div>
+    <div class="activity-date" id="activityDate"></div>
+   </div>
+   <div class="activity-live-pill"><div class="activity-live-dot"></div>LIVE</div>
+  </div>
+  <div id="activityList">
+   <div style="padding:0 16px;">
+    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
+    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
+    <div class="skel" style="height:68px;border-radius:16px;margin-bottom:10px;"></div>
+   </div>
+  </div>
+ </div>
+
  <!-- ADMIN -->
  <div class="page" id="pgAdmin" style="display:none;">
   <div class="sec-title">Admin Panel</div>
@@ -791,6 +862,7 @@ body::after{
   <div class="nv on" data-page="home"><div class="nv-icon">🏠</div><div class="nv-label">Home</div></div>
   <div class="nv" data-page="numbers"><div class="nv-icon">📱</div><div class="nv-label">Numbers</div></div>
   <div class="nv" data-page="saved"><div class="nv-icon">💾</div><div class="nv-label">Saved</div></div>
+  <div class="nv" data-page="activity"><div class="nv-icon">📊</div><div class="nv-label">Activity</div></div>
   <div class="nv" data-page="history"><div class="nv-icon">📜</div><div class="nv-label">History</div></div>
   <div class="nv" data-page="admin" id="adminNav" style="display:none;"><div class="nv-icon">⚙️</div><div class="nv-label">Admin</div></div>
  </div>
@@ -970,6 +1042,9 @@ function showApp() {
   loadSaved();
   loadHistory();
   loadLinks();
+  loadActivity();
+  if (activityInterval) clearInterval(activityInterval);
+  activityInterval = setInterval(loadActivity, 20000);
 }
 
 // LOGIN
@@ -1015,6 +1090,7 @@ async function doLogout() {
   try { await af(API + '/api/auth/logout', {method: 'POST'}); } catch (ex) {}
   T.del(); cu = null;
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  if (activityInterval) { clearInterval(activityInterval); activityInterval = null; }
   showAuth();
 }
 
@@ -1030,6 +1106,8 @@ function connectWS() {
       if (d.type === 'otp') showOTP(d);
       else if (d.type === 'saved_otp') showSavedOTP(d);
       else if (d.type === 'broadcast' || d.type === 'notification') toast(d.message || '');
+      // Refresh activity whenever any OTP lands
+      if (d.type === 'otp' || d.type === 'saved_otp' || d.type === 'feed_otp') loadActivity();
     } catch (ex) {}
   };
   ws.onclose = () => { ind.classList.remove('live'); setTimeout(connectWS, 5000); };
@@ -1078,8 +1156,62 @@ function goPage(page) {
   if (page === 'saved') loadSaved();
   if (page === 'history') loadHistory();
   if (page === 'admin') loadAdminPools();
+  if (page === 'activity') loadActivity();
 }
 document.querySelectorAll('.nv').forEach(n => n.addEventListener('click', () => goPage(n.dataset.page)));
+
+// OTP ACTIVITY — pools ranked by today's OTP receives
+let activityInterval = null;
+async function loadActivity() {
+  try {
+    const r = await af(API + '/api/otp/pool-activity');
+    if (!r.ok) return;
+    const pools = await r.json();
+    const c = document.getElementById('activityList');
+    const dateEl = document.getElementById('activityDate');
+    if (dateEl) {
+      const now = new Date();
+      dateEl.textContent = now.toLocaleDateString([], {weekday:'long', month:'short', day:'numeric'});
+    }
+    if (!c) return;
+    if (!pools.length) {
+      c.innerHTML = '<div class="empty">No OTPs received today yet</div>';
+      return;
+    }
+    const maxCount = pools[0]?.count_today || 1;
+    c.innerHTML = pools.map((p, i) => {
+      const rank = i + 1;
+      const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+      const rankIcon = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
+      const isHot = p.count_today >= maxCount * 0.6;
+      const isTop = rank <= 3;
+      const ago = timeAgo(p.last_received);
+      return '<div class="activity-item' + (isTop ? ' top' : '') + '">' +
+        '<div class="activity-left">' +
+          '<div class="activity-rank ' + rankClass + '">' + rankIcon + '</div>' +
+          '<div>' +
+            '<div class="activity-pool-name">' + eh(p.name) + '</div>' +
+            '<div class="activity-pool-code">+' + eh(p.country_code) + '</div>' +
+            '<div class="activity-last">⏱ Last OTP: ' + ago + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="activity-right">' +
+          '<div class="activity-count' + (isHot ? ' hot' : '') + '">' + p.count_today + ' OTP' + (p.count_today !== 1 ? 's' : '') + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (ex) {}
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '—';
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (diff < 5) return 'just now';
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
 
 // LINKS
 async function loadLinks() {
