@@ -750,7 +750,7 @@ body::after{
 
   <!-- OTP ACTIVITY — inline on homepage -->
   <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 18px 10px;">
-   <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;">🟢 Pools Receiving OTP Today</div>
+   <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;">🟢 Pools Receiving OTP (24h)</div>
    <div class="activity-live-pill"><div class="activity-live-dot"></div>LIVE</div>
   </div>
   <div id="activityList" style="padding-bottom:4px;">
@@ -1200,6 +1200,7 @@ async function loadActivity() {
     if (!c) return;
     if (!pools.length) {
       activityTimestamps = {};
+      activityOverrides = {};
       c.innerHTML = '<div class="empty" style="padding:20px 16px;">No OTPs received today yet</div>';
       return;
     }
