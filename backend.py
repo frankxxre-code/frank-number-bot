@@ -2213,11 +2213,37 @@ async def monitor_result(payload: MonitorResultPayload):
     }
     
     await send_to_user(payload.user_id, otp_data)
+
+    # Resolve pool for this number (via assignment)
+    feed_pool_id = None
+    feed_pool_name = None
+    if SessionLocal:
+        with SessionLocal() as db:
+            asgn = db.query(Assignment).filter(
+                Assignment.number == payload.number,
+                Assignment.user_id == payload.user_id
+            ).order_by(Assignment.assigned_at.desc()).first()
+            if asgn:
+                pool_obj = db.query(Pool).filter(Pool.id == asgn.pool_id).first()
+                if pool_obj:
+                    feed_pool_id = pool_obj.id
+                    feed_pool_name = pool_obj.name
+    else:
+        for a in reversed(archived_numbers):
+            if a["number"] == payload.number and a["user_id"] == payload.user_id:
+                p = pools.get(a.get("pool_id"))
+                if p:
+                    feed_pool_id = a["pool_id"]
+                    feed_pool_name = p.get("name")
+                break
+
     await broadcast_feed({
         "type": "feed_otp",
         "number": payload.number,
         "otp": payload.otp,
-        "delivered_at": utcnow().isoformat()
+        "delivered_at": utcnow().isoformat(),
+        "pool_id": feed_pool_id,
+        "pool_name": feed_pool_name,
     })
     
     await compliance_record_otp_delivered(payload.user_id)
@@ -2242,31 +2268,41 @@ def my_otps(request: Request):
 @app.get("/api/otp/pool-activity")
 def otp_pool_activity(request: Request):
     """
-    Returns pools that received OTPs today, ordered by most recent first.
-    Shows pool name, last OTP time, and total OTPs received today.
+    Returns pools that received OTPs in the last 24 hours, ordered by most recent first.
+    Shows pool name, last OTP time, and total OTPs received.
     Visible to all authenticated users.
     """
     user = get_user_from_token(get_token(request))
     if not user:
         raise HTTPException(401, "Not authenticated")
 
-    today_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    since = utcnow() - timedelta(hours=24)
     result = []
 
     if SessionLocal:
         with SessionLocal() as db:
-            # Get all OTP logs from today with their assignment's pool
+            # Fetch recent OTP logs
             logs = (
-                db.query(OTPLog, Assignment, Pool)
-                .outerjoin(Assignment, OTPLog.assignment_id == Assignment.id)
-                .outerjoin(Pool, Assignment.pool_id == Pool.id)
-                .filter(OTPLog.delivered_at >= today_start)
+                db.query(OTPLog)
+                .filter(OTPLog.delivered_at >= since)
                 .order_by(OTPLog.delivered_at.desc())
                 .all()
             )
-            # Build per-pool stats: last_received, count
             pool_map = {}
-            for log_entry, assignment, pool in logs:
+            for log_entry in logs:
+                pool = None
+                # Try via assignment_id first
+                if log_entry.assignment_id:
+                    asgn = db.query(Assignment).filter(Assignment.id == log_entry.assignment_id).first()
+                    if asgn:
+                        pool = db.query(Pool).filter(Pool.id == asgn.pool_id).first()
+                # Fallback: find latest assignment for this number
+                if pool is None:
+                    asgn = db.query(Assignment).filter(
+                        Assignment.number == log_entry.number
+                    ).order_by(Assignment.assigned_at.desc()).first()
+                    if asgn:
+                        pool = db.query(Pool).filter(Pool.id == asgn.pool_id).first()
                 if pool is None:
                     continue
                 pid = pool.id
@@ -2281,16 +2317,14 @@ def otp_pool_activity(request: Request):
                 pool_map[pid]["count_today"] += 1
             result = list(pool_map.values())
     else:
-        # Memory mode
         pool_map = {}
-        today_str = today_start.isoformat()
+        since_str = since.isoformat()
         for log_entry in sorted(otp_logs, key=lambda x: x["delivered_at"], reverse=True):
-            if log_entry["delivered_at"] < today_str:
+            if log_entry["delivered_at"] < since_str:
                 continue
-            # Find pool via archived assignments
             pool_id = None
             for a in archived_numbers:
-                if a["number"] == log_entry["number"] and a["user_id"] == log_entry["user_id"]:
+                if a["number"] == log_entry["number"]:
                     pool_id = a.get("pool_id")
                     break
             if pool_id is None:
@@ -2309,7 +2343,6 @@ def otp_pool_activity(request: Request):
             pool_map[pool_id]["count_today"] += 1
         result = list(pool_map.values())
 
-    # Sort: most recently received OTP first
     result.sort(key=lambda x: x["last_received"], reverse=True)
     return result
 
